@@ -127,6 +127,20 @@ public struct NovelReview: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+/// One row of the signed-in user's shelf.
+public struct ShelfEntry: Identifiable, Hashable, Codable, Sendable {
+    public var novel: NovelSummary
+    /// The chapter the site has recorded for this book, when the shelf lists one.
+    public var latestChapter: ChapterLink?
+
+    public var id: Int { novel.id }
+
+    public init(novel: NovelSummary, latestChapter: ChapterLink? = nil) {
+        self.novel = novel
+        self.latestChapter = latestChapter
+    }
+}
+
 public struct ReviewPost: Identifiable, Hashable, Codable, Sendable {
     public var id: String
     public var author: String

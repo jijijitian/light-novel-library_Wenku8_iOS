@@ -12,6 +12,9 @@ final class AccountStore: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var isSyncingShelf = false
     @Published private(set) var remoteNovels: [NovelSummary] = []
+    /// The shelf rows as the site reports them, including the chapter it has
+    /// recorded for each book.
+    @Published private(set) var remoteShelf: [ShelfEntry] = []
     @Published private(set) var pendingAdds = Set<Int>()
 
     private let service: NovelService
@@ -59,6 +62,7 @@ final class AccountStore: ObservableObject {
         service.signOut()
         setUserName(nil)
         remoteNovels = []
+        remoteShelf = []
         lastError = nil
     }
 
@@ -67,8 +71,9 @@ final class AccountStore: ObservableObject {
         guard isSignedIn, !isSyncingShelf else { return }
         isSyncingShelf = true
         defer { isSyncingShelf = false }
-        if let novels = try? await service.remoteBookcase() {
-            remoteNovels = novels
+        if let shelf = try? await service.remoteShelf() {
+            remoteShelf = shelf
+            remoteNovels = shelf.map(\.novel)
         }
     }
 

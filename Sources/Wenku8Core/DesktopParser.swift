@@ -58,6 +58,23 @@ public enum DesktopParser {
         return detail
     }
 
+    /// Returns the first `count` capture groups of the first match.
+    static func firstMatchGroups(_ pattern: String, in text: String, count: Int) -> [String]? {
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.dotMatchesLineSeparators]
+        ) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+        var groups: [String] = []
+        for index in 1...max(1, count) {
+            guard match.numberOfRanges > index,
+                  let found = Range(match.range(at: index), in: text) else { return nil }
+            groups.append(String(text[found]))
+        }
+        return groups
+    }
+
     static func firstMatch(_ pattern: String, in text: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
             return nil
@@ -67,6 +84,72 @@ public enum DesktopParser {
               match.numberOfRanges > 1,
               let found = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[found])
+    }
+
+    /// Extracts the signed-in user's shelf from `/modules/article/bookcase.php`.
+    ///
+    /// The desktop shelf is a table whose rows look like
+    ///
+    /// ```html
+    /// <input type="checkbox" name="checkid[]" value="<bid>">
+    /// <a href="…readbookcase.php?aid=<aid>&bid=<bid>">书名</a>
+    /// <td><a href="authors…">作者</a></td>
+    /// <a href="…readbookcase.php?aid=<aid>&bid=<bid>&cid=<cid>">最新章节</a>
+    /// ```
+    ///
+    /// It does *not* link to `/book/<aid>.htm`, which is why parsing it with the
+    /// generic card extractor returned an empty shelf even though the account has
+    /// books. The `cid` is the chapter the reader last opened, so it is preserved.
+    public static func bookcase(_ html: String) -> [ShelfEntry] {
+        // Pages are GBK-decoded before they get here, so `&` may appear encoded.
+        let rowPattern = #"name="checkid\[\]"\s+value="(\d+)""#
+        guard let rowRegex = try? NSRegularExpression(
+            pattern: rowPattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else { return [] }
+
+        var entries: [ShelfEntry] = []
+        let rows = html.components(separatedBy: "<tr")
+        for row in rows {
+            let range = NSRange(row.startIndex..<row.endIndex, in: row)
+            guard rowRegex.firstMatch(in: row, range: range) != nil else { continue }
+
+            let bookPattern = #"readbookcase\.php\?aid=(\d+)(?:&amp;|&)bid=\d+"[^>]*>([^<]{1,200})</a>"#
+            guard let aidText = firstMatch(bookPattern, in: row),
+                  let aid = Int(aidText) else { continue }
+
+            let titlePattern = #"readbookcase\.php\?aid=\d+(?:&amp;|&)bid=\d+"[^>]*>([^<]{1,200})</a>"#
+            let rawTitle = firstMatch(titlePattern, in: row) ?? ""
+            let title = Markup.normalize(Markup.decodeEntities(rawTitle))
+            guard !title.isEmpty else { continue }
+
+            let author = firstMatch(#"authorarticle\.php\?author=([^"&>]{1,60})"#, in: row)
+                .map { Markup.normalize(Markup.decodeEntities($0)) }
+
+            let latestChapter: ChapterLink? = {
+                // Group 1 is the cid, group 2 the visible chapter title; both sit in
+                // the same anchor, so they must be captured together.
+                let pattern = #"readbookcase\.php\?aid=\d+(?:&amp;|&)bid=\d+(?:&amp;|&)cid=(\d+)"[^>]*>([^<]{1,200})</a>"#
+                guard let match = firstMatchGroups(pattern, in: row, count: 2),
+                      let cid = Int(match[0]) else { return nil }
+                let title = Markup.normalize(Markup.decodeEntities(match[1]))
+                return ChapterLink(id: cid, title: title)
+            }()
+
+            entries.append(ShelfEntry(
+                novel: NovelSummary(
+                    id: aid,
+                    title: title,
+                    author: author,
+                    coverURL: CoverURL.image(for: aid)
+                ),
+                latestChapter: latestChapter
+            ))
+        }
+
+        // One book per aid, keeping the first occurrence.
+        var seen = Set<Int>()
+        return entries.filter { seen.insert($0.novel.id).inserted }
     }
 
     /// Extracts the desktop catalogue (`/novel/<group>/<aid>/index.htm`).

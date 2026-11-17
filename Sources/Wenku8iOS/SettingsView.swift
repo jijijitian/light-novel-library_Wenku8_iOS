@@ -188,6 +188,12 @@ struct SettingsView: View {
                         Text("已同步云端书架 \(account.remoteNovels.count) 本")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if let latest = account.remoteShelf.compactMap(\.latestChapter).first {
+                            Text("最近阅读：\(latest.title)")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
                     }
                     Spacer()
                     if account.isSyncingShelf {

@@ -491,13 +491,24 @@ public struct NovelService: Sendable {
     /// neither sees a desktop login; the desktop page is the only place the
     /// session established by `signIn` is visible.
     public func remoteBookcase() async throws -> [NovelSummary] {
+        try await remoteShelf().map(\.novel)
+    }
+
+    /// The signed-in user's shelf straight from the desktop page.
+    ///
+    /// The desktop shelf links each row through `readbookcase.php?aid=…`, never
+    /// `/book/<aid>.htm`, so the generic card extractor found nothing.
+    public func remoteShelf() async throws -> [ShelfEntry] {
         guard client.hasSession() else { throw Wenku8Error.needLogin }
         let html = try await client.desktop("/modules/article/bookcase.php")
-        if AccountParser.isDesktopLoginPage(html) { throw Wenku8Error.needLogin }
-        if AccountParser.isLoginGate(html) { throw Wenku8Error.needLogin }
-        let books = DesktopParser.novelCards(html)
-        if !books.isEmpty { return books.uniquedByID() }
-        return AccountParser.bookcaseNovels(html).uniquedByID()
+        if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
+            throw Wenku8Error.needLogin
+        }
+        let entries = DesktopParser.bookcase(html)
+        if entries.isEmpty, AccountParser.desktopAccountName(html) == nil {
+            throw Wenku8Error.needLogin
+        }
+        return entries
     }
 
     @discardableResult

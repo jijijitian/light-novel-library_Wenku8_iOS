@@ -188,7 +188,11 @@ struct ReaderView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
+        // The navigation bar stays visible on purpose. Toggling it with the control
+        // panel changed the top safe area, which shifted and resized the prose on
+        // every tap — the "text gets shorter" bug. Only the panel itself (which
+        // floats over the content) reacts to `showChrome` now.
+        .toolbar(.visible, for: .navigationBar)
         // Reading is a full-screen mode: the tab bar must not sit under the text,
         // otherwise it steals vertical space and clashes with the reader's own
         // glass control bar.
