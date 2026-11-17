@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<card id="readchapter.php-" title="插图">
+<p>
+
+<a href="readchapter.php?aid=4086&amp;cid=169615" title="链接">上章</a> <a href="readchapter.php?aid=4086&amp;cid=169767" title="链接">下章</a> <a href="readbook.php?aid=4086" title="链接">书目</a> <a href="articleinfo.php?id=4086" title="链接">书页</a> <a href="/wap/" title="链接">首页</a><br/>
+<anchor>加入书签<go href="addbookcase.php?bid=4086&amp;cid=169606" /></anchor>|<a href="bookcase.php?id=4086" title="链接">打开书架</a><br/>
+报时:18:53<br/>
+
+《你们赶紧给我结婚吧！》插图<br/>
+[1/1]<input name="page" format="*N" size="4" /><anchor title="跳转">跳转<go href="readchapter.php?aid=4086&amp;cid=169606" method="post"><postfield name="page" value="$(page)" /></go></anchor><br/>
+
+本章节是纯图片内容，请访问文库电脑版网页浏览！<br/>
+<a href="https://www.wenku8.net/modules/article/reader.php?aid=4086&amp;cid=169606">点击转跳主站看图</a>(注意流量)<br/>[1/1]<input name="page" format="*N" size="4" /><anchor title="跳转">跳转<go href="readchapter.php?aid=4086&amp;cid=169606" method="post"><postfield name="page" value="$(page)" /></go></anchor><br/>
+
+<a href="readchapter.php?aid=4086&amp;cid=169615" title="链接">上章</a> <a href="readchapter.php?aid=4086&amp;cid=169767" title="链接">下章</a> <a href="readbook.php?aid=4086" title="链接">书目</a> <a href="articleinfo.php?id=4086" title="链接">书页</a> <a href="/wap/" title="链接">首页</a><br/>
+<anchor>加入书签<go href="addbookcase.php?bid=4086&amp;cid=169606" /></anchor>|<a href="bookcase.php?id=4086" title="链接">打开书架</a><br/>
+<a href="pagesize.php?aid=4086&amp;cid=169606" title="设置">设置</a>|<a href="readchapter.php?aid=4086&amp;cid=169606&amp;psize=1500" title="大">大</a>|<a href="readchapter.php?aid=4086&amp;cid=169606&amp;psize=800" title="中">中</a>|<a href="readchapter.php?aid=4086&amp;cid=169606&amp;psize=500" title="小">小</a>|1000字/页<br />
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p><img src="//ia.51.la/go1?id=21300667&amp;pvFlag=1" style="border:none" />
+</p>
+</card>
+</wml>

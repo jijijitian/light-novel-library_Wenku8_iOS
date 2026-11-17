@@ -1,0 +1,79 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Core tests (Linux Swift)
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run parser and decoding tests
+        run: bash tools/test-core-linux.sh
+
+  build:
+    name: xtool build (macOS)
+    needs: core-tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+          xcrun -sdk iphoneos -show-sdk-path
+
+      - name: Install xtool
+        run: |
+          set -euo pipefail
+          brew install xtool-org/tap/xtool
+          xtool --help | head -20
+
+      - name: Build app bundle
+        run: |
+          set -euo pipefail
+          xtool dev build --configuration release 2>&1 | tee build.log
+          test -d xtool/Wenku8iOS.app
+
+      - name: Verify bundle contents
+        run: |
+          set -euo pipefail
+          APP=xtool/Wenku8iOS.app
+          echo "--- Info.plist ---"
+          plutil -p "$APP/Info.plist"
+          echo "--- bundle tree ---"
+          find "$APP" -maxdepth 2 | sort
+          test -x "$APP/Wenku8iOS"
+          plutil -extract CFBundleIdentifier raw "$APP/Info.plist"
+          plutil -extract MinimumOSVersion raw "$APP/Info.plist"
+          test -f "$APP/AppIcon.png"
+
+      - name: Package unsigned ipa
+        run: |
+          set -euo pipefail
+          chmod -R 755 xtool/Wenku8iOS.app
+          rm -rf Payload Wenku8iOS-unsigned.ipa
+          mkdir -p Payload
+          cp -R xtool/Wenku8iOS.app Payload/
+          zip -qry Wenku8iOS-unsigned.ipa Payload
+          ls -lh Wenku8iOS-unsigned.ipa
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wenku8iOS-unsigned
+          path: |
+            Wenku8iOS-unsigned.ipa
+            build.log
+          if-no-files-found: error

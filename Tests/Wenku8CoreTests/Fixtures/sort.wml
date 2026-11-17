@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<card id="sort.php" title="轻小说文库 - 分类">
+<p>
+
+您好!游客,<a href="/wap/login.php" title="登录">登录</a>.<a href="/wap/register.php" title="注册">注册</a><br/>
+
+
+<a href="/wap/" title="首页">首页</a>.
+<a href="/wap/message.php?box=inbox">消息</a>.
+<a href="/wap/article/bookcase.php">书架</a>.
+<a href="/wap/article/search.php" title="搜书">搜书</a><br/>
+<a href="/wap/article/sort.php" title="分类">分类</a>.
+<a href="/wap/article/top.php" title="排行">排行</a>.
+<a href="/wap/article/sortlist.php?fullflag=1">全本</a>.
+<a href="/wap/article/toplist.php?sort=postdate">新书</a><br/>
+
+
+
+【分类导航】<br/>
+<a href="sortlist.php?class=0">全部轻小说</a><br/>
+<a href="sortlist.php?class=1">电击文库</a><br/>
+<a href="sortlist.php?class=2">富士见文库</a><br/>
+<a href="sortlist.php?class=3">角川文库</a><br/>
+<a href="sortlist.php?class=4">MF文库J</a><br/>
+<a href="sortlist.php?class=5">Fami通文库</a><br/>
+<a href="sortlist.php?class=6">GA文库</a><br/>
+<a href="sortlist.php?class=7">HJ文库</a><br/>
+<a href="sortlist.php?class=8">一迅社</a><br/>
+<a href="sortlist.php?class=9">集英社</a><br/>
+<a href="sortlist.php?class=10">小学馆</a><br/>
+<a href="sortlist.php?class=11">讲谈社</a><br/>
+<a href="sortlist.php?class=12">少女文库(Beans/Lululu/B's-log/Cobalt/Iris)</a><br/>
+<a href="sortlist.php?class=13">其他文库</a><br/>
+<a href="sortlist.php?class=14">游戏剧本(停更)</a><br/>
+<br />
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p><img src="//ia.51.la/go1?id=21300667&amp;pvFlag=1" style="border:none" />
+</p>
+</card>
+</wml>

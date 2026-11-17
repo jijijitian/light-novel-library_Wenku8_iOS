@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<card id="reviewshow.php" title="发表评论">
+<p>
+<a href="/wap/" title="链接">首页</a> <a href="articleinfo.php?id=4086" title="链接">书页</a> <a href="readbook.php?aid=4086" title="链接">书目</a> <a href="bookcase.php?id=4086" title="链接">书架</a><br/>
+
+《<a href="reviews.php?aid=4086">你们赶紧给我结婚吧！</a>》书评<br/>
+主题：还没有更新啊<br/><br/>
+
+
+<a href="/wap/userinfo.php?id=2002959">oiu9956</a>:
+还没有更新啊
+[2026-10-14]<br/><br/>
+到第<input name="page" format="*N" size="4" />页<anchor title="跳转">跳转<go href="reviewshow.php?rid=320729" method="post"><postfield name="page" value="$(page)" /></go></anchor><br/><a href="reviewshow.php?rid=320729&amp;page=1" title="&lt;&lt; ">&lt;&lt; </a> 1 [1/1]<br/>
+
+<br/>
+
+－＝你已经被禁止在本区发帖＝－
+
+
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p><img src="//ia.51.la/go1?id=21300667&amp;pvFlag=1" style="border:none" />
+</p>
+</card>
+</wml>

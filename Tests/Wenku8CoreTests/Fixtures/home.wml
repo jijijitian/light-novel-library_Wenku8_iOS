@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<!--如果你看到这行信息，说明在使用的浏览器不支持文库wap版使用的wml代码，推荐你更换qq浏览器(注意选择非HD版)-->
+<card id="index.php" title="轻小说文库">
+<p align="center">轻小说文库WAP版<br />wap.wenku8.com
+</p>
+<p>
+
+
+您好!游客,<a href="/wap/login.php" title="登录">登录</a>.<a href="/wap/register.php" title="注册">注册</a><br />
+
+<a href="/wap/message.php?box=inbox">消息</a>.<a href="/wap/article/bookcase.php">书架</a>.<a href="/wap/article/sortlist.php">目录</a>.<a href="/wap/article/sort.php" title="分类">分类</a>.<a href="/wap/article/top.php" title="排行">排行</a>.<a href="/wap/article/sortlist.php?fullflag=1">全本</a><br />
+
+<input name="searchkey" type="text" size="5" maxlength="30" value=""/>
+<anchor title="搜书名">搜书名
+<go href="/wap/article/search.php" method="post">
+<postfield name="action" value="search"/>
+<postfield name="searchtype" value="articlename" />
+<postfield name="searchkey" value="$(searchkey)" />
+</go>
+</anchor>-
+<anchor title="作者">作者
+<go href="/wap/article/search.php" method="post">
+<postfield name="action" value="search"/>
+<postfield name="searchtype" value="author" />
+<postfield name="searchkey" value="$(searchkey)" />
+</go>
+</anchor>
+<br />
+<br />
+【文库公告】<br />
+[通告]本页面推荐使用QQ浏览器访问<br />
+[通告]应版权方要求删除部分小说<br />
+【今日热榜】<a href="/wap/article/toplist.php?sort=dayvisit" title="更多">更多..</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=3519">我买下了与她的每周密会～以五千圆为借口，共度两人时光～(一周一次买下同班同学的那些事)</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=3057">败北女角太多了！(败犬女主太多了！)</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=1973">欢迎来到实力至上主义的教室</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4527">毕业之前，我想对你说……</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4523">病娇猫猫不肯放开我</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=1213">果然我的青春恋爱喜剧搞错了(我的青春恋爱物语果然有问题)</a><br/>
+
+【最近更新】<a href="/wap/article/toplist.php?sort=lastupdate" title="更多">更多..</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4528">逆转裁判 时间旅行者的逆转</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=1474">武士之血</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4527">毕业之前，我想对你说……</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=3270">恶德侦探制裁社(侦探的侦探)</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4526">愚者们的方舟</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=1607">都市冒险王</a><br/>
+
+【新书风云榜】<a href="/wap/article/toplist.php?sort=postdate" title="更多">更多..</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4474">学园公主系女生试图攻略王子系女生的故事</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4511">没有不会沦陷于阿宅的辣妹！～体贴〇真诚〇关键时刻行动力◎的阿宅君也太绝了～</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4487">轻咬Emmental</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4460">Engage Kiss 契约之吻</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4523">病娇猫猫不肯放开我</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=4463">凭借过剩魔力成为异世界最强 各怀隐情的美少女们似乎不能没有我</a><br/>
+
+【每周书单】<br/>
+
+<a href="/wap/article/articleinfo.php?id=1032">魔术士奥芬的无赖之旅(魔术士欧菲流浪之旅)</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=2152">熊熊勇闯异世界</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=2614">转生贵族的异世界冒险录</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=2931">在异世界获得超强能力的我，在现实世界照样无敌～等级提升改变人生命运～</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=2118">带着智慧型手机闯荡异世界</a><br/>
+
+<a href="/wap/article/articleinfo.php?id=2619">YAKITORI</a><br/>
+
+【快速导航】<br />
+<a href="/wap/article/toplist.php?sort=allvisit">热度排名</a>|<a href="/wap/article/toplist.php?sort=goodnum">最受关注</a><br />
+<a href="/wap/article/toplist.php?sort=anime">已动画化</a>|<a href="/wap/article/toplist.php?sort=weekvote">会员热推</a><br />
+
+【QQ超级群】<br />
+同好会：22540682<br />
+御宅社：854859149<br />
+同萌会：64790938<br />
+只能加一个请勿多加<br />
+【友情推荐】<br />
+<a href="http://wapp.baidu.com/f?kw=%C7%E1%CE%C4%BF%E2">轻文库吧</a>|<a href="http://wapp.baidu.com/f?kw=%C7%E1%D0%A1%CB%B5">轻小说吧</a><br/>
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p>
+</p>
+</card>
+</wml> 

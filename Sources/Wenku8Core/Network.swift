@@ -1,0 +1,173 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+public struct SiteEndpoints: Sendable {
+    public var hosts: [String]
+    public var wapHosts: [String]
+
+    public init(
+        hosts: [String] = ["https://www.wenku8.net", "https://www.wenku8.com"],
+        wapHosts: [String] = ["https://www.wenku8.net/wap", "https://www.wenku8.com/wap"]
+    ) {
+        self.hosts = hosts
+        self.wapHosts = wapHosts
+    }
+
+    public static let `default` = SiteEndpoints()
+
+    public var primaryHost: String { hosts[0] }
+    public var primaryWAP: String { wapHosts[0] }
+}
+
+public final class Wenku8Client: @unchecked Sendable {
+    public static let shared = Wenku8Client()
+
+    static let userAgent =
+        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) "
+        + "Chrome/124.0.0.0 Mobile Safari/537.36"
+
+    let session: URLSession
+    let cookieStorage: HTTPCookieStorage
+    public var endpoints = SiteEndpoints.default
+
+    public init(configuration: URLSessionConfiguration? = nil) {
+        let config = configuration ?? .default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 45
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpCookieStorage = .shared
+        config.httpShouldSetCookies = true
+        config.httpCookieAcceptPolicy = .always
+        config.httpAdditionalHeaders = ["Accept-Language": "zh-CN,zh;q=0.9"]
+        self.cookieStorage = .shared
+        self.session = URLSession(configuration: config)
+    }
+
+    public struct Response: Sendable {
+        public var data: Data
+        public var status: Int
+        public var finalURL: URL?
+
+        public var text: String { TextDecoding.decode(data) }
+    }
+
+    public func send(_ request: URLRequest) async throws -> Response {
+        var request = request
+        if request.value(forHTTPHeaderField: "User-Agent") == nil {
+            request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        if request.value(forHTTPHeaderField: "Accept-Language") == nil {
+            request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+        }
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw Wenku8Error.network("服务器没有返回有效响应")
+            }
+            if Self.isChallenge(data) {
+                throw Wenku8Error.unavailable("文库对该页面启用了人机校验，请稍后再试")
+            }
+            if http.statusCode >= 400 && http.statusCode != 404 {
+                throw Wenku8Error.network("服务器返回状态码 \(http.statusCode)")
+            }
+            return Response(data: data, status: http.statusCode, finalURL: http.url)
+        } catch let error as Wenku8Error {
+            throw error
+        } catch {
+            throw Wenku8Error.network(Self.describe(error))
+        }
+    }
+
+    public func get(_ url: URL, referer: String? = nil) async throws -> Response {
+        var request = URLRequest(url: url)
+        request.setValue(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            forHTTPHeaderField: "Accept"
+        )
+        if let referer {
+            request.setValue(referer, forHTTPHeaderField: "Referer")
+        }
+        return try await send(request)
+    }
+
+    public func post(_ url: URL, fields: [String: String], referer: String? = nil) async throws -> Response {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        if let referer {
+            request.setValue(referer, forHTTPHeaderField: "Referer")
+        }
+        let body = fields
+            .sorted { $0.key < $1.key }
+            .map { "\(TextDecoding.formEncode($0.key))=\(TextDecoding.formEncode($0.value))" }
+            .joined(separator: "&")
+        request.httpBody = Data(body.utf8)
+        return try await send(request)
+    }
+
+    /// Fetches a WAP page, retrying the mirror host when the primary one fails.
+    public func wap(_ path: String, referer: String? = nil) async throws -> String {
+        try await withHostFallback(endpoints.wapHosts, path: path, referer: referer)
+    }
+
+    public func desktop(_ path: String, referer: String? = nil) async throws -> String {
+        try await withHostFallback(endpoints.hosts, path: path, referer: referer)
+    }
+
+    private func withHostFallback(_ hosts: [String], path: String, referer: String?) async throws -> String {
+        var lastError: Error?
+        for host in hosts {
+            guard let url = URL(string: host + path) else { continue }
+            do {
+                let response = try await get(url, referer: referer)
+                return response.text
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? Wenku8Error.network("网络不可用")
+    }
+
+    public func sessionCookieValue() -> String? {
+        let cookies = cookieStorage.cookies ?? []
+        return cookies.first { $0.name.uppercased() == "PHPSESSID" }?.value
+    }
+
+    public func hasSession() -> Bool {
+        !(sessionCookieValue() ?? "").isEmpty
+    }
+
+    func applyCookies() {
+        let cookies = cookieStorage.cookies ?? []
+        let headers = HTTPCookie.requestHeaderFields(with: cookies)
+        for (key, value) in headers {
+            session.configuration.httpAdditionalHeaders?[key] = value
+        }
+    }
+
+    static func isChallenge(_ data: Data) -> Bool {
+        let probe = data.prefix(2048)
+        guard let text = String(data: probe, encoding: .isoLatin1) else { return false }
+        return text.contains("Just a moment") || text.contains("cf-mitigated")
+    }
+
+    public static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        switch nsError.code {
+        case NSURLErrorNotConnectedToInternet:
+            return "网络未连接，请检查网络设置"
+        case NSURLErrorTimedOut:
+            return "请求超时，请稍后重试"
+        case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
+            return "无法解析文库域名"
+        case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
+            return "安全连接失败，请检查网络环境"
+        case NSURLErrorCancelled:
+            return "请求已取消"
+        default:
+            return "网络异常：\(nsError.localizedDescription)"
+        }
+    }
+}

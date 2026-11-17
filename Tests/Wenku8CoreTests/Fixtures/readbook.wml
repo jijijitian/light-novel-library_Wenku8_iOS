@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<card id="readbook.php-" title="你们赶紧给我结婚吧！">
+<p>
+<a href="/wap/" title="链接">首页</a> <a href="articleinfo.php?id=4086" title="链接">书页</a> <a href="bookcase.php?id=4086" title="链接">书架</a> <anchor>加入书架<go href="addbookcase.php?bid=4086" /></anchor><br/>
+
+《<a href="articleinfo.php?id=4086">你们赶紧给我结婚吧！</a>》(<a href="reviews.php?aid=4086&amp;type=all" title="链接">书评</a>)<br/>
+作者:优汰<br/>
+ 
+
+〖第一卷 被这么说的女生居然有三个？〗<br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169589">序章 “我已经开始写恋爱喜剧了喔。”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169590">第1话 “两个人肯定总比一个人开心吧！”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169591">第2话 “……哎呀，真是的……你们俩赶紧给我结婚去吧！！！！！！！”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169592">第3话 “原来你也有你也有像轻小说模板一样的青梅竹马”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169593">第4话 “真是的~！你们俩快点结婚啦~！”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169594">第5话 “果然前辈很单纯呢&#9834;”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169595">第6话 “哎呀不是，该怎么说呢，你们赶紧结婚吧……”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169596">第7话 “那三人中的某一个，难道真的是我的女主角……？”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169597">第8话 “那家伙怎么回事，是联谊之神还是什么吗？”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169598">第9话 “山下同学居然和男生正常的对话了……！”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169599">第10话 “诶嘿&#9825; 前辈的香肠，就让我的面包胚来夹住吧&#9825;”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169600">第11话 “80─54─78……”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169601">下回待续 “——小说……？”</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169605">番外篇 竹内同学就是这种人</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169615">后记</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169606">插图</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169767">电子版特典</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169768">蜜瓜祭16回特典 田中莉太的休息日</a><br/>
+◇
+<a href="readchapter.php?aid=4086&amp;cid=169839">蜜瓜特典</a><br/>
+
+
+到第<input name="page" format="*N" size="4" />页<anchor title="跳转">跳转<go href="readbook.php?aid=4086" method="post"><postfield name="page" value="$(page)" /></go></anchor><br/><a href="readbook.php?aid=4086&amp;page=1" title="&lt;&lt; ">&lt;&lt; </a> 1 <a href="readbook.php?aid=4086&amp;page=2" title=" 2 "> 2 </a>[1/2]<br/>
+
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p><img src="//ia.51.la/go1?id=21300667&amp;pvFlag=1" style="border:none" />
+</p>
+</card>
+</wml>

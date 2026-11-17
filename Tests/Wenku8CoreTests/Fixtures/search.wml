@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<card id="search.php" title="搜索结果">
+<p>
+
+您好!游客,<a href="/wap/login.php" title="登录">登录</a>.<a href="/wap/register.php" title="注册">注册</a><br/>
+
+
+<a href="/wap/" title="首页">首页</a>.
+<a href="/wap/message.php?box=inbox">消息</a>.
+<a href="/wap/article/bookcase.php">书架</a>.
+<a href="/wap/article/search.php" title="搜书">搜书</a><br/>
+<a href="/wap/article/sort.php" title="分类">分类</a>.
+<a href="/wap/article/top.php" title="排行">排行</a>.
+<a href="/wap/article/sortlist.php?fullflag=1">全本</a>.
+<a href="/wap/article/toplist.php?sort=postdate">新书</a><br/>
+
+
+
+【搜索结果】<br/>
+
+<a href="articleinfo.php?id=4086">《你们赶紧给我结婚吧！》优汰</a><br/>
+
+<a href="articleinfo.php?id=3008">《我和班上最讨厌的女生结婚了(和班上最讨厌的女同学结婚)》天乃圣树</a><br/>
+
+<a href="articleinfo.php?id=3243">《我的侄女将来会和什么样的人结婚呢》落合佑辅</a><br/>
+
+<a href="articleinfo.php?id=2943">《与前女友令人焦灼不已的伪装结婚》望公太</a><br/>
+
+<a href="articleinfo.php?id=2908">《一不小心就和魔法师契约结婚了》三萩千夜</a><br/>
+
+<a href="articleinfo.php?id=2533">《报告！哥哥和我要结婚了！》塀流通留</a><br/>
+
+<a href="articleinfo.php?id=1315">《我与女武神的新婚生活(女武神要结婚)》镰池和马</a><br/>
+
+
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p><img src="//ia.51.la/go1?id=21300667&amp;pvFlag=1" style="border:none" />
+</p>
+</card>
+</wml>
