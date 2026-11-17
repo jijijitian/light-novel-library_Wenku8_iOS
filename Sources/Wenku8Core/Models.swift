@@ -12,10 +12,6 @@ public struct NovelSummary: Identifiable, Hashable, Codable, Sendable {
         self.author = author
         self.coverURL = coverURL
     }
-
-    public var coverFallbackURL: URL? {
-        CoverURL.image(for: id)
-    }
 }
 
 public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {

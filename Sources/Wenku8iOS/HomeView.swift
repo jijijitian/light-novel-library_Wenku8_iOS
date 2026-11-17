@@ -34,10 +34,6 @@ final class HomeViewModel: ObservableObject {
             self.error = error
         }
     }
-
-    func loadFallback(_ board: RankBoard) async throws -> [NovelSummary] {
-        try await service.rank(board, page: 1)
-    }
 }
 
 struct HomeView: View {

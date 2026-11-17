@@ -163,14 +163,6 @@ public final class Wenku8Client: @unchecked Sendable {
         !(sessionCookieValue() ?? "").isEmpty
     }
 
-    func applyCookies() {
-        let cookies = cookieStorage.cookies ?? []
-        let headers = HTTPCookie.requestHeaderFields(with: cookies)
-        for (key, value) in headers {
-            session.configuration.httpAdditionalHeaders?[key] = value
-        }
-    }
-
     static func isChallenge(_ data: Data) -> Bool {
         let probe = data.prefix(2048)
         guard let text = String(data: probe, encoding: .isoLatin1) else { return false }
