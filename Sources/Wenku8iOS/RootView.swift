@@ -13,44 +13,89 @@ struct RootView: View {
     }
 
     var body: some View {
-        // Uses the iOS 18+ `Tab` builder so iOS 26/27 renders Apple's own Liquid
-        // Glass dock: the search tab gets the system `.search` role, which the
-        // platform separates to the trailing edge and morphs into a search field.
+        // On iOS 18+ the `Tab` builder is used, which is what lets iOS 26/27 render
+        // Apple's own Liquid Glass dock — including the separated, morphing search
+        // tab that the `.search` role produces. iOS 17 keeps the classic tabItem API.
+        if #available(iOS 18.0, *) {
+            modernTabs
+        } else {
+            legacyTabs
+        }
+    }
+
+    @available(iOS 18.0, *)
+    private var modernTabs: some View {
         TabView(selection: tabSelection) {
             Tab("书架首页", systemImage: "house.fill", value: AppTab.home) {
-                NavigationStack(path: $router.homePath) {
-                    HomeView()
-                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-                }
+                homeStack
             }
-
             Tab("排行", systemImage: "chart.bar.fill", value: AppTab.rank) {
-                NavigationStack(path: $router.rankPath) {
-                    RankView()
-                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-                }
+                rankStack
             }
-
             Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                NavigationStack(path: $router.searchPath) {
-                    SearchView()
-                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-                }
+                searchStack
             }
-
             Tab("我的书架", systemImage: "books.vertical.fill", value: AppTab.shelf) {
-                NavigationStack(path: $router.shelfPath) {
-                    ShelfView()
-                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-                }
+                shelfStack
             }
-
             Tab("设置", systemImage: "gearshape.fill", value: AppTab.settings) {
-                NavigationStack(path: $router.settingsPath) {
-                    SettingsView()
-                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-                }
+                settingsStack
             }
+        }
+    }
+
+    private var legacyTabs: some View {
+        TabView(selection: tabSelection) {
+            homeStack
+                .tabItem { Label("书架首页", systemImage: "house.fill") }
+                .tag(AppTab.home)
+            rankStack
+                .tabItem { Label("排行", systemImage: "chart.bar.fill") }
+                .tag(AppTab.rank)
+            searchStack
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                .tag(AppTab.search)
+            shelfStack
+                .tabItem { Label("我的书架", systemImage: "books.vertical.fill") }
+                .tag(AppTab.shelf)
+            settingsStack
+                .tabItem { Label("设置", systemImage: "gearshape.fill") }
+                .tag(AppTab.settings)
+        }
+    }
+
+    private var homeStack: some View {
+        NavigationStack(path: $router.homePath) {
+            HomeView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var rankStack: some View {
+        NavigationStack(path: $router.rankPath) {
+            RankView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var searchStack: some View {
+        NavigationStack(path: $router.searchPath) {
+            SearchView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var shelfStack: some View {
+        NavigationStack(path: $router.shelfPath) {
+            ShelfView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var settingsStack: some View {
+        NavigationStack(path: $router.settingsPath) {
+            SettingsView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
         }
     }
 
