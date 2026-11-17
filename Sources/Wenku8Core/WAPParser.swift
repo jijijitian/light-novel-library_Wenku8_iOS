@@ -52,7 +52,10 @@ public enum WAPParser {
                 rows.append(HomeRow(section: section, items: items))
             }
         }
-        return rows
+        // A section can appear more than once when the page repeats its header;
+        // the merge above appends in that case, so dedupe before handing the rows
+        // to SwiftUI.
+        return rows.map { HomeRow(section: $0.section, items: $0.items.uniquedByID()) }
     }
 
     public static func linksIn(_ html: String) -> [NovelSummary] {

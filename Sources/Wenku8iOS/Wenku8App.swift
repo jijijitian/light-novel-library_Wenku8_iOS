@@ -9,6 +9,20 @@ struct Wenku8App: App {
 
     init() {
         Self.configureRelay()
+        Self.applyLaunchTabOverride()
+    }
+
+    /// Lets a debug launch open a specific tab, so the dock can be checked on a
+    /// device without hand-driving the UI:
+    ///   devicectl device process launch --terminate-existing \
+    ///     --environment-variables '{"WENKU8_START_TAB":"rank"}' <udid> org.mewx.wenku8.ios
+    /// The value is ignored in release builds.
+    private static func applyLaunchTabOverride() {
+        #if DEBUG
+        guard let raw = ProcessInfo.processInfo.environment["WENKU8_START_TAB"],
+              let tab = RootView.AppTab(launchToken: raw) else { return }
+        AppRouter.launchTab = tab
+        #endif
     }
 
     /// Restores the optional relay credential before any view can start a
@@ -40,7 +54,11 @@ struct Wenku8App: App {
 
 @MainActor
 final class AppRouter: ObservableObject {
-    @Published var tab: RootView.AppTab = .home
+    /// Set once by `Wenku8App.applyLaunchTabOverride()` before the first view is
+    /// built; normal launches leave it at `.home`.
+    static var launchTab: RootView.AppTab = .home
+
+    @Published var tab: RootView.AppTab = AppRouter.launchTab
     @Published var homePath: [Route] = []
     @Published var rankPath: [Route] = []
     @Published var searchPath: [Route] = []

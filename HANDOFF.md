@@ -15,8 +15,8 @@
 | 单元测试 | **51 个**，全部通过（`bash tools/test-core-linux.sh`） |
 | 联网校验 | 全部通过（`bash tools/test-live.sh`） |
 | 已完成 | SwiftUI 重写、Liquid Glass、登录、加书架、阅读器、搜索、排行榜、书评 |
-| **本轮完成** | ① 首页卡片文字重叠已修 ② dock 改为自绘、对齐截图 ③ relay API 已接入（凭证注入 + 限速 + 回退） ④ 构建从 xtool 迁到 Xcode |
-| **仍待办** | 真机实测（本机 Xcode 版本一次没过，见 §9） |
+| **本轮完成** | ① 首页卡片文字重叠已修 ② dock 改用 iOS 27 原生 Liquid Glass 悬浮栏 ③ relay API 已接入（凭证注入 + 限速 + 回退） ④ 构建从 xtool 迁到 Xcode ⑤ 真机已跑通 |
+| 真机 | iPhone 17 Pro，Xcode 27.2 自动签名，已安装并运行 |
 
 ---
 
@@ -60,7 +60,7 @@ work/
 │   │   └── Resources/gbk-table.bin   47 KB 查表
 │   └── Wenku8iOS/                    SwiftUI 界面层（16 个文件）
 │       ├── Wenku8App.swift           @main + AppRouter + AppTheme
-│       ├── RootView.swift            ★ 自绘 dock（DockBar）+ 懒挂载的五个 NavigationStack
+│       ├── RootView.swift            系统 TabView（iOS 27 原生 Liquid Glass 底栏）
 │       ├── DesignSystem.swift        ★ 所有 Liquid Glass 修饰符集中于此
 │       ├── Components.swift          NovelRow / NovelGrid / CoverCard
 │       ├── HomeView.swift            首页（HeroBanner + PageDots）
@@ -225,33 +225,25 @@ public protocol RelayAppVerProvider: Sendable {
 
 ---
 
-## 7. 待办三（已完成）：底部 dock 对齐截图
+## 7. 待办三（已完成）：底部 dock 改用 iOS 27 原生 Liquid Glass
 
-### 选型
+### 结论：用系统 `TabView`，不要自绘
 
-放弃系统原生 Liquid Glass dock（搜索项会被拆到右侧、选中态是系统胶囊），改为**完全自绘**。
+第一版按截图自绘过 `DockBar`（等宽竖排、选中变蓝、顶部细线），真机上验收时被否掉了：
+用户要的是 **iOS 27 音乐 App 那种浮动玻璃胶囊栏**。那是系统在 iOS 26/27 上给
+`TabView` 渲染的原生外观 —— 玻璃胶囊、选中项高亮、边缘渐隐、滚动最小化 —— 自绘无法复刻。
 
-### 实现（`RootView.swift`）
+现在 `RootView` 回到系统 `TabView` + `Tab` builder（iOS 18+），iOS 17 走 `tabItem` 回退。
+真机截图确认是原生浮动胶囊栏。
 
-| 截图要求 | 实现 |
-| --- | --- |
-| 半透明深色毛玻璃底条 | `.background(.bar)` + `.ultraThinMaterial` |
-| 顶部细分割线 | 0.5pt `Rectangle`，另加一条白色高光 |
-| 5 个等宽 item，图标上文字下竖排 | `VStack(spacing: 3)` + `.frame(maxWidth: .infinity)` |
-| 选中项整个变主题蓝 | `foregroundStyle(isSelected ? AppTheme.accent : .secondary)` |
-| 无选中胶囊 | `Button` + `.buttonStyle(.plain)` |
-| 均分无额外间距 | `HStack(spacing: 0)` |
+### 自绘方案还带来过一个崩溃
 
-### 架构联动（重要）
+自绘版本为了保留每个 tab 的导航历史，把 5 个 `NavigationStack` 同时塞进一个 `ZStack`，
+用 `opacity(0)` + `allowsHitTesting(false)` 隐藏未选中的 4 个。这种"隐藏但仍挂载"的
+导航栈在被压入页面时行为不可靠（真机上表现为点进书籍详情页偶发崩溃）。
+回到系统 `TabView` 后导航由系统管理，这个隐患消失。
 
-自绘 dock 后 `TabView` 不再负责切换，改为：
-
-- `ZStack` 里放五个 `NavigationStack`，用 `opacity` / `allowsHitTesting` 切换
-- `mountedTabs` 集合：tab 首次访问才挂载，冷启动只跑首页的网络
-- **阅读页隐藏 dock**：从当前栈的 `path.last` 推导 `isReading`，而不是 `onAppear` 打标记 ——
-  这样侧滑返回时也能正确恢复。原来的 `.toolbar(.hidden, for: .tabBar)` 已删除。
-
----
+顺带恢复阅读器隐藏标签栏：`.toolbar(.hidden, for: .tabBar)`。
 
 ## 8. 已知问题与坑（踩过的，别再踩）
 
@@ -265,7 +257,9 @@ public protocol RelayAppVerProvider: Sendable {
 | `Tab` 类型重名 | 自己的枚举改名 `AppTab` |
 | `strings`/`nm` 管道进 `grep -q` | SIGPIPE 会误报失败。必须先写文件再检查 |
 | `.glassEffect` 只在 iOS 26+ | 全部集中在 `DesignSystem.swift`，别在别处直接调 |
-| 阅读器 dock 遮挡 | 自绘 dock 时代改为按路由隐藏，不再用 `.toolbar(.hidden, for: .tabBar)` |
+| 阅读器 dock 遮挡 | 回到系统 TabView 后重新使用 `.toolbar(.hidden, for: .tabBar)` |
+| 自绘 dock + 多 NavigationStack | 不要把多个 `NavigationStack` 用 `opacity(0)` 隐藏后仍挂载，压栈时行为不可靠。用系统 TabView |
+| `ForEach` 重复 id | SwiftUI 遇到重复 id 是致命错误。数据来自多路拼接（relay/WAP/桌面/年度榜），已统一用 `uniquedByID()` 兜底，`mergeVolumes` 也按章节 id 去重 |
 | 桌面 UA | 必须 iPhone Safari，Android Chrome 会被 403 |
 | GBK | 桌面版是 GBK。Linux 上 `String(data:encoding:.gbk)` 不可用，所以自建查表 |
 
@@ -273,16 +267,17 @@ public protocol RelayAppVerProvider: Sendable {
 
 ## 9. 待验证 / 有风险的地方
 
-1. **真机未跑起来**。本轮阻塞在工具链：macOS 已升到 27.2.1，但 Xcode 仍是 16.4，
-   它自带的 iOS 18.5 平台在 macOS 27 上不被识别。装好 **Xcode 26+** 后按 §3.2 走一遍即可。
-2. **签名证书为空**。`security find-identity -p codesigning` 返回 0 个。
-   Xcode 里已登录 Apple ID（Personal Team `C428Z585GG`），但还没生成开发者证书；
-   首次在 Xcode 里 Run 到真机会自动创建。
-3. **Relay 凭证未配置**，所以整条 relay 链路只有单元测试覆盖，没有真实请求验证。
-4. **真机上 Cloudflare 的态度未知**。界面对此有兜底（提示 + 网页版入口）。
-5. **排行榜在未登录且没配 relay 时显示年度榜单** 是设计行为，不是 bug。
-
----
+1. **真机已跑通**：iPhone 17 Pro（`00008150-000A61460247401C`），Xcode 27.2 自动签名，
+   证书 `Apple Development: 2294959606@qq.com (CBPF4U5DJK)`（Team `C428Z585GG`，有效期到 2027-11）。
+   安装与启动命令见 §3.2。
+2. **签名注意**：不要同时传 `CODE_SIGN_IDENTITY` 和自动签名，Xcode 会报
+   "conflicting provisioning settings"。只传 `DEVELOPMENT_TEAM` 让它自己选。
+3. **目录为空的小说**：如 `aid=1614`（青春猪头少年），站点对匿名请求返回
+   "对不起，该文章不存在！"，导致 0 卷 0 章。这是站点行为，不是客户端 bug；
+   界面此时只显示书籍信息、不显示章节目录。
+4. **Relay 凭证未配置**，relay 链路只有单元测试覆盖，没有真实请求验证。
+5. **真机上 Cloudflare 的态度**：目前首页、搜索、详情都能正常加载，未触发人机校验。
+6. **排行榜在未登录且没配 relay 时显示年度榜单** 是设计行为，不是 bug。
 
 ## 10. 在 Mac 上的建议起步顺序
 
@@ -312,7 +307,7 @@ bash tools/bootstrap-xcodeproj.sh device
 | 想改什么 | 去哪 |
 | --- | --- |
 | 玻璃效果 / 按钮样式 | `Sources/Wenku8iOS/DesignSystem.swift` |
-| 底部 dock | `Sources/Wenku8iOS/RootView.swift` → `DockBar` |
+| 底部 dock | `Sources/Wenku8iOS/RootView.swift`（系统 TabView，别改回自绘）|
 | 首页卡片 / 页码点 | `Sources/Wenku8iOS/HomeView.swift` → `HeroBanner` / `PageDots` |
 | 阅读器 | `Sources/Wenku8iOS/ReaderView.swift` |
 | 登录 | `LoginView.swift` + `AccountStore.swift` + `NovelService.signIn` |

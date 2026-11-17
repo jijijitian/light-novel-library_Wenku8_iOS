@@ -203,3 +203,53 @@ final class RelayTests: XCTestCase {
         XCTAssertFalse(RelayClient.shared.isAvailable)
     }
 }
+
+final class DedupeTests: XCTestCase {
+    func testNovelSummariesDropRepeatedIDsKeepingOrder() {
+        let items = [
+            NovelSummary(id: 3, title: "三"),
+            NovelSummary(id: 1, title: "一"),
+            NovelSummary(id: 3, title: "三（重复）"),
+            NovelSummary(id: 2, title: "二"),
+        ]
+        let unique = items.uniquedByID()
+        XCTAssertEqual(unique.map(\.id), [3, 1, 2])
+        XCTAssertEqual(unique.first?.title, "三", "the first occurrence wins")
+    }
+
+    func testChapterLinksDropRepeatedIDs() {
+        let chapters = [
+            ChapterLink(id: 10, title: "a"),
+            ChapterLink(id: 11, title: "b"),
+            ChapterLink(id: 10, title: "a again"),
+        ]
+        XCTAssertEqual(chapters.uniquedByID().map(\.id), [10, 11])
+    }
+
+    func testMergeVolumesDedupesChaptersAcrossPageBoundaries() {
+        // The same volume arriving twice is what happens when a catalogue page
+        // ends mid-volume; the repeated chapter must not survive the merge.
+        let first = Volume(id: "0", title: "第一卷", chapters: [
+            ChapterLink(id: 1, title: "一"),
+            ChapterLink(id: 2, title: "二"),
+        ])
+        let second = Volume(id: "0", title: "第一卷", chapters: [
+            ChapterLink(id: 2, title: "二"),
+            ChapterLink(id: 3, title: "三"),
+        ])
+        let merged = NovelService.mergeVolumes([first, second])
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].chapters.map(\.id), [1, 2, 3])
+    }
+
+    func testMergeVolumesAssignsDistinctVolumeIDs() {
+        let volumes = [
+            Volume(id: "x", title: "同卷", chapters: [ChapterLink(id: 1, title: "一")]),
+            Volume(id: "x", title: "同卷", chapters: [ChapterLink(id: 2, title: "二")]),
+            Volume(id: "y", title: "另一卷", chapters: [ChapterLink(id: 3, title: "三")]),
+        ]
+        let merged = NovelService.mergeVolumes(volumes)
+        XCTAssertEqual(merged.map(\.id), ["0", "1"])
+        XCTAssertEqual(Set(merged.map(\.id)).count, merged.count, "volume ids must be unique")
+    }
+}

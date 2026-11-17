@@ -141,10 +141,10 @@ struct ReaderView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
-        // Reading is a full-screen mode: the app's dock must not sit under the
-        // text, otherwise it both steals vertical space and clashes with the
-        // reader's own glass control bar. The dock is hand-drawn in `RootView`,
-        // which hides it whenever the current stack has a `.reader` route on top.
+        // Reading is a full-screen mode: the tab bar must not sit under the text,
+        // otherwise it steals vertical space and clashes with the reader's own
+        // glass control bar.
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {

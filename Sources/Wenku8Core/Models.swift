@@ -304,3 +304,24 @@ public enum CoverURL {
         return URL(string: value)
     }
 }
+
+extension Array where Element == NovelSummary {
+    /// Drops repeated book ids while keeping the first occurrence's order.
+    ///
+    /// SwiftUI's `ForEach` treats a duplicate id as a fatal error, and the data
+    /// paths here concatenate several sources (relay, WAP, desktop, yearly
+    /// rankings), so any one of them repeating a book would crash the list.
+    public func uniquedByID() -> [NovelSummary] {
+        var seen = Set<Int>()
+        return filter { seen.insert($0.id).inserted }
+    }
+}
+
+extension Array where Element == ChapterLink {
+    /// Drops repeated chapter ids while keeping order. Catalogue pages can repeat
+    /// a chapter when a volume spans a page boundary.
+    public func uniquedByID() -> [ChapterLink] {
+        var seen = Set<Int>()
+        return filter { seen.insert($0.id).inserted }
+    }
+}

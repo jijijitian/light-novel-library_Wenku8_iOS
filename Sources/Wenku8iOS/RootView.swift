@@ -32,151 +32,103 @@ struct RootView: View {
         }
     }
 
-    /// Tabs are mounted lazily the first time they are visited, so a cold launch
-    /// only performs the network work for the selected tab.
-    @State private var mountedTabs: Set<AppTab> = [.home]
-
     var body: some View {
-        tabContent
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !isReading {
-                    DockBar(selection: selection)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut(duration: 0.16), value: isReading)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            .onChange(of: router.tab) { _, newValue in
-                mountedTabs.insert(newValue)
-            }
+        // The system tab bar is used deliberately. On iOS 26/27 `TabView` renders
+        // the floating Liquid Glass bar (the same one Music and App Store use),
+        // including its glass capsule, selection highlight, scroll-minimise
+        // behaviour and edge fades. A hand-drawn bar cannot reproduce that, and
+        // the earlier attempt also had to fake navigation state to hide itself.
+        //
+        // The `Tab` builder needs iOS 18; iOS 17 keeps the classic tabItem API.
+        if #available(iOS 18.0, *) {
+            modernTabs
+        } else {
+            legacyTabs
+        }
     }
 
-    /// All mounted stacks stay alive in a `ZStack` so each tab keeps its own
-    /// navigation history, exactly like the system tab bar did.
-    private var tabContent: some View {
-        ZStack {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                if mountedTabs.contains(tab) {
-                    stack(for: tab)
-                        .opacity(router.tab == tab ? 1 : 0)
-                        .allowsHitTesting(router.tab == tab)
-                        .accessibilityHidden(router.tab != tab)
-                }
+    @available(iOS 18.0, *)
+    private var modernTabs: some View {
+        TabView(selection: tabSelection) {
+            Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: AppTab.home) {
+                homeStack
+            }
+            Tab(AppTab.rank.title, systemImage: AppTab.rank.systemImage, value: AppTab.rank) {
+                rankStack
+            }
+            Tab(AppTab.search.title, systemImage: AppTab.search.systemImage, value: AppTab.search) {
+                searchStack
+            }
+            Tab(AppTab.shelf.title, systemImage: AppTab.shelf.systemImage, value: AppTab.shelf) {
+                shelfStack
+            }
+            Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: AppTab.settings) {
+                settingsStack
             }
         }
     }
 
-    @ViewBuilder
-    private func stack(for tab: AppTab) -> some View {
-        switch tab {
-        case .home:
-            NavigationStack(path: $router.homePath) {
-                HomeView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-            }
-        case .rank:
-            NavigationStack(path: $router.rankPath) {
-                RankView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-            }
-        case .search:
-            NavigationStack(path: $router.searchPath) {
-                SearchView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-            }
-        case .shelf:
-            NavigationStack(path: $router.shelfPath) {
-                ShelfView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-            }
-        case .settings:
-            NavigationStack(path: $router.settingsPath) {
-                SettingsView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
-            }
+    private var legacyTabs: some View {
+        TabView(selection: tabSelection) {
+            homeStack
+                .tabItem { Label(AppTab.home.title, systemImage: AppTab.home.systemImage) }
+                .tag(AppTab.home)
+            rankStack
+                .tabItem { Label(AppTab.rank.title, systemImage: AppTab.rank.systemImage) }
+                .tag(AppTab.rank)
+            searchStack
+                .tabItem { Label(AppTab.search.title, systemImage: AppTab.search.systemImage) }
+                .tag(AppTab.search)
+            shelfStack
+                .tabItem { Label(AppTab.shelf.title, systemImage: AppTab.shelf.systemImage) }
+                .tag(AppTab.shelf)
+            settingsStack
+                .tabItem { Label(AppTab.settings.title, systemImage: AppTab.settings.systemImage) }
+                .tag(AppTab.settings)
         }
     }
 
-    private var selection: Binding<AppTab> {
+    private var homeStack: some View {
+        NavigationStack(path: $router.homePath) {
+            HomeView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var rankStack: some View {
+        NavigationStack(path: $router.rankPath) {
+            RankView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var searchStack: some View {
+        NavigationStack(path: $router.searchPath) {
+            SearchView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var shelfStack: some View {
+        NavigationStack(path: $router.shelfPath) {
+            ShelfView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    private var settingsStack: some View {
+        NavigationStack(path: $router.settingsPath) {
+            SettingsView()
+                .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        }
+    }
+
+    /// Keeps the app's own tab enum as the single source of truth for selection.
+    private var tabSelection: Binding<AppTab> {
         Binding(
             get: { router.tab },
             set: { router.tab = $0 }
         )
-    }
-
-    /// The reader is a full-screen mode. Deriving this from the visible stack's
-    /// path (rather than a flag toggled in `onAppear`) keeps the dock in sync
-    /// with interactive back-swipe as well.
-    private var isReading: Bool {
-        if case .reader = currentPath.last { return true }
-        return false
-    }
-
-    private var currentPath: [AppRouter.Route] {
-        switch router.tab {
-        case .home: return router.homePath
-        case .rank: return router.rankPath
-        case .search: return router.searchPath
-        case .shelf: return router.shelfPath
-        case .settings: return router.settingsPath
-        }
-    }
-}
-
-/// Hand-drawn replacement for the system tab bar, matching the target design:
-/// an evenly divided row of icon-over-label items, no selection pill, the
-/// selected item tinted in the app accent colour, and a hairline divider along
-/// the top edge of the bar.
-struct DockBar: View {
-    @Binding var selection: RootView.AppTab
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.12))
-                .frame(height: 0.5)
-
-            HStack(spacing: 0) {
-                ForEach(RootView.AppTab.allCases, id: \.self) { tab in
-                    item(for: tab)
-                }
-            }
-            .padding(.top, 8)
-            .padding(.bottom, 2)
-        }
-        .background(.bar)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 0.5)
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private func item(for tab: RootView.AppTab) -> some View {
-        let isSelected = selection == tab
-        return Button {
-            guard selection != tab else { return }
-            selection = tab
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: tab.systemImage)
-                    .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
-                    .frame(height: 22)
-                Text(tab.title)
-                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(tab.title)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -198,3 +150,19 @@ struct RouteView: View {
         }
     }
 }
+
+#if DEBUG
+extension RootView.AppTab {
+    /// Maps the `WENKU8_START_TAB` debug launch value onto a tab.
+    init?(launchToken raw: String) {
+        switch raw.lowercased() {
+        case "home", "0": self = .home
+        case "rank", "1": self = .rank
+        case "search", "2": self = .search
+        case "shelf", "3": self = .shelf
+        case "settings", "4": self = .settings
+        default: return nil
+        }
+    }
+}
+#endif

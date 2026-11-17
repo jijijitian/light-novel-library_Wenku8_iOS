@@ -43,14 +43,14 @@ public struct NovelService: Sendable {
     private func relaySearch(_ key: String, type: String) async -> [NovelSummary]? {
         guard relayIsAvailable else { return nil }
         guard let data = try? await relay.send(RelayAction.search(type: type, key: key)) else { return nil }
-        let items = RelayParser.search(TextDecoding.decode(data))
+        let items = RelayParser.search(TextDecoding.decode(data)).uniquedByID()
         return items.isEmpty ? nil : items
     }
 
     private func relayList(_ action: String) async -> [NovelSummary]? {
         guard relayIsAvailable else { return nil }
         guard let data = try? await relay.send(action) else { return nil }
-        let items = RelayParser.items(TextDecoding.decode(data))
+        let items = RelayParser.items(TextDecoding.decode(data)).uniquedByID()
         return items.isEmpty ? nil : items
     }
 
@@ -87,7 +87,7 @@ public struct NovelService: Sendable {
         if WAPParser.requiresLogin(html) {
             return try await rankedFallback(board, page: page)
         }
-        let items = WAPParser.linksIn(html)
+        let items = WAPParser.linksIn(html).uniquedByID()
         if items.isEmpty {
             return try await rankedFallback(board, page: page)
         }
@@ -140,7 +140,7 @@ public struct NovelService: Sendable {
             // reason instead of substituting an unrelated ranking.
             throw Wenku8Error.needLogin
         }
-        return WAPParser.linksIn(html)
+        return WAPParser.linksIn(html).uniquedByID()
     }
 
     public func categories() async throws -> [LibraryCategory] {
@@ -167,7 +167,7 @@ public struct NovelService: Sendable {
             guard let url = URL(string: host + "/article/search.php") else { continue }
             do {
                 let response = try await client.post(url, fields: fields)
-                let items = WAPParser.linksIn(response.text)
+                let items = WAPParser.linksIn(response.text).uniquedByID()
                 if !items.isEmpty { return items }
                 if WAPParser.requiresLogin(response.text) {
                     throw Wenku8Error.needLogin
@@ -178,7 +178,7 @@ public struct NovelService: Sendable {
         }
 
         if let items = try? await desktopSearch(keyword: keyword, field: query.field), !items.isEmpty {
-            return items
+            return items.uniquedByID()
         }
         if let error = lastError { throw error }
         return []
@@ -235,20 +235,36 @@ public struct NovelService: Sendable {
         return Self.mergeVolumes(all)
     }
 
+    /// Merges the volume fragments returned by each catalogue page.
+    ///
+    /// A volume that spans a page boundary arrives twice, and re-appending its
+    /// chapters verbatim would produce duplicate `ChapterLink` ids. SwiftUI's
+    /// `ForEach` treats a duplicate id as a fatal error, so chapters are deduped
+    /// by id while the order is preserved.
     static func mergeVolumes(_ volumes: [Volume]) -> [Volume] {
         var merged: [Volume] = []
+        var seenChapters = Set<Int>()
         for volume in volumes {
             if let last = merged.last, last.title == volume.title {
                 var updated = last
-                updated.chapters.append(contentsOf: volume.chapters)
+                for chapter in volume.chapters where seenChapters.insert(chapter.id).inserted {
+                    updated.chapters.append(chapter)
+                }
                 merged[merged.count - 1] = updated
             } else {
                 var copy = volume
+                var chapters: [ChapterLink] = []
+                for chapter in volume.chapters where seenChapters.insert(chapter.id).inserted {
+                    chapters.append(chapter)
+                }
+                // Two volumes may legitimately share a title, so the id is derived
+                // from the position in the merged list rather than the title.
                 copy.id = "\(merged.count)"
+                copy.chapters = chapters
                 merged.append(copy)
             }
         }
-        return merged
+        return merged.filter { !$0.chapters.isEmpty }
     }
 
     public func chapter(aid: Int, cid: Int) async throws -> ChapterContent {
@@ -362,7 +378,7 @@ public struct NovelService: Sendable {
         if AccountParser.isLoginGate(html) {
             throw Wenku8Error.needLogin
         }
-        return AccountParser.bookcaseNovels(html)
+        return AccountParser.bookcaseNovels(html).uniquedByID()
     }
 
     @discardableResult
