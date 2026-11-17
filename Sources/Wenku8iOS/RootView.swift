@@ -42,7 +42,7 @@ struct RootView: View {
             .tabItem { Label("我的书架", systemImage: "books.vertical.fill") }
             .tag(Tab.shelf)
 
-            NavigationStack {
+            NavigationStack(path: $router.settingsPath) {
                 SettingsView()
                     .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
             }

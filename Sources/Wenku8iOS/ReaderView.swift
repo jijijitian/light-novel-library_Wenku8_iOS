@@ -199,7 +199,7 @@ struct ReaderView: View {
                         Button("重试") {
                             Task { await model.load() }
                         }
-                        .buttonStyle(.glassProminent)
+                        .prominentGlassButtonShape()
                         .tint(AppTheme.accent)
                     }
                     .frame(maxWidth: .infinity)
@@ -253,7 +253,7 @@ struct ReaderView: View {
                 Label("上一章", systemImage: "chevron.left")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glass)
+            .secondaryGlassButtonShape(capsule: false)
             .disabled(!model.canGoPrevious)
 
             Button {
@@ -265,7 +265,7 @@ struct ReaderView: View {
                 Label("下一章", systemImage: "chevron.right")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .prominentGlassButtonShape()
             .tint(AppTheme.accent)
             .disabled(!model.canGoNext)
         }
@@ -283,7 +283,7 @@ struct ReaderView: View {
                         Image(systemName: "chevron.left")
                             .frame(width: 40, height: 40)
                     }
-                    .buttonStyle(.glass)
+                    .secondaryGlassButtonShape(capsule: false)
                     .disabled(!model.canGoPrevious)
 
                     Button {
@@ -299,7 +299,7 @@ struct ReaderView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
                     }
-                    .buttonStyle(.glass)
+                    .secondaryGlassButtonShape(capsule: false)
 
                     Button {
                         Task { await model.goNext() }
@@ -307,7 +307,7 @@ struct ReaderView: View {
                         Image(systemName: "chevron.right")
                             .frame(width: 40, height: 40)
                     }
-                    .buttonStyle(.glassProminent)
+                    .prominentGlassButtonShape()
                     .tint(AppTheme.accent)
                     .disabled(!model.canGoNext)
                 }

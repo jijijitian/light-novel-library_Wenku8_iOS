@@ -66,7 +66,7 @@ struct RankBoardPicker: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            GlassEffectContainerWrapper(spacing: 10) {
+            GlassContainer(spacing: 10) {
                 HStack(spacing: 10) {
                     ForEach(RankBoard.allCases) { board in
                         Button {
@@ -86,20 +86,6 @@ struct RankBoardPicker: View {
                 }
                 .padding(.vertical, 4)
             }
-        }
-    }
-}
-
-/// `GlassEffectContainer` is iOS 26 only, so the picker falls back to a plain HStack.
-struct GlassEffectContainerWrapper<Content: View>: View {
-    var spacing: CGFloat
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content() }
-        } else {
-            content()
         }
     }
 }
@@ -155,7 +141,7 @@ struct RankListView: View {
                         Task { await model.load(board: board, force: true) }
                     }
                     Button("在网页版查看") { showWeb = true }
-                        .buttonStyle(.glass)
+                        .secondaryGlassButtonShape()
                 }
             } else {
                 NovelGrid(novels: model.novels) { novel in

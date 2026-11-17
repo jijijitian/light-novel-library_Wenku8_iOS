@@ -193,8 +193,7 @@ struct NovelDetailView: View {
                     Label("开始阅读", systemImage: "play.fill")
                         .font(.caption.weight(.semibold))
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.capsule)
+                .prominentGlassButtonShape()
                 .tint(AppTheme.accent)
             }
 

@@ -151,8 +151,7 @@ struct SearchView: View {
                     Label("搜索", systemImage: "arrow.right.circle.fill")
                         .font(.caption.weight(.semibold))
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.capsule)
+                .prominentGlassButtonShape()
                 .tint(AppTheme.accent)
             }
         }

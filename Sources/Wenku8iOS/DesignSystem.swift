@@ -9,6 +9,18 @@ enum GlassSurface {
     }
 }
 
+@available(iOS 26.0, *)
+private func makeGlass(tint: Color?, interactive: Bool) -> Glass {
+    var glass: Glass = .regular
+    if let tint {
+        glass = glass.tint(tint)
+    }
+    if interactive {
+        glass = glass.interactive()
+    }
+    return glass
+}
+
 extension View {
     /// Wraps content in a Liquid Glass shape on iOS 26+, and in a thin material
     /// with a hairline stroke everywhere else.
@@ -19,34 +31,60 @@ extension View {
         interactive: Bool = false
     ) -> some View {
         if #available(iOS 26.0, *) {
-            let effect: Glass = {
-                var glass: Glass = .regular
-                if let tint {
-                    glass = glass.tint(tint)
-                }
-                if interactive {
-                    glass = glass.interactive()
-                }
-                return glass
-            }()
-            self.glassEffect(effect, in: shape)
+            self.glassEffect(makeGlass(tint: tint, interactive: interactive), in: shape)
         } else {
             self
                 .background(.ultraThinMaterial, in: shape)
-                .overlay(
-                    shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75)
-                )
+                .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75))
         }
     }
 
-    @ViewBuilder
     func glassCapsule(tint: Color? = nil, interactive: Bool = false) -> some View {
         glassSurface(.capsule, tint: tint, interactive: interactive)
     }
 
-    @ViewBuilder
     func glassCard(cornerRadius: CGFloat = 22, tint: Color? = nil) -> some View {
         glassSurface(.rect(cornerRadius: cornerRadius, style: .continuous), tint: tint)
+    }
+
+    /// Prominent action button: Liquid Glass on iOS 26+, bordered prominent before that.
+    @ViewBuilder
+    func prominentGlassButtonShape() -> some View {
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glassProminent).buttonBorderShape(.capsule)
+        } else {
+            self.buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        }
+    }
+
+    /// Secondary action button: Liquid Glass on iOS 26+, bordered before that.
+    @ViewBuilder
+    func secondaryGlassButtonShape(capsule: Bool = true) -> some View {
+        if #available(iOS 26.0, *) {
+            if capsule {
+                self.buttonStyle(.glass).buttonBorderShape(.capsule)
+            } else {
+                self.buttonStyle(.glass)
+            }
+        } else if capsule {
+            self.buttonStyle(.bordered).buttonBorderShape(.capsule)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+    }
+}
+
+/// Wraps children in `GlassEffectContainer` on iOS 26+, and leaves them alone otherwise.
+struct GlassContainer<Content: View>: View {
+    var spacing: CGFloat
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content() }
+        } else {
+            content()
+        }
     }
 }
 

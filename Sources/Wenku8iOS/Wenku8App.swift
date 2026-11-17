@@ -23,6 +23,7 @@ final class AppRouter: ObservableObject {
     @Published var rankPath: [Route] = []
     @Published var searchPath: [Route] = []
     @Published var shelfPath: [Route] = []
+    @Published var settingsPath: [Route] = []
 
     enum Route: Hashable {
         case novel(Int)
@@ -38,6 +39,7 @@ final class AppRouter: ObservableObject {
         case .rank: rankPath.append(route)
         case .search: searchPath.append(route)
         case .shelf: shelfPath.append(route)
+        case .settings: settingsPath.append(route)
         }
     }
 }
