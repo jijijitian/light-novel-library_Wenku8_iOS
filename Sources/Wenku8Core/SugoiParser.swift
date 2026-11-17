@@ -52,22 +52,45 @@ public enum SugoiParser {
     }
 
     static func books(in html: String) -> [NovelSummary] {
-        guard let regex = try? NSRegularExpression(
-            pattern: #"<a href="(?:[^"]*/)?book/(\d+)\.htm"[^>]*title="([^"]*)""#,
-            options: [.dotMatchesLineSeparators]
-        ) else { return [] }
-        let range = NSRange(html.startIndex..<html.endIndex, in: html)
         var novels: [NovelSummary] = []
         var seen = Set<Int>()
-        for match in regex.matches(in: html, range: range) {
-            guard let idRange = Range(match.range(at: 1), in: html),
-                  let titleRange = Range(match.range(at: 2), in: html),
-                  let id = Int(html[idRange]),
-                  seen.insert(id).inserted else { continue }
-            let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
-            guard !title.isEmpty else { continue }
-            novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+
+        // Modern pages (2012+) carry a title attribute on the cover anchor, which is
+        // the most reliable source because the visible text may be abbreviated.
+        if let titled = try? NSRegularExpression(
+            pattern: #"<a href="(?:[^"]*/)?book/(\d+)\.htm"[^>]*title="([^"]*)""#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) {
+            let range = NSRange(html.startIndex..<html.endIndex, in: html)
+            for match in titled.matches(in: html, range: range) {
+                guard let idRange = Range(match.range(at: 1), in: html),
+                      let titleRange = Range(match.range(at: 2), in: html),
+                      let id = Int(html[idRange]),
+                      seen.insert(id).inserted else { continue }
+                let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
+                guard !title.isEmpty else { continue }
+                novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+            }
         }
+
+        // Older pages (2006-2011) are uppercase, unquoted in places, and have no
+        // title attribute, so fall back to the visible anchor text.
+        if let plain = try? NSRegularExpression(
+            pattern: #"<a\s+href="(?:[^"]*/)?book/(\d+)\.htm"[^>]*>([^<]{1,200})</a>"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) {
+            let range = NSRange(html.startIndex..<html.endIndex, in: html)
+            for match in plain.matches(in: html, range: range) {
+                guard let idRange = Range(match.range(at: 1), in: html),
+                      let textRange = Range(match.range(at: 2), in: html),
+                      let id = Int(html[idRange]),
+                      seen.insert(id).inserted else { continue }
+                let title = Markup.normalize(Markup.decodeEntities(String(html[textRange])))
+                guard !title.isEmpty else { continue }
+                novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+            }
+        }
+
         return novels
     }
 }

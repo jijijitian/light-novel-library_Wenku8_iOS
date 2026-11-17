@@ -32,6 +32,19 @@ final class SugoiParserTests: XCTestCase {
         XCTAssertEqual(year.sections.first?.novels.first?.title, "败北女角太多了！(败犬女主太多了！)")
     }
 
+    /// Pages before 2012 use uppercase tags with no title attribute, so the parser
+    /// has to fall back to the visible anchor text.
+    func testLegacyYearPageWithoutTitleAttribute() throws {
+        let year = SugoiParser.parse(try fixture("sugoi2010.html"), year: 2010)
+        XCTAssertEqual(year.sections.count, 1)
+        XCTAssertEqual(year.sections[0].novels.count, 20)
+        XCTAssertTrue(year.sections[0].caption.contains("2010"))
+        let first = try XCTUnwrap(year.sections[0].novels.first)
+        XCTAssertEqual(first.id, 4)
+        XCTAssertEqual(first.title, "笨蛋，测验，招唤兽")
+        XCTAssertTrue(year.allBooks.contains { $0.title == "化物语" })
+    }
+
     func testYearListCoversArchivedYears() {
         XCTAssertEqual(SugoiParser.availableYears.first, 2026)
         XCTAssertEqual(SugoiParser.availableYears.last, 2006)

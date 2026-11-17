@@ -9,3 +9,5 @@ DerivedData/
 /xtool
 /Payload
 *.ipa
+/.smoke
+/tmp-live.log

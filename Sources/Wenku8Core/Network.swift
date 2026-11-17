@@ -24,9 +24,16 @@ public struct SiteEndpoints: Sendable {
 public final class Wenku8Client: @unchecked Sendable {
     public static let shared = Wenku8Client()
 
-    static let userAgent =
+    /// The mobile WAP site and the desktop site answer to different clients: the
+    /// desktop pages (book pages, yearly rankings) reject the Android Chrome agent
+    /// with a Cloudflare challenge but serve an iPhone Safari agent normally.
+    static let wapUserAgent =
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) "
         + "Chrome/124.0.0.0 Mobile Safari/537.36"
+
+    static let desktopUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+        + "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
     let session: URLSession
     let cookieStorage: HTTPCookieStorage
@@ -56,7 +63,7 @@ public final class Wenku8Client: @unchecked Sendable {
     public func send(_ request: URLRequest) async throws -> Response {
         var request = request
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
-            request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue(Self.wapUserAgent, forHTTPHeaderField: "User-Agent")
         }
         if request.value(forHTTPHeaderField: "Accept-Language") == nil {
             request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
@@ -109,19 +116,36 @@ public final class Wenku8Client: @unchecked Sendable {
 
     /// Fetches a WAP page, retrying the mirror host when the primary one fails.
     public func wap(_ path: String, referer: String? = nil) async throws -> String {
-        try await withHostFallback(endpoints.wapHosts, path: path, referer: referer)
+        try await withHostFallback(endpoints.wapHosts, path: path, referer: referer, desktop: false)
     }
 
     public func desktop(_ path: String, referer: String? = nil) async throws -> String {
-        try await withHostFallback(endpoints.hosts, path: path, referer: referer)
+        try await withHostFallback(endpoints.hosts, path: path, referer: referer, desktop: true)
     }
 
-    private func withHostFallback(_ hosts: [String], path: String, referer: String?) async throws -> String {
+    private func withHostFallback(
+        _ hosts: [String],
+        path: String,
+        referer: String?,
+        desktop: Bool
+    ) async throws -> String {
         var lastError: Error?
         for host in hosts {
             guard let url = URL(string: host + path) else { continue }
             do {
-                let response = try await get(url, referer: referer)
+                var request = URLRequest(url: url)
+                request.setValue(
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    forHTTPHeaderField: "Accept"
+                )
+                request.setValue(
+                    desktop ? Self.desktopUserAgent : Self.wapUserAgent,
+                    forHTTPHeaderField: "User-Agent"
+                )
+                if let referer {
+                    request.setValue(referer, forHTTPHeaderField: "Referer")
+                }
+                let response = try await send(request)
                 return response.text
             } catch {
                 lastError = error

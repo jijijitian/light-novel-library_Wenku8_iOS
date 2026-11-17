@@ -41,15 +41,31 @@ Text("目录")
 
 ## 构建
 
-### 方式一：xtool（Linux / Windows / macOS，无需 Xcode 工程）
+本项目是纯 SwiftPM 工程，没有 `.xcodeproj`，因此可以用 xtool 在 macOS、Linux 或 Windows(WSL) 上构建。
+仓库自带的 GitHub Actions 会直接用 runner 上的 Xcode 命令行工具链编译（见下文 CI 一节），
+这也是验证「能正常构建」的默认路径。
+
+### 方式一：xtool + GitHub Actions（推荐，无需本地环境）
+
+推送代码后，`.github/workflows/ios-build.yml` 会在 `macos-26` runner 上：
+
+1. 在 Linux Swift 容器里跑核心层单元测试；
+2. 用 xtool 编译出 `Wenku8iOS.app` 并校验 bundle 结构；
+3. 打包成未签名 `.ipa` 上传为构建产物。
+
+构建产物（Actions → 某次运行 → Artifacts → `Wenku8iOS-unsigned`）解压后即可用于真机签名安装。
+
+### 方式二：xtool（Linux / Windows WSL / macOS，无需 Xcode 工程）
 
 ```bash
 # 1. 安装 xtool（详见 https://xtool.sh）
 brew install xtool-org/tap/xtool        # macOS
-# 或从 https://github.com/xtool-org/xtool/releases 下载对应平台的二进制
+# Linux/WSL 下载 AppImage：
+curl -fL "https://github.com/xtool-org/xtool/releases/latest/download/xtool-x86_64.AppImage" -o xtool
+chmod +x xtool && sudo mv xtool /usr/local/bin/
 
 # 2. 首次配置：登录 Apple ID 并准备 iOS SDK
-xtool setup
+xtool setup          # Linux/WSL 会要求提供 Xcode.xip 路径
 
 # 3. 编译（产出 xtool/Wenku8iOS.app）
 xtool dev build --configuration release
@@ -58,17 +74,33 @@ xtool dev build --configuration release
 xtool dev
 ```
 
+**Windows 用户**：xtool 走 WSL。需要在 WSL 里安装 Swift 6.1+ 与 `usbmuxd`，
+并把 iPhone 通过 [USBIPD](https://learn.microsoft.com/en-us/windows/wsl/connect-usb) 绑定进 WSL：
+
+```powershell
+winget install --interactive --exact dorssel.usbipd-win
+usbipd list
+usbipd bind --busid <BUSID>
+usbipd attach --wsl --busid <BUSID>
+```
+
+```bash
+sudo apt install usbmuxd libimobiledevice-utils
+ideviceinfo          # 能在 WSL 里看到设备即成功
+xtool dev
+```
+
 `xtool dev` 会自动完成设备注册、证书与描述文件生成、签名与安装。首次安装后需要在 iOS 的
 **设置 → 通用 → VPN 与设备管理** 里信任开发者证书。
 
-### 方式二：Xcode（可选）
+### 方式三：Xcode（可选）
 
 ```bash
 open Package.swift      # Xcode 会把 SwiftPM 包当作项目打开
 ```
 
-选择 iOS 真机或模拟器运行即可。注意：`Wenku8iOS` 是 library 产品，需要在 Scheme 里指定
-`Wenku8iOSApp` 可执行目标（由 xtool 生成的 builder 目标），或直接用方式一。
+`Wenku8iOS` 是 library 产品，`@main` 入口由 xtool 在打包时注入的 builder 目标承载；
+直接在 Xcode 里运行请使用方式一/二的产物，或在 Scheme 中指定 app 目标。
 
 ### 产物结构
 
@@ -115,7 +147,9 @@ xtool/Wenku8iOS.app/
 │       └── LibraryStore.swift        # 书架 / 进度 / 搜索历史持久化
 ├── Tests/Wenku8CoreTests/            # 解析器测试（含真实页面样本）
 ├── tools/
-│   ├── test-core-linux.sh            # 在 Linux Swift 下跑核心层测试
+│   ├── test-core-linux.sh            # 离线单元测试（Linux Swift）
+│   ├── test-live.sh                  # 联网端到端校验
+│   ├── smoke/main.swift              # 联网校验的检查项
 │   ├── gen_gbk_table.py              # 重新生成 GBK 解码表
 │   └── make_icon.py                  # 重新生成 App 图标
 └── .github/workflows/ios-build.yml   # CI：Linux 跑测试 + macOS 用 xtool 编译
@@ -142,10 +176,29 @@ xtool/Wenku8iOS.app/
 bash tools/test-core-linux.sh
 ```
 
-覆盖内容：GBK 解码、首页四栏目、登录拦截识别、搜索结果、详情字段、目录分卷、章节正文清洗、
-分页标记、书评列表与详情、文库分类、实体解码、封面 URL 规则。
+还会真实访问文库，验证端到端链路（需要联网）：
 
-CI（`.github/workflows/ios-build.yml`）会先跑这套测试，再在 macOS runner 上用 xtool 真实编译、
+```bash
+bash tools/test-live.sh
+```
+
+输出示例：
+
+```
+PASS  home: hot=6 latest=6 newcomer=6 weekly=6
+PASS  detail: 你们赶紧给我结婚吧！ / 优汰 / 连载中 / intro=253
+PASS  volumes: 3 volumes, 24 chapters
+PASS  chapter: 序章 “我已经开始写恋爱喜剧了喔。” / 56 blocks / 1890 chars
+PASS  search: 7 results, first=《你们赶紧给我结婚吧！》优汰
+PASS  sugoi 2026: 2 sections, 13 books
+PASS  rank: 13 books, first=玩乐关系
+```
+
+离线单元测试覆盖：GBK 解码、首页四栏目、登录拦截识别、搜索结果、详情字段、目录分卷、
+章节正文清洗、分页标记、书评列表与详情、文库分类、实体解码、封面 URL 规则、
+年度榜单（含 2012 年前的旧版大写标签）。
+
+CI（`.github/workflows/ios-build.yml`）会先跑离线测试，再在 macOS runner 上用 xtool 真实编译、
 校验产物结构，并上传未签名的 `.ipa`。
 
 ## 已知限制
