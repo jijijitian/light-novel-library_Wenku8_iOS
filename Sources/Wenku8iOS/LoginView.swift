@@ -106,7 +106,7 @@ struct LoginView: View {
                 }
             }
             .sheet(isPresented: $showWeb) {
-                WebSheet(url: URL(string: "https://www.wenku8.net/wap/login.php"))
+                WebSheet(url: URL(string: "https://www.wenku8.net/login.php"))
             }
             .onAppear { focus = .username }
         }

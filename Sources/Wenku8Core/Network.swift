@@ -3,6 +3,31 @@ import Foundation
 import FoundationNetworking
 #endif
 
+/// Which mirror the app talks to.
+///
+/// `net` and `cc` serve the same content; users in some networks reach one but
+/// not the other, so the choice is exposed in Settings.
+public enum SiteDomain: String, CaseIterable, Identifiable, Sendable {
+    case net
+    case cc
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .net: return "wenku8.net"
+        case .cc: return "wenku8.cc"
+        }
+    }
+
+    public var host: String {
+        switch self {
+        case .net: return "https://www.wenku8.net"
+        case .cc: return "https://www.wenku8.cc"
+        }
+    }
+}
+
 public struct SiteEndpoints: Sendable {
     public var hosts: [String]
     public var wapHosts: [String]
@@ -13,6 +38,13 @@ public struct SiteEndpoints: Sendable {
     ) {
         self.hosts = hosts
         self.wapHosts = wapHosts
+    }
+
+    /// Primary domain first, then the other one as a fallback.
+    public init(domain: SiteDomain) {
+        let other: SiteDomain = domain == .net ? .cc : .net
+        self.hosts = [domain.host, other.host]
+        self.wapHosts = ["\(domain.host)/wap", "\(other.host)/wap"]
     }
 
     public static let `default` = SiteEndpoints()
@@ -38,6 +70,11 @@ public final class Wenku8Client: @unchecked Sendable {
     let session: URLSession
     let cookieStorage: HTTPCookieStorage
     public var endpoints = SiteEndpoints.default
+
+    /// Switches the mirror used for every desktop/WAP request.
+    public func use(domain: SiteDomain) {
+        endpoints = SiteEndpoints(domain: domain)
+    }
 
     public init(configuration: URLSessionConfiguration? = nil) {
         let config = configuration ?? .default

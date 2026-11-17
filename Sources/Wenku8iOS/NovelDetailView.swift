@@ -47,6 +47,8 @@ struct NovelDetailView: View {
     @State private var showLogin = false
     @State private var shelfMessage: String?
     @State private var webItem: WebSheetItem?
+    @StateObject private var downloadManager = OfflineDownloadManager.shared
+    @State private var offlineEntry: OfflineStore.Entry?
 
     var body: some View {
         ScrollView {
@@ -91,6 +93,27 @@ struct NovelDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
+                        downloadManager.download(novelID: novelID)
+                    } label: {
+                        Label(
+                            offlineEntry == nil ? "下载到本机" : "重新下载",
+                            systemImage: "arrow.down.circle"
+                        )
+                    }
+                    .disabled(downloadManager.isDownloading)
+
+                    if offlineEntry != nil {
+                        Button(role: .destructive) {
+                            Task {
+                                await downloadManager.delete(novelID)
+                                await refreshOffline()
+                            }
+                        } label: {
+                            Label("删除本地缓存", systemImage: "trash")
+                        }
+                    }
+
+                    Button {
                         webItem = WebSheetItem(url: URL(string: "https://www.wenku8.net/book/\(novelID).htm"))
                     } label: {
                         Label("在网页版打开", systemImage: "safari")
@@ -106,7 +129,13 @@ struct NovelDetailView: View {
             }
         }
         .refreshable { await model.load(novelID: novelID, force: true) }
-        .task { await model.load(novelID: novelID) }
+        .task {
+            await model.load(novelID: novelID)
+            await refreshOffline()
+        }
+        .onChange(of: downloadManager.progress) { _, newValue in
+            if newValue == nil { Task { await refreshOffline() } }
+        }
         .sheet(item: $webItem) { item in
             WebSheet(url: item.url)
         }
@@ -134,6 +163,7 @@ struct NovelDetailView: View {
         VStack(alignment: .leading, spacing: 20) {
             header(detail)
             introCard(detail)
+            downloadCard
             if !model.volumes.isEmpty {
                 chaptersCard
             } else if model.isLoading {
@@ -146,6 +176,65 @@ struct NovelDetailView: View {
         .padding(.horizontal, 18)
         .padding(.top, 8)
         .padding(.bottom, 30)
+    }
+
+    /// Download state for this book: progress, size, and the offline entry point.
+    @ViewBuilder
+    private var downloadCard: some View {
+        if let progress = downloadManager.progress, progress.novelID == novelID {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("正在下载", systemImage: "arrow.down.circle")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("取消") { downloadManager.cancel() }
+                        .font(.caption)
+                }
+                ProgressView(value: progress.fraction)
+                    .tint(AppTheme.accent)
+                Text("\(progress.completed)/\(progress.total)  ·  \(progress.currentTitle)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(16)
+            .glassCard(cornerRadius: 22)
+        } else if let entry = offlineEntry {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(entry.isComplete ? "已下载，可离线阅读" : "部分下载", systemImage: "checkmark.circle")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text("\(entry.storedChapterIDs.count)/\(entry.chapterIDs.count) 章")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: entry.progress)
+                    .tint(AppTheme.accent)
+                HStack {
+                    Text(formatBytes(entry.bytes))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if !entry.isComplete {
+                        Button("继续下载") { downloadManager.download(novelID: novelID) }
+                            .font(.caption)
+                    }
+                }
+            }
+            .padding(16)
+            .glassCard(cornerRadius: 22)
+        }
+    }
+
+    private func refreshOffline() async {
+        offlineEntry = await OfflineStore.shared.entry(for: novelID)
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     private func header(_ detail: NovelDetail) -> some View {

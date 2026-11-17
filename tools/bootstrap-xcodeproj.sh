@@ -51,6 +51,7 @@ if [[ "$ACTION" == "build" ]]; then
   xcodebuild -project Wenku8.xcodeproj -scheme Wenku8 \
     -configuration Debug -sdk iphonesimulator \
     -derivedDataPath "${ROOT}/.build-mac/dd" \
+    CODE_SIGNING_ALLOWED=NO \
     build
   exit 0
 fi
@@ -87,12 +88,19 @@ fi
 echo "==> device $UDID"
 
 echo "==> building for the device"
+# CODE_SIGN_IDENTITY is passed explicitly: XcodeGen's generated project pins the
+# legacy "iPhone Developer" identity for some targets, and when Xcode's account
+# cache is cold it then reports "No Accounts" / "No signing certificate" even
+# though a valid Apple Development identity is present in the keychain.
 xcodebuild -project Wenku8.xcodeproj -scheme Wenku8 \
   -configuration Debug \
   -destination "id=$UDID" \
   -derivedDataPath "${ROOT}/.build-mac/dd" \
   -allowProvisioningUpdates \
+  -allowProvisioningDeviceRegistration \
   DEVELOPMENT_TEAM="$TEAM" \
+  CODE_SIGN_IDENTITY="Apple Development" \
+  CODE_SIGN_STYLE=Automatic \
   PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   build
 

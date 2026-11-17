@@ -29,10 +29,17 @@ public struct SearchQuery: Hashable, Sendable {
 public struct NovelService: Sendable {
     private let client: Wenku8Client
     private let relay: RelayClient
+    /// Local download cache consulted before the network.
+    private let offline: OfflineStore
 
-    public init(client: Wenku8Client = .shared, relay: RelayClient = .shared) {
+    public init(
+        client: Wenku8Client = .shared,
+        relay: RelayClient = .shared,
+        offline: OfflineStore = .shared
+    ) {
         self.client = client
         self.relay = relay
+        self.offline = offline
     }
 
     /// Relay-first helpers. The relay is a third-party volunteer service, so every
@@ -202,6 +209,23 @@ public struct NovelService: Sendable {
     // MARK: - Detail
 
     public func detail(aid: Int) async throws -> NovelDetail {
+        do {
+            return try await onlineDetail(aid: aid)
+        } catch {
+            if let entry = await offline.entry(for: aid) {
+                return NovelDetail(
+                    id: aid,
+                    title: entry.title,
+                    author: entry.author ?? "",
+                    intro: "已下载到本机，可离线阅读。",
+                    coverURL: await offline.coverURL(for: aid)
+                )
+            }
+            throw error
+        }
+    }
+
+    private func onlineDetail(aid: Int) async throws -> NovelDetail {
         if relayIsAvailable,
            let data = try? await relay.send(RelayAction.meta(aid: aid)) {
             var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
@@ -224,6 +248,22 @@ public struct NovelService: Sendable {
     }
 
     public func volumes(aid: Int) async throws -> [Volume] {
+        do {
+            return try await onlineVolumes(aid: aid)
+        } catch {
+            // Offline: rebuild the catalogue from the downloaded manifest so the
+            // reader can still navigate a cached book.
+            if let entry = await offline.entry(for: aid), !entry.chapterIDs.isEmpty {
+                let chapters = entry.chapterIDs.map {
+                    ChapterLink(id: $0, title: entry.chapterTitles[$0] ?? "第 \($0) 章")
+                }
+                return [Volume(id: "0", title: "已缓存", chapters: chapters)]
+            }
+            throw error
+        }
+    }
+
+    private func onlineVolumes(aid: Int) async throws -> [Volume] {
         if relayIsAvailable,
            let data = try? await relay.send(RelayAction.chapterList(aid: aid)) {
             let relayed = RelayParser.volumes(TextDecoding.decode(data))
@@ -302,6 +342,11 @@ public struct NovelService: Sendable {
     }
 
     public func chapter(aid: Int, cid: Int) async throws -> ChapterContent {
+        // A downloaded chapter always wins, which is what makes offline reading
+        // work at all.
+        if let cached = await offline.chapter(aid, cid: cid) {
+            return cached
+        }
         if relayIsAvailable,
            let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) {
             let parsed = RelayParser.chapter(TextDecoding.decode(data), aid: aid, cid: cid)
@@ -369,8 +414,20 @@ public struct NovelService: Sendable {
     }
 
     public func accountName() async -> String? {
-        guard let html = try? await client.wap("/") else { return nil }
-        return WAPParser.accountName(html)
+        await desktopAccountName()
+    }
+
+    /// Reads the signed-in name from the desktop site's header, which is where the
+    /// desktop login actually writes its session.
+    ///
+    /// A book page is used rather than `/index.php` or `/login.php`: the former
+    /// redirects anonymous visitors to the login form, and the latter serves the
+    /// form itself, so neither reliably carries the header. Book pages render it
+    /// for anonymous and signed-in visitors alike.
+    public func desktopAccountName(aid: Int = 1614) async -> String? {
+        guard let html = try? await client.desktop("/book/\(aid).htm") else { return nil }
+        if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return nil }
+        return AccountParser.desktopAccountName(html)
     }
 
     // MARK: - Account
@@ -406,7 +463,10 @@ public struct NovelService: Sendable {
             throw Wenku8Error.login(message)
         }
 
-        guard let resolved = await accountName() else {
+        // Confirm against the *desktop* header. The WAP header is a different
+        // session scope: a successful desktop login left `您好!游客,` in place,
+        // which used to surface as "登录未生效" even though the login worked.
+        guard let resolved = await desktopAccountName() else {
             throw Wenku8Error.login("登录未生效，请稍后重试")
         }
         return Session(userName: resolved, isRemote: true)
@@ -417,8 +477,7 @@ public struct NovelService: Sendable {
     }
 
     public func currentUserName() async -> String? {
-        guard let html = try? await client.wap("/") else { return nil }
-        return AccountParser.accountName(html)
+        await desktopAccountName()
     }
 
     // MARK: - Remote bookcase

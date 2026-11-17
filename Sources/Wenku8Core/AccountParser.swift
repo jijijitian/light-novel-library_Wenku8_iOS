@@ -39,6 +39,32 @@ public enum AccountParser {
         return name == "游客" ? nil : name
     }
 
+    /// The desktop header reads `轻小说文库欢迎您，<name>！` once signed in, and
+    /// `轻小说文库欢迎您，您可以选择[登录]或者[注册新用户]！` when anonymous.
+    ///
+    /// Sign-in is confirmed against this rather than the WAP header: the desktop
+    /// flow writes its session cookie for the desktop pages, and reading the WAP
+    /// header reported "not signed in" even when the desktop session was valid.
+    /// That mismatch is why signing in appeared to do nothing.
+    public static func desktopAccountName(_ html: String) -> String? {
+        if html.contains("您可以选择[") { return nil }
+        guard let raw = firstMatch(#"欢迎您[，,]\s*([^<！!\[，,]{1,40})[！!]"#, in: html) else {
+            return nil
+        }
+        let name = Markup.decodeEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != "游客", !name.contains("您可以选择") else { return nil }
+        return name
+    }
+
+    /// True when a desktop page is the login form rather than the requested page.
+    ///
+    /// Only the form itself counts: ordinary pages link to
+    /// `login.php?jumpurl=…` in their header, so matching that would misreport
+    /// every anonymous page as a login page.
+    public static func isDesktopLoginPage(_ html: String) -> Bool {
+        html.contains(#"name="frmlogin""#)
+    }
+
     /// Parses the WAP bookcase listing into the same summary shape the rest of the
     /// app uses, so a signed-in shelf can be merged with the local one.
     public static func bookcaseNovels(_ html: String) -> [NovelSummary] {

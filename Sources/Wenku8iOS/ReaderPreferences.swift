@@ -41,3 +41,15 @@ enum ReaderPreferences {
         CGFloat(size) * 2
     }
 }
+
+/// Layout constants shared by the reader's two modes.
+enum ReaderMetrics {
+    /// Room reserved below the prose. It is deliberately independent of whether
+    /// the control panel is visible: the panel floats on top of the text, so
+    /// toggling it must not move a single line.
+    static let bottomInset: CGFloat = 40
+
+    /// Opacity of that floating panel, kept light so the text stays readable
+    /// underneath it.
+    static let chromeOpacity: Double = 0.82
+}

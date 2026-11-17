@@ -23,6 +23,8 @@
 | 书评 | 书评列表与详情页回复 |
 | 我的书架 | 本地收藏与每本书的阅读进度 |
 | 底部导航 | 使用系统 `TabView`，在 iOS 26/27 上呈现原生 Liquid Glass 浮动胶囊栏 |
+| 站点域名 | 可在 wenku8.net 与 wenku8.cc 之间切换，某个域名不通时自动回退另一个 |
+| 离线缓存 | 把整本小说（含插图）下载到本机，无网络时照常阅读；支持断点续传与删除 |
 | 中转服务 | 默认开启的公益中转，提供真实排行榜、文库分类，以及网页版读不到的正文；失败自动回落网页版 |
 
 ## Liquid Glass 适配
@@ -149,7 +151,7 @@ Wenku8.app/
 │       ├── ShelfView.swift
 │       ├── SettingsView.swift
 │       └── LibraryStore.swift        # 书架 / 进度 / 搜索历史持久化
-├── Tests/Wenku8CoreTests/            # 61 个测试（含真实页面样本 + 中转服务真实响应样本）
+├── Tests/Wenku8CoreTests/            # 80 个测试（含真实页面样本 + 中转服务真实响应样本）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        # 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            # 离线单元测试

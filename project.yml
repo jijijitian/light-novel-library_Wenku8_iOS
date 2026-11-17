@@ -41,6 +41,9 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: C428Z585GG
 
   Wenku8:
     type: application
@@ -56,6 +59,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.mewx.wenku8.ios
         PRODUCT_NAME: Wenku8
+        # XcodeGen's application template hard-codes the legacy
+        # "iPhone Developer" identity, which beats the project-level value and
+        # matches no certificate on current Xcode.
+        CODE_SIGN_IDENTITY: "Apple Development"
         INFOPLIST_FILE: Support/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

@@ -9,6 +9,9 @@ struct SettingsView: View {
     @State private var showLogin = false
     @State private var accountMessage: String?
     @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
+    @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
+    @State private var offlineCount = 0
+    @State private var offlineBytes: Int64 = 0
     private let relayStore = RelayCredentialStore.shared
     @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
     @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
@@ -83,6 +86,19 @@ struct SettingsView: View {
                 }
             }
 
+            Section("离线缓存") {
+                NavigationLink {
+                    OfflineLibraryView()
+                } label: {
+                    LabeledContent {
+                        Text(offlineSummary)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("已下载小说", systemImage: "arrow.down.circle")
+                    }
+                }
+            }
+
             Section("书架") {
                 LabeledContent("已收藏", value: "\(store.saved.count) 本")
                 LabeledContent("阅读进度", value: "\(store.progress.count) 本")
@@ -91,6 +107,28 @@ struct SettingsView: View {
                 } label: {
                     Label("清空搜索历史", systemImage: "trash")
                 }
+            }
+
+            Section {
+                Picker(selection: Binding(
+                    get: { domainRaw },
+                    set: { newValue in
+                        domainRaw = newValue
+                        Wenku8Client.shared.use(domain: SiteDomain(rawValue: newValue) ?? .net)
+                    }
+                )) {
+                    ForEach(SiteDomain.allCases) { domain in
+                        Text(domain.title).tag(domain.rawValue)
+                    }
+                } label: {
+                    Label("站点域名", systemImage: "globe.asia.australia")
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("数据来源")
+            } footer: {
+                Text("两个域名内容一致；某个域名访问不通时可以切换到另一个。首页抓取仍会自动回退。")
+                    .font(.footnote)
             }
 
             Section("数据来源") {
@@ -134,6 +172,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showLogin) {
             LoginView()
         }
+        .task { await refreshOffline() }
     }
 
     @ViewBuilder
@@ -222,6 +261,22 @@ struct SettingsView: View {
             """)
             .font(.footnote)
         }
+    }
+
+    private var offlineSummary: String {
+        offlineCount == 0 ? "未下载" : "\(offlineCount) 本 · \(formatBytes(offlineBytes))"
+    }
+
+    private func refreshOffline() async {
+        let entries = await OfflineStore.shared.entries()
+        offlineCount = entries.count
+        offlineBytes = await OfflineStore.shared.totalBytes()
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     private var appVersion: String {

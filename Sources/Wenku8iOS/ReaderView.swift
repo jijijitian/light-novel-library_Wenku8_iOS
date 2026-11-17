@@ -70,6 +70,24 @@ final class ReaderViewModel: ObservableObject {
         await load()
     }
 
+    /// Downloaded copy of an illustration, if any. The lookup is asynchronous, so
+    /// results are memoised and a background refresh republishes the view.
+    private var localImages: [String: URL] = [:]
+
+    func localImageURL(for remote: URL) -> URL? {
+        let key = remote.absoluteString
+        if let cached = localImages[key] { return cached }
+        Task { [weak self] in
+            guard let self else { return }
+            guard let local = await OfflineStore.shared.imageURL(for: novelID, remote: remote) else { return }
+            await MainActor.run {
+                self.localImages[key] = local
+                self.objectWillChange.send()
+            }
+        }
+        return nil
+    }
+
     /// Warms the cache for a neighbouring chapter so a page swipe does not show
     /// an empty page while the request is in flight.
     func prefetch(_ newIndex: Int) async {
@@ -153,23 +171,15 @@ struct ReaderView: View {
             case .vertical:
                 verticalContent
             case .horizontal:
-                HorizontalPager(
-                    pageCount: model.chapters.count,
-                    index: Binding(
-                        get: { model.index },
-                        set: { newIndex in
-                            guard newIndex != model.index else { return }
-                            Task {
-                                await model.jump(to: newIndex)
-                                recordProgress()
-                            }
-                        }
-                    ),
+                PagedReadingView(
+                    model: model,
                     theme: theme,
-                    sliderWidth: sliderWidth
-                ) { index in
-                    pageBody(for: index)
-                }
+                    fontSize: fontSize,
+                    lineSpacing: lineSpacing,
+                    indent: indentFirstLine ? ReaderPreferences.indent(for: fontSize) : 0,
+                    showChrome: $showChrome,
+                    onLongPressImage: { zoomedImage = ZoomedImage(url: $0) }
+                )
             }
 
             if showChrome {
@@ -239,72 +249,13 @@ struct ReaderView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.top, 24)
-            // The chrome is a floating panel, so content gets a matching inset
-            // rather than being scrolled under it.
-            .padding(.bottom, showChrome ? 260 : 46)
+            // The control panel floats *over* the prose: the bottom inset is
+            // constant so showing or hiding it never reflows the text.
+            .padding(.bottom, ReaderMetrics.bottomInset)
         }
         .scrollIndicators(.hidden)
         .onTapGesture {
             withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
-        }
-    }
-
-    // MARK: - Horizontal mode
-
-    /// A chapter is long, so "left/right page turning" pages *within* a chapter
-    /// using the measured text height; reaching the last page advances to the
-    /// next chapter, which matches how the Android reader behaves.
-    private func pageBody(for index: Int) -> some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 18) {
-                if index == model.index {
-                    chapterTitle
-                    if let content = model.content {
-                        blocks(content)
-                        navigationButtons
-                    } else {
-                        statusView
-                    }
-                } else {
-                    // Neighbouring chapters are prefetched so a swipe shows prose
-                    // rather than an empty page.
-                    Color.clear
-                        .frame(height: 1)
-                        .task { await model.prefetch(index) }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, showChrome ? 260 : 46)
-        }
-        .scrollDisabled(true)
-        .scrollIndicators(.hidden)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    if value.translation.width < -40 {
-                        turnNext()
-                    } else if value.translation.width > 40 {
-                        turnPrevious()
-                    } else {
-                        withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
-                    }
-                }
-        )
-    }
-
-    private func turnNext() {
-        Task {
-            await model.goNext()
-            recordProgress()
-        }
-    }
-
-    private func turnPrevious() {
-        Task {
-            await model.goPrevious()
-            recordProgress()
         }
     }
 
@@ -364,12 +315,13 @@ struct ReaderView: View {
                     // full-width characters rather than using a tab stop.
                     .padding(.leading, indentFirstLine ? ReaderPreferences.indent(for: fontSize) : 0)
             case .image(let url):
-                Button {
-                    zoomedImage = ZoomedImage(url: url)
-                } label: {
-                    ReaderImage(url: url, theme: theme)
-                }
-                .buttonStyle(.plain)
+                // Tapping an illustration must keep doing whatever it did before
+                // (nothing beyond the page tap that toggles the chrome); zooming
+                // is opt-in via a long press.
+                ReaderImage(url: url, theme: theme, localURL: model.localImageURL(for: url))
+                    .onLongPressGesture(minimumDuration: 0.45) {
+                        zoomedImage = ZoomedImage(url: model.localImageURL(for: url) ?? url)
+                    }
             }
         }
     }
@@ -402,10 +354,6 @@ struct ReaderView: View {
             .disabled(!model.canGoNext)
         }
         .padding(.top, 26)
-    }
-
-    private var sliderWidth: CGFloat {
-        min(UIScreen.main.bounds.width - 120, 320)
     }
 
     private var chrome: some View {
@@ -514,9 +462,13 @@ struct ReaderView: View {
             }
             .padding(16)
             .glassCard(cornerRadius: 26)
+            // Light enough that the prose stays legible through the panel, which
+            // is now an overlay rather than something the layout makes room for.
+            .opacity(ReaderMetrics.chromeOpacity)
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
+        .allowsHitTesting(true)
     }
 
     private func recordProgress() {
@@ -546,8 +498,13 @@ struct ZoomedImage: Identifiable {
 struct ReaderImage: View {
     var url: URL
     var theme: ReaderTheme
+    /// Set when the illustration was downloaded, so it renders without a network.
+    var localURL: URL?
 
     @State private var failed = false
+
+    /// A downloaded copy always wins over the remote URL.
+    private var resolved: URL { localURL ?? url }
 
     var body: some View {
         Group {
@@ -562,7 +519,7 @@ struct ReaderImage: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
+                AsyncImage(url: resolved, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -649,70 +606,6 @@ struct ImageViewer: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.55))
                         .padding(.bottom, 24)
-                }
-            }
-        }
-    }
-}
-
-/// Horizontal pager for the left/right reading mode.
-///
-/// A paged `TabView` is used so the transition stays native, but the page index
-/// is driven by the view model rather than being the source of truth.
-struct HorizontalPager<Content: View>: View {
-    var pageCount: Int
-    @Binding var index: Int
-    var theme: ReaderTheme
-    var sliderWidth: CGFloat
-    @ViewBuilder var content: (Int) -> Content
-
-    var body: some View {
-        TabView(selection: $index) {
-            ForEach(0..<max(pageCount, 1), id: \.self) { page in
-                content(page)
-                    .tag(page)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .background(theme.background)
-    }
-}
-
-struct CatalogSheet: View {
-    @ObservedObject var model: ReaderViewModel
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
-                    Button {
-                        Task {
-                            await model.jump(to: index)
-                            dismiss()
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(chapter.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
-                                .multilineTextAlignment(.leading)
-                            Spacer(minLength: 0)
-                            if index == model.index {
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .foregroundStyle(.tint)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .listStyle(.plain)
-            .navigationTitle("章节目录")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
                 }
             }
         }

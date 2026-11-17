@@ -9,6 +9,13 @@ struct Wenku8App: App {
 
     init() {
         Self.configureRelay()
+        Self.restoreDomain()
+    }
+
+    /// Applies the mirror chosen in Settings before any request goes out.
+    private static func restoreDomain() {
+        let raw = UserDefaults.standard.string(forKey: "site.domain") ?? SiteDomain.net.rawValue
+        Wenku8Client.shared.use(domain: SiteDomain(rawValue: raw) ?? .net)
     }
 
     /// The relay is the only path that serves real rankings and category

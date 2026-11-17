@@ -76,3 +76,53 @@ final class AccountParserTests: XCTestCase {
                        "https://img.wenku8.com/image/4/4086/4086s.jpg")
     }
 }
+
+final class DesktopAccountTests: XCTestCase {
+    func testAnonymousBannerIsNotAnAccount() {
+        let html = "轻小说文库欢迎您，您可以选择[<a href=\"/login.php\">登录</a>]或者[<a href=\"/register.php\">注册新用户</a>]！"
+        XCTAssertNil(AccountParser.desktopAccountName(html))
+    }
+
+    func testSignedInBannerYieldsTheName() {
+        XCTAssertEqual(AccountParser.desktopAccountName("轻小说文库欢迎您，鸭志田一！"), "鸭志田一")
+        XCTAssertEqual(AccountParser.desktopAccountName("轻小说文库欢迎您，测试用户！"), "测试用户")
+    }
+
+    func testBannerWithLogoutLink() {
+        let html = "欢迎您，alice！ [<a href=\"/logout.php\">退出</a>]"
+        XCTAssertEqual(AccountParser.desktopAccountName(html), "alice")
+    }
+
+    func testPageWithoutBannerIsNil() {
+        XCTAssertNil(AccountParser.desktopAccountName("<html><body>no header</body></html>"))
+    }
+
+    func testOnlyTheFormCountsAsALoginPage() {
+        // Ordinary pages link to login.php?jumpurl=… and must not be mistaken for
+        // the login form; that misdetection used to break session checks.
+        XCTAssertFalse(AccountParser.isDesktopLoginPage(
+            "<a href=\"https://www.wenku8.net/login.php?jumpurl=%2Fbook%2F1614.htm\">登录</a>"
+        ))
+        XCTAssertTrue(AccountParser.isDesktopLoginPage(
+            "<form name=\"frmlogin\" method=\"post\" action=\"login.php?do=submit\">"
+        ))
+    }
+
+    func testDomainEndpointsPutTheChosenMirrorFirst() {
+        let net = SiteEndpoints(domain: .net)
+        XCTAssertEqual(net.primaryHost, "https://www.wenku8.net")
+        XCTAssertEqual(net.hosts.last, "https://www.wenku8.cc")
+        let cc = SiteEndpoints(domain: .cc)
+        XCTAssertEqual(cc.primaryHost, "https://www.wenku8.cc")
+        XCTAssertEqual(cc.hosts.last, "https://www.wenku8.net")
+        XCTAssertEqual(cc.primaryWAP, "https://www.wenku8.cc/wap")
+    }
+
+    func testClientSwitchesDomain() {
+        let client = Wenku8Client()
+        client.use(domain: .cc)
+        XCTAssertEqual(client.endpoints.primaryHost, "https://www.wenku8.cc")
+        client.use(domain: .net)
+        XCTAssertEqual(client.endpoints.primaryHost, "https://www.wenku8.net")
+    }
+}

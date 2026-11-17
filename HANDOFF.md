@@ -12,7 +12,7 @@
 | 工程形态 | `project.yml`（XcodeGen）→ 生成 `Wenku8.xcodeproj`，用 **Xcode / xcodebuild** 构建 |
 | 部署目标 | iOS 17.0（Liquid Glass 仅在 iOS 26+ 生效，iOS 17/18 回落材质） |
 | 核心层 | 仍是纯 SwiftPM 模块，可在 Linux 上跑测试 |
-| 单元测试 | **61 个**，全部通过（`bash tools/test-core-linux.sh`） |
+| 单元测试 | **80 个**，全部通过（`bash tools/test-core-linux.sh`） |
 | 联网校验 | 全部通过（`bash tools/test-live.sh`） |
 | 已完成 | SwiftUI 重写、Liquid Glass、登录、加书架、阅读器、搜索、排行榜、书评 |
 | **本轮完成** | ① 首页卡片重叠已修 ② dock 改用 iOS 27 原生 Liquid Glass ③ relay API 完整接入（算法已还原） ④ 构建从 xtool 迁到 Xcode ⑤ 真机跑通 ⑥ 左右翻页/首行缩进/图片支持 |
@@ -77,7 +77,7 @@ work/
 │       ├── AccountStore.swift        登录态 + 云端书架同步
 │       ├── LibraryStore.swift        本地书架/进度/搜索历史持久化
 │       └── WebSheet.swift            SFSafariViewController 包装
-├── Tests/Wenku8CoreTests/            57 个测试 + 30 个 fixture（含 relay 真实响应）
+├── Tests/Wenku8CoreTests/            80 个测试 + 30 个 fixture（含 relay 真实响应）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        ★ 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            离线测试
@@ -316,6 +316,51 @@ sig8      = 十六进制字符串的第 12–20 位
 - `ReaderImage` 行内渲染，失败显示占位，加载中显示骨架
 - 点击图片进入 `ImageViewer`：全屏、双指缩放（1–5x）、双击放大/还原
 - 控制条是浮层，章节内容底部预留 260pt，避免图片被压在面板下面
+
+## 7.6 登录修复（重要）
+
+### 根因：确认会话时读错了页面
+
+`signIn` 走的是**桌面版** `login.php?do=submit`，但成功后却用 **WAP 首页**的
+`您好!xxx,` 来确认会话。两者是不同的会话域，桌面登录成功后 WAP 首页仍然是
+`您好!游客,`，于是 `accountName()` 返回 nil，抛出「登录未生效，请稍后重试」——
+**登录其实成功了，只是确认逻辑读错了地方**。
+
+修复：新增 `AccountParser.desktopAccountName(_:)`，解析桌面版头部
+
+```
+轻小说文库欢迎您，<用户名>！            ← 已登录
+轻小说文库欢迎您，您可以选择[登录]…      ← 未登录
+```
+
+`NovelService.desktopAccountName()` 抓的是**书籍页**（`/book/<aid>.htm`）而不是
+`/index.php` 或 `/login.php`：前者的匿名访问会 302 到登录页，后者本身就是登录表单，
+都不稳定带这个头部；书籍页对匿名和已登录用户都渲染它。
+
+### 顺带修掉的两个坑
+
+1. `isDesktopLoginPage` 原先匹配 `login.php?jumpurl=`，但**所有页面的头部都含这个链接**，
+   导致每个匿名页面都被判定成登录页。现在只认 `<form name="frmlogin">`。
+2. 网页登录场景（在 SFSafariViewController 里登录）不共享 App 的 cookie，
+   这是系统限制；界面已提供账号密码直接登录作为主路径。
+
+## 7.7 站点域名切换
+
+- `SiteDomain { net, cc }`，对应 `https://www.wenku8.net` 与 `https://www.wenku8.cc`。
+- **设置 → 数据来源 → 站点域名**，存于 `@AppStorage("site.domain")`，启动时
+  `Wenku8App.restoreDomain()` 应用。
+- `SiteEndpoints(domain:)` 把选中域名放第一位，另一个作为回退，所以某个域名
+  不通时会自动试另一个。
+- 匿名抓取路径不变（首页仍走原来的 WAP 抓取 + 回退），这个开关只决定基准域名。
+
+## 7.8 阅读器控制面板改为覆盖式
+
+原先正文底部内边距随 `showChrome` 变化（260 ↔ 46），点一下就把整章文本重排一次。
+现在：
+
+- `ReaderMetrics.bottomInset` 固定 40，正文位置**不受面板显示与否影响**
+- `ReaderMetrics.chromeOpacity = 0.82`，面板半透明浮在正文上方，底下文字仍可辨认
+- 左右翻页模式同样用固定 inset，不会因为弹出面板而重新分页
 
 ## 8. 已知问题与坑（踩过的，别再踩）
 
