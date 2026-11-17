@@ -21,9 +21,21 @@ jobs:
         run: bash tools/test-core-linux.sh
 
   build:
-    name: xtool build (macOS)
+    name: xtool build (${{ matrix.label }})
     needs: core-tests
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: iOS 27 SDK
+            runner: xcode-27
+            expect_sdk: "27"
+            artifact: Wenku8iOS-unsigned-ios27
+          - label: iOS 26 SDK
+            runner: macos-26
+            expect_sdk: "26"
+            artifact: Wenku8iOS-unsigned-ios26
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
 
@@ -32,7 +44,17 @@ jobs:
           set -euo pipefail
           sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
-          xcrun -sdk iphoneos -show-sdk-path
+          echo "--- iOS SDKs on this runner ---"
+          xcodebuild -showsdks -json | tee sdks.json
+          SDK_PATH=$(xcrun -sdk iphoneos -show-sdk-path)
+          echo "SDK_PATH=$SDK_PATH"
+          SDK_VERSION=$(xcrun -sdk iphoneos --show-sdk-version)
+          echo "SDK_VERSION=$SDK_VERSION"
+          echo "SDK_VERSION=$SDK_VERSION" >> "$GITHUB_ENV"
+          case "$SDK_VERSION" in
+            ${{ matrix.expect_sdk }}.*) echo "matches expected major ${{ matrix.expect_sdk }}" ;;
+            *) echo "expected iOS ${{ matrix.expect_sdk }} SDK, got $SDK_VERSION"; exit 1 ;;
+          esac
 
       - name: Install xtool
         run: |
@@ -45,6 +67,7 @@ jobs:
           set -euo pipefail
           xtool dev build --configuration release 2>&1 | tee build.log
           test -d xtool/Wenku8iOS.app
+          echo "built with iOS $SDK_VERSION SDK" | tee -a build.log
 
       - name: Verify bundle contents
         run: |
@@ -55,8 +78,8 @@ jobs:
           echo "--- bundle tree ---"
           find "$APP" -maxdepth 2 | sort
           test -x "$APP/Wenku8iOS"
-          plutil -extract CFBundleIdentifier raw "$APP/Info.plist"
-          plutil -extract MinimumOSVersion raw "$APP/Info.plist"
+          echo "CFBundleIdentifier=$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")"
+          echo "MinimumOSVersion=$(plutil -extract MinimumOSVersion raw "$APP/Info.plist")"
           test -f "$APP/AppIcon.png"
 
       - name: Verify executable entry point and frameworks
@@ -67,23 +90,29 @@ jobs:
           echo "--- architecture ---"
           file "$BIN"
           lipo -info "$BIN"
+          echo "--- min OS recorded in the Mach-O ---"
+          otool -l "$BIN" | tee macho-load-commands.txt >/dev/null
+          if grep -q "LC_BUILD_VERSION" macho-load-commands.txt; then
+            # platform 2 = iOS
+            grep -A 4 "LC_BUILD_VERSION" macho-load-commands.txt | tee buildversion.txt
+            grep -q "platform 2" buildversion.txt
+          else
+            grep "LC_VERSION_MIN_IPHONEOS" macho-load-commands.txt
+          fi
           echo "--- entry point symbol ---"
-          nm -gU "$BIN" | grep -E "(_main|_main$)" || {
-            echo "missing main symbol: the SwiftUI @main struct was not linked in"
-            exit 1
-          }
+          nm -gU "$BIN" | grep -E "(_main|_main$)"
           echo "--- linked frameworks ---"
           otool -L "$BIN" | tee frameworks.txt
           grep -q "SwiftUI.framework" frameworks.txt
           grep -q "UIKit.framework" frameworks.txt
           echo "--- resource bundle name ---"
           ls -d "$APP"/*.bundle
-          strings "$BIN" | grep -q "Wenku8iOS_Wenku8Core.bundle" || {
-            echo "resource bundle name mismatch: Bundle.module would not resolve"
-            exit 1
-          }
-          echo "--- embed check ---"
-          ls -la "$APP/Wenku8iOS_Wenku8Core.bundle"
+          strings "$BIN" | grep -q "Wenku8iOS_Wenku8Core.bundle"
+          echo "--- Liquid Glass API availability ---"
+          # glassEffect/GlassEffectContainer are iOS 26+, so the built binary must
+          # still build against a matching SDK; record which one was used.
+          echo "built against iOS $SDK_VERSION SDK"
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Package unsigned ipa
         run: |
@@ -94,12 +123,15 @@ jobs:
           cp -R xtool/Wenku8iOS.app Payload/
           zip -qry Wenku8iOS-unsigned.ipa Payload
           ls -lh Wenku8iOS-unsigned.ipa
+          shasum -a 256 Wenku8iOS-unsigned.ipa | tee ipa.sha256
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Wenku8iOS-unsigned
+          name: ${{ matrix.artifact }}
           path: |
             Wenku8iOS-unsigned.ipa
+            ipa.sha256
             build.log
+            sdks.json
           if-no-files-found: error
