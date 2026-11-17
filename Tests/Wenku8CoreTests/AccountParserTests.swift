@@ -78,19 +78,40 @@ final class AccountParserTests: XCTestCase {
 }
 
 final class DesktopAccountTests: XCTestCase {
-    func testAnonymousBannerIsNotAnAccount() {
-        let html = "轻小说文库欢迎您，您可以选择[<a href=\"/login.php\">登录</a>]或者[<a href=\"/register.php\">注册新用户</a>]！"
-        XCTAssertNil(AccountParser.desktopAccountName(html))
+    private func fixture(_ name: String) throws -> String {
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: "Fixtures/\(name)", withExtension: nil)
+                ?? Bundle.module.url(forResource: name, withExtension: nil),
+            "missing fixture \(name)"
+        )
+        return TextDecoding.decode(try Data(contentsOf: url))
     }
 
-    func testSignedInBannerYieldsTheName() {
-        XCTAssertEqual(AccountParser.desktopAccountName("轻小说文库欢迎您，鸭志田一！"), "鸭志田一")
-        XCTAssertEqual(AccountParser.desktopAccountName("轻小说文库欢迎您，测试用户！"), "测试用户")
+    func testAnonymousBannerIsNotAnAccount() throws {
+        XCTAssertNil(AccountParser.desktopAccountName(
+            "轻小说文库欢迎您，您可以选择[<a href=\"/login.php\">登录</a>]或者[<a href=\"/register.php\">注册新用户</a>]！"
+        ))
+    }
+
+    func testSignedInBannerYieldsTheName() throws {
+        // Captured from a live page with a real account: the name is followed by
+        // the logout link, not by an exclamation mark.
+        let html = try fixture("desktop-header-authed.html")
+        XCTAssertEqual(AccountParser.desktopAccountName(html), "jijijitian")
     }
 
     func testBannerWithLogoutLink() {
-        let html = "欢迎您，alice！ [<a href=\"/logout.php\">退出</a>]"
+        let html = #"欢迎您，alice [<a href="/logout.php">退出登录</a>]"#
         XCTAssertEqual(AccountParser.desktopAccountName(html), "alice")
+    }
+
+    func testNameWrappedInTags() {
+        let html = #"欢迎您，<b>alice</b> [<a href="/logout.php">退出登录</a>]"#
+        XCTAssertEqual(AccountParser.desktopAccountName(html), "alice")
+    }
+
+    func testBannerWithoutLogoutLinkIsNotSignedIn() {
+        XCTAssertNil(AccountParser.desktopAccountName("欢迎您，请先登录"))
     }
 
     func testPageWithoutBannerIsNil() {
@@ -124,5 +145,44 @@ final class DesktopAccountTests: XCTestCase {
         XCTAssertEqual(client.endpoints.primaryHost, "https://www.wenku8.cc")
         client.use(domain: .net)
         XCTAssertEqual(client.endpoints.primaryHost, "https://www.wenku8.net")
+    }
+
+    func testSessionIsIdentifiedByTheJieqiCookie() {
+        // The site authenticates with `jieqiUserInfo`; `PHPSESSID` is also handed
+        // to anonymous visitors. Treating PHPSESSID as the session (the previous
+        // behaviour) made a real login impossible to confirm.
+        let client = Wenku8Client()
+        client.clearSessionCookies()
+        XCTAssertFalse(client.hasSession())
+        guard let cookie = HTTPCookie(properties: [
+            .name: "jieqiUserInfo",
+            .value: "jieqiUserId%3D898794%2CjieqiUserName%3Djijijitian%2CjieqiUserGroup%3D3",
+            .domain: "www.wenku8.net",
+            .path: "/",
+        ]) else {
+            return XCTFail("could not build cookie")
+        }
+        HTTPCookieStorage.shared.setCookie(cookie)
+        defer { client.clearSessionCookies() }
+
+        XCTAssertTrue(client.hasSession())
+        XCTAssertEqual(client.sessionUserName(), "jijijitian")
+    }
+
+    func testAnonymousPHPSessionIsNotASignedInSession() {
+        let client = Wenku8Client()
+        client.clearSessionCookies()
+        guard let cookie = HTTPCookie(properties: [
+            .name: "PHPSESSID",
+            .value: "abc123",
+            .domain: "www.wenku8.net",
+            .path: "/",
+        ]) else {
+            return XCTFail("could not build cookie")
+        }
+        HTTPCookieStorage.shared.setCookie(cookie)
+        defer { client.clearSessionCookies() }
+        XCTAssertFalse(client.hasSession(), "PHPSESSID alone must not count as signed in")
+        XCTAssertNil(client.sessionUserName())
     }
 }

@@ -39,21 +39,38 @@ public enum AccountParser {
         return name == "游客" ? nil : name
     }
 
-    /// The desktop header reads `轻小说文库欢迎您，<name>！` once signed in, and
-    /// `轻小说文库欢迎您，您可以选择[登录]或者[注册新用户]！` when anonymous.
+    /// The desktop header has two distinct shapes, both verified against live
+    /// pages with a real account:
     ///
-    /// Sign-in is confirmed against this rather than the WAP header: the desktop
-    /// flow writes its session cookie for the desktop pages, and reading the WAP
-    /// header reported "not signed in" even when the desktop session was valid.
-    /// That mismatch is why signing in appeared to do nothing.
+    /// ```
+    /// anonymous:  轻小说文库欢迎您，您可以选择[<a href="…login.php…">登录</a>]或者[…注册新用户…]！
+    /// signed in:  轻小说文库欢迎您，<username> [<a href="/logout.php">退出登录</a>]
+    /// ```
+    ///
+    /// Sign-in is confirmed with this rather than the WAP header: the desktop
+    /// login writes `jieqiUserInfo`/`jieqiVisitInfo` cookies for the desktop
+    /// pages, and the WAP header keeps saying `您好!游客,` regardless, which is
+    /// why a successful login used to be reported as "登录未生效".
     public static func desktopAccountName(_ html: String) -> String? {
+        // `您可以选择[` only ever appears in the anonymous banner.
         if html.contains("您可以选择[") { return nil }
-        guard let raw = firstMatch(#"欢迎您[，,]\s*([^<！!\[，,]{1,40})[！!]"#, in: html) else {
-            return nil
+
+        // Signed in the name is followed by the logout link, optionally wrapped
+        // in tags (the site sometimes renders it inside <b>…</b>).
+        //   signed in:  欢迎您，jijijitian [<a href="/logout.php">退出登录</a>]
+        //   signed in:  <b>轻小说文库</b>欢迎您，jijijitian [<a href=…>退出登录</a>]
+        let patterns = [
+            #"欢迎您[，,]\s*([^<\[！!\r\n]{1,40})\s*\[\s*<a[^>]*logout\.php"#,
+            #"欢迎您[，,]\s*<[^>]+>\s*([^<\[！!\r\n]{1,40})\s*</[^>]+>\s*\[\s*<a[^>]*logout\.php"#,
+        ]
+        for pattern in patterns {
+            guard let raw = firstMatch(pattern, in: html) else { continue }
+            let cleaned = Markup.normalize(Markup.decodeEntities(raw))
+            if !cleaned.isEmpty, cleaned != "游客", !cleaned.contains("您可以选择") {
+                return cleaned
+            }
         }
-        let name = Markup.decodeEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != "游客", !name.contains("您可以选择") else { return nil }
-        return name
+        return nil
     }
 
     /// True when a desktop page is the login form rather than the requested page.

@@ -428,6 +428,7 @@ public struct NovelService: Sendable {
         guard let html = try? await client.desktop("/book/\(aid).htm") else { return nil }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return nil }
         return AccountParser.desktopAccountName(html)
+            ?? client.sessionUserName()
     }
 
     // MARK: - Account
@@ -463,13 +464,15 @@ public struct NovelService: Sendable {
             throw Wenku8Error.login(message)
         }
 
-        // Confirm against the *desktop* header. The WAP header is a different
-        // session scope: a successful desktop login left `您好!游客,` in place,
-        // which used to surface as "登录未生效" even though the login worked.
-        guard let resolved = await desktopAccountName() else {
+        // The login sets `jieqiUserInfo`; if it is absent the credentials were
+        // accepted by the form but no session was created.
+        guard let cookieName = client.sessionUserName() else {
             throw Wenku8Error.login("登录未生效，请稍后重试")
         }
-        return Session(userName: resolved, isRemote: true)
+        // Confirm against the desktop header as well, since the cookie alone
+        // would not catch a server-side session that failed to attach.
+        let headerName = await desktopAccountName()
+        return Session(userName: headerName ?? cookieName, isRemote: true)
     }
 
     public func signOut() {
@@ -482,21 +485,18 @@ public struct NovelService: Sendable {
 
     // MARK: - Remote bookcase
 
+    /// Reads the signed-in user's shelf from the desktop site.
+    ///
+    /// The relay keeps its own session and the WAP shelf is a separate scope, so
+    /// neither sees a desktop login; the desktop page is the only place the
+    /// session established by `signIn` is visible.
     public func remoteBookcase() async throws -> [NovelSummary] {
-        if relayIsAvailable,
-           let data = try? await relay.send(RelayAction.bookcaseList()) {
-            let text = TextDecoding.decode(data)
-            if let code = RelayParser.resultCode(text), code > 1 {
-                if code == 4 { throw Wenku8Error.needLogin }
-                throw Wenku8Error.login(RelayParser.message(for: code))
-            }
-            let items = RelayParser.summaries(text)
-            if !items.isEmpty { return items }
-        }
-        let html = try await client.wap("/article/bookcase.php")
-        if AccountParser.isLoginGate(html) {
-            throw Wenku8Error.needLogin
-        }
+        guard client.hasSession() else { throw Wenku8Error.needLogin }
+        let html = try await client.desktop("/modules/article/bookcase.php")
+        if AccountParser.isDesktopLoginPage(html) { throw Wenku8Error.needLogin }
+        if AccountParser.isLoginGate(html) { throw Wenku8Error.needLogin }
+        let books = DesktopParser.novelCards(html)
+        if !books.isEmpty { return books.uniquedByID() }
         return AccountParser.bookcaseNovels(html).uniquedByID()
     }
 

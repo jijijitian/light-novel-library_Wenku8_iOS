@@ -221,13 +221,33 @@ public final class Wenku8Client: @unchecked Sendable {
         throw lastError ?? Wenku8Error.network("网络不可用")
     }
 
+    /// The site authenticates with `jieqiUserInfo`, **not** `PHPSESSID`.
+    ///
+    /// `PHPSESSID` is issued to anonymous visitors too, so treating it as the
+    /// session made every visitor look signed in. Only the `jieqi*` cookies carry
+    /// the account, and only they disappear on sign-out.
     public func sessionCookieValue() -> String? {
         let cookies = cookieStorage.cookies ?? []
-        return cookies.first { $0.name.uppercased() == "PHPSESSID" }?.value
+        return cookies.first { $0.name == "jieqiUserInfo" }?.value
     }
 
     public func hasSession() -> Bool {
         !(sessionCookieValue() ?? "").isEmpty
+    }
+
+    /// Account name encoded in the `jieqiUserInfo` cookie, when present.
+    public func sessionUserName() -> String? {
+        guard let value = sessionCookieValue(),
+              let decoded = value.removingPercentEncoding ?? value as String? else { return nil }
+        for pair in decoded.components(separatedBy: ",") {
+            let parts = pair.components(separatedBy: "=")
+            guard parts.count >= 2 else { continue }
+            if parts[0] == "jieqiUserName" {
+                let name = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                return name.isEmpty ? nil : name
+            }
+        }
+        return nil
     }
 
     /// The site identifies a signed-in user purely by PHPSESSID, so signing out
