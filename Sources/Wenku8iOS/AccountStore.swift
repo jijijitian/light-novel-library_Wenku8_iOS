@@ -31,6 +31,18 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    #if DEBUG
+    /// Debug-only: signs in from environment variables so automated runs (and
+    /// simulator checks) can exercise the real login path without UI scripting.
+    func debugSignInIfConfigured() async {
+        let env = ProcessInfo.processInfo.environment
+        guard let user = env["WENKU8_LOGIN_USER"], !user.isEmpty,
+              let pass = env["WENKU8_LOGIN_PASS"], !pass.isEmpty,
+              !isSignedIn else { return }
+        _ = await signIn(username: user, password: pass)
+    }
+    #endif
+
     /// Refreshes the cached display name; drops it when the session expired.
     func refreshUserName() async {
         let current = await service.accountName()

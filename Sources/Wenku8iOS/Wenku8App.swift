@@ -42,6 +42,11 @@ struct Wenku8App: App {
                 .environmentObject(router)
                 .environmentObject(account)
                 .tint(AppTheme.accent)
+                .task {
+                    #if DEBUG
+                    await account.debugSignInIfConfigured()
+                    #endif
+                }
         }
     }
 }
