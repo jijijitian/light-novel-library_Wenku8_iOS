@@ -237,17 +237,8 @@ public final class Wenku8Client: @unchecked Sendable {
 
     /// Account name encoded in the `jieqiUserInfo` cookie, when present.
     public func sessionUserName() -> String? {
-        guard let value = sessionCookieValue(),
-              let decoded = value.removingPercentEncoding ?? value as String? else { return nil }
-        for pair in decoded.components(separatedBy: ",") {
-            let parts = pair.components(separatedBy: "=")
-            guard parts.count >= 2 else { continue }
-            if parts[0] == "jieqiUserName" {
-                let name = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                return name.isEmpty ? nil : name
-            }
-        }
-        return nil
+        guard let value = sessionCookieValue() else { return nil }
+        return AccountParser.sessionUserName(fromCookie: value)
     }
 
     /// The site identifies a signed-in user purely by PHPSESSID, so signing out

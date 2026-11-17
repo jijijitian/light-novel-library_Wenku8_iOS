@@ -73,6 +73,29 @@ public enum AccountParser {
         return nil
     }
 
+    /// Decodes the account name out of a `jieqiUserInfo` cookie value.
+    ///
+    /// The cookie is a percent-encoded, comma-separated `key=value` list, e.g.
+    /// `jieqiUserId=898794,jieqiUserName=jijijitian,jieqiUserGroup=3,…`.
+    ///
+    /// This lives here (rather than in the client) so it can be exercised by the
+    /// platform-independent test suite: `HTTPCookie` does not exist on Linux.
+    public static func sessionUserName(fromCookie raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let decoded = trimmed.removingPercentEncoding ?? trimmed
+        for pair in decoded.components(separatedBy: ",") {
+            let parts = pair.components(separatedBy: "=")
+            guard parts.count >= 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            guard key == "jieqiUserName" else { continue }
+            let name = parts.dropFirst().joined(separator: "=")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? nil : name
+        }
+        return nil
+    }
+
     /// True when a desktop page is the login form rather than the requested page.
     ///
     /// Only the form itself counts: ordinary pages link to

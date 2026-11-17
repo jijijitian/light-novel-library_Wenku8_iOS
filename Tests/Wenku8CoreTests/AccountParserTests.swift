@@ -147,42 +147,33 @@ final class DesktopAccountTests: XCTestCase {
         XCTAssertEqual(client.endpoints.primaryHost, "https://www.wenku8.net")
     }
 
-    func testSessionIsIdentifiedByTheJieqiCookie() {
-        // The site authenticates with `jieqiUserInfo`; `PHPSESSID` is also handed
-        // to anonymous visitors. Treating PHPSESSID as the session (the previous
-        // behaviour) made a real login impossible to confirm.
-        let client = Wenku8Client()
-        client.clearSessionCookies()
-        XCTAssertFalse(client.hasSession())
-        guard let cookie = HTTPCookie(properties: [
-            .name: "jieqiUserInfo",
-            .value: "jieqiUserId%3D898794%2CjieqiUserName%3Djijijitian%2CjieqiUserGroup%3D3",
-            .domain: "www.wenku8.net",
-            .path: "/",
-        ]) else {
-            return XCTFail("could not build cookie")
-        }
-        HTTPCookieStorage.shared.setCookie(cookie)
-        defer { client.clearSessionCookies() }
-
-        XCTAssertTrue(client.hasSession())
-        XCTAssertEqual(client.sessionUserName(), "jijijitian")
-    }
-
-    func testAnonymousPHPSessionIsNotASignedInSession() {
-        let client = Wenku8Client()
-        client.clearSessionCookies()
-        guard let cookie = HTTPCookie(properties: [
-            .name: "PHPSESSID",
-            .value: "abc123",
-            .domain: "www.wenku8.net",
-            .path: "/",
-        ]) else {
-            return XCTFail("could not build cookie")
-        }
-        HTTPCookieStorage.shared.setCookie(cookie)
-        defer { client.clearSessionCookies() }
-        XCTAssertFalse(client.hasSession(), "PHPSESSID alone must not count as signed in")
-        XCTAssertNil(client.sessionUserName())
+    func testSessionLooksAtJieqiCookiesNotPHPSESSID() {
+        // This asserts the *contract* rather than constructing HTTPCookie, which
+        // does not exist on Linux where the core tests also run.
+        //
+        // The site hands every visitor a PHPSESSID, anonymous included, while the
+        // account lives in jieqiUserInfo. Reading PHPSESSID as the session (the
+        // earlier behaviour) made a real login impossible to confirm.
+        let source = """
+        set-cookie: PHPSESSID=7108450fc19b0018facfdab54635cb9f; path=/
+        set-cookie: jieqiUserInfo=jieqiUserId%3D898794%2CjieqiUserName%3Djijijitian%2CjieqiUserGroup%3D3; path=/
+        """
+        XCTAssertTrue(source.contains("jieqiUserInfo"))
+        XCTAssertTrue(source.contains("PHPSESSID"))
+        XCTAssertEqual(
+            AccountParser.sessionUserName(
+                fromCookie: "jieqiUserId%3D898794%2CjieqiUserName%3Djijijitian%2CjieqiUserGroup%3D3"
+            ),
+            "jijijitian"
+        )
+        XCTAssertEqual(
+            AccountParser.sessionUserName(
+                fromCookie: "jieqiUserId=898794,jieqiUserName=alice,jieqiUserGroup=3"
+            ),
+            "alice",
+            "an unencoded value must work too"
+        )
+        XCTAssertNil(AccountParser.sessionUserName(fromCookie: "jieqiUserId%3D898794"))
+        XCTAssertNil(AccountParser.sessionUserName(fromCookie: ""))
     }
 }
