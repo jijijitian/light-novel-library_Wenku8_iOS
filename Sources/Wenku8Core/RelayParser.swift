@@ -1,222 +1,360 @@
 import Foundation
 
-/// Parses the XML documents the relay returns.
+/// Parses the relay's actual wire formats.
 ///
-/// The relay mirrors the desktop client's wire format, which is the same shape as
-/// the samples kept in the Android project's `eclipse-android-old` interface
-/// comments: a root `metadata`/`package` element wrapping `item` rows, each row
-/// carrying the fields as child elements.
+/// These were captured from the live service, and they differ from the desktop
+/// client's XML in three ways that matter:
+///
+/// * book metadata is `<data name="Title" value="…"/>` (or CDATA for long text),
+///   not `<title>…</title>`;
+/// * lists are `<result><item aid='…'><data …/></item></result>`;
+/// * a chapter body is **plain text**, not XML;
+/// * the catalogue is `<package><volume vid="…">…<chapter cid="…">…</volume>`.
 public enum RelayParser {
-    /// Parses a `<metadata>` / `item` list (book info, novel lists, bookcase).
-    public static func items(_ xml: String) -> [NovelSummary] {
-        let root = Markup.parse(xml)
-        var results: [NovelSummary] = []
-        for item in root.elements(named: "item") {
-            guard let summary = summary(from: item) else { continue }
-            results.append(summary)
+    // MARK: - Elements
+
+    /// One `<item aid>` / `<data name>` node flattened into a lookup.
+    private struct Record {
+        var attributes: [String: String] = [:]
+        var children: [Record] = []
+
+        func value(_ name: String) -> String? {
+            for child in children where child.attributes["name"] == name {
+                if let value = child.attributes["value"], !value.isEmpty { return value }
+                if let text = child.attributes["__text"], !text.isEmpty { return text }
+            }
+            return nil
         }
-        return results
+
+        func elementValue(_ name: String) -> String? {
+            for child in children where child.name == name {
+                if let text = child.attributes["__text"], !text.isEmpty { return text }
+            }
+            return nil
+        }
+
+        var name: String { attributes["__name"] ?? "" }
     }
 
-    private static func summary(from item: Element) -> NovelSummary? {
-        let aid = intValue(item, keys: ["aid", "id", "articleid"])
-        guard let aid, aid > 0 else { return nil }
-        let title = stringValue(item, keys: ["title", "articlename", "name"])
-        guard !title.isEmpty else { return nil }
-        let author = stringValue(item, keys: ["author", "authorname"])
-        return NovelSummary(
+    /// Lightweight XML reader: enough for the relay's regular, attribute-driven
+    /// documents and tolerant of the stray `<?xl` typo one endpoint returns.
+    private static func parse(_ xml: String) -> [Record] {
+        var stack: [Record] = [Record()]
+        var index = xml.startIndex
+
+        func appendText(_ text: String) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !stack.isEmpty else { return }
+            var top = stack[stack.count - 1]
+            let existing = top.attributes["__text"] ?? ""
+            top.attributes["__text"] = existing.isEmpty ? trimmed : existing + " " + trimmed
+            stack[stack.count - 1] = top
+        }
+
+        while index < xml.endIndex {
+            let character = xml[index]
+            if character != "<" {
+                var text = ""
+                while index < xml.endIndex, xml[index] != "<" {
+                    text.append(xml[index])
+                    index = xml.index(after: index)
+                }
+                appendText(text)
+                continue
+            }
+
+            // CDATA
+            if xml[index...].hasPrefix("<![CDATA[") {
+                index = xml.index(index, offsetBy: 9)
+                var cdata = ""
+                while index < xml.endIndex, !xml[index...].hasPrefix("]]>") {
+                    cdata.append(xml[index])
+                    index = xml.index(after: index)
+                }
+                if index < xml.endIndex {
+                    index = xml.index(index, offsetBy: 3, limitedBy: xml.endIndex) ?? xml.endIndex
+                }
+                appendText(cdata)
+                continue
+            }
+
+            // comment / declaration / doctype
+            if xml[index...].hasPrefix("<!--") {
+                if let end = xml.range(of: "-->", range: index..<xml.endIndex) {
+                    index = end.upperBound
+                } else {
+                    index = xml.endIndex
+                }
+                continue
+            }
+            if xml[index...].hasPrefix("<?") || xml[index...].hasPrefix("<!") {
+                if let end = xml.range(of: ">", range: index..<xml.endIndex) {
+                    index = end.upperBound
+                } else {
+                    index = xml.endIndex
+                }
+                continue
+            }
+
+            guard let tagEnd = xml.range(of: ">", range: index..<xml.endIndex) else {
+                index = xml.endIndex
+                continue
+            }
+            let inner = String(xml[xml.index(after: index)..<tagEnd.lowerBound])
+            let selfClosing = inner.hasSuffix("/")
+            let body = selfClosing ? String(inner.dropLast()) : inner
+            let isClosing = body.hasPrefix("/")
+            index = tagEnd.upperBound
+
+            if isClosing {
+                if stack.count > 1 {
+                    let closed = stack.removeLast()
+                    stack[stack.count - 1].children.append(closed)
+                }
+                continue
+            }
+
+            let record = parseTag(body)
+            stack.append(record)
+            if selfClosing {
+                let closed = stack.removeLast()
+                if !stack.isEmpty { stack[stack.count - 1].children.append(closed) }
+            }
+        }
+        // Unclosed elements still contribute their children.
+        while stack.count > 1 {
+            let closed = stack.removeLast()
+            stack[stack.count - 1].children.append(closed)
+        }
+        return stack[0].children
+    }
+
+    private static func parseTag(_ body: String) -> Record {
+        var attributes: [String: String] = [:]
+        var name = ""
+        var chars = Array(body)
+        var i = 0
+        while i < chars.count, !chars[i].isWhitespace, chars[i] != "/" {
+            name.append(chars[i])
+            i += 1
+        }
+        attributes["__name"] = name
+
+        while i < chars.count {
+            while i < chars.count, chars[i].isWhitespace { i += 1 }
+            guard i < chars.count else { break }
+            var key = ""
+            while i < chars.count, chars[i] != "=", !chars[i].isWhitespace {
+                key.append(chars[i])
+                i += 1
+            }
+            while i < chars.count, chars[i].isWhitespace { i += 1 }
+            guard i < chars.count, chars[i] == "=" else {
+                if key.isEmpty { i += 1 }
+                continue
+            }
+            i += 1
+            while i < chars.count, chars[i].isWhitespace { i += 1 }
+            guard i < chars.count else { break }
+            var value = ""
+            if chars[i] == "\"" || chars[i] == "'" {
+                let quote = chars[i]
+                i += 1
+                while i < chars.count, chars[i] != quote {
+                    value.append(chars[i])
+                    i += 1
+                }
+                if i < chars.count { i += 1 }
+            } else {
+                while i < chars.count, !chars[i].isWhitespace {
+                    value.append(chars[i])
+                    i += 1
+                }
+            }
+            if !key.isEmpty {
+                attributes[key] = decodeEntities(value)
+            }
+        }
+        return Record(attributes: attributes)
+    }
+
+    private static func decodeEntities(_ value: String) -> String {
+        Markup.decodeEntities(value)
+    }
+
+    /// All `<item>` nodes of a `<result>`/`<metadata>` document.
+    private static func items(_ xml: String) -> [Record] {
+        let roots = parse(xml)
+        var found: [Record] = []
+        func walk(_ records: [Record]) {
+            for record in records {
+                if record.name == "item" { found.append(record) }
+                walk(record.children)
+            }
+        }
+        walk(roots)
+        return found
+    }
+
+    // MARK: - Books
+
+    public static func summaries(_ xml: String) -> [NovelSummary] {
+        var results: [NovelSummary] = []
+        for item in items(xml) {
+            guard let aidText = item.attributes["aid"], let aid = Int(aidText), aid > 0 else { continue }
+            let title = firstNonEmpty([
+                item.value("Title") ?? "",
+                item.elementValue("Title") ?? "",
+                item.elementValue("title") ?? "",
+            ])
+            guard !title.isEmpty else { continue }
+            let author = firstNonEmpty([item.value("Author") ?? "", item.elementValue("Author") ?? ""])
+            results.append(NovelSummary(
+                id: aid,
+                title: title,
+                author: author.isEmpty ? nil : author,
+                coverURL: CoverURL.image(for: aid)
+            ))
+        }
+        return results.uniquedByID()
+    }
+
+    /// `action=articlelist` returns bare `<item aid='…'/>` rows without titles, so
+    /// they are only usable when a title is already known elsewhere. Kept for
+    /// callers that only need ids.
+    public static func ids(_ xml: String) -> [Int] {
+        items(xml).compactMap { item in
+            item.attributes["aid"].flatMap { Int($0) }
+        }
+    }
+
+    /// `action=book&do=meta`.
+    public static func detail(_ xml: String, aid: Int) -> NovelDetail {
+        let roots = parse(xml)
+        var fields: [String: String] = [:]
+        var sid = ""
+        func walk(_ records: [Record]) {
+            for record in records {
+                if record.name == "data", let key = record.attributes["name"] {
+                    let value = firstNonEmpty([
+                        record.attributes["value"] ?? "",
+                        record.attributes["__text"] ?? "",
+                    ])
+                    if !value.isEmpty { fields[key] = value }
+                    if key == "PressId", let id = record.attributes["sid"] { sid = id }
+                }
+                walk(record.children)
+            }
+        }
+        walk(roots)
+
+        let title = fields["Title"] ?? ""
+        return NovelDetail(
             id: aid,
             title: title,
-            author: author.isEmpty ? nil : author,
+            author: fields["Author"] ?? "",
+            category: fields["PressId"] ?? "",
+            status: fields["BookStatus"] ?? "",
+            wordCount: fields["BookLength"] ?? "",
+            updatedAt: fields["LastUpdate"] ?? "",
+            intro: fields["Intro"] ?? "",
             coverURL: CoverURL.image(for: aid)
         )
     }
 
-    /// A `<book>` block with full metadata, as returned by `book&do=meta`.
-    public static func detail(_ xml: String, aid: Int) -> NovelDetail {
-        let root = Markup.parse(xml)
-        let book = root.firstElement(named: "book") ?? root
-        let items = root.elements(named: "item")
-        let meta = items.first { item in
-            (intValue(item, keys: ["aid", "id"]) ?? 0) == aid
-        }
-
-        let title = firstNonEmpty([
-            stringValue(book, keys: ["title", "articlename", "name"]),
-            meta.map { stringValue($0, keys: ["title", "articlename", "name"]) } ?? "",
-        ])
-        let author = firstNonEmpty([
-            stringValue(book, keys: ["author", "authorname"]),
-            meta.map { stringValue($0, keys: ["author", "authorname"]) } ?? "",
-        ])
-        let intro = firstNonEmpty([
-            stringValue(book, keys: ["intro", "introduction", "content", "description"]),
-            meta.map { stringValue($0, keys: ["intro", "introduction", "content", "description"]) } ?? "",
-        ])
-
-        let bookID = intValue(book, keys: ["aid", "id"]) ?? aid
-        return NovelDetail(
-            id: bookID > 0 ? bookID : aid,
-            title: title,
-            author: author,
-            category: stringValue(book, keys: ["sort", "class", "sortname", "category"]),
-            status: stringValue(book, keys: ["full", "state", "status"]),
-            wordCount: stringValue(book, keys: ["size", "wordcount", "length"]),
-            updatedAt: stringValue(book, keys: ["lastupdate", "update", "lastupdateTime"]),
-            intro: intro,
-            coverURL: CoverURL.image(for: bookID > 0 ? bookID : aid)
-        )
+    /// `action=book&do=intro` returns plain text.
+    public static func intro(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The chapter list is nested as `package > volume > chapter` (older builds
-    /// emit `item` instead of `volume`). Chapter IDs sit on the `<chapter>` node.
+    // MARK: - Catalogue
+
+    /// `action=book&do=list` → `<package><volume vid>…<chapter cid>…`.
     public static func volumes(_ xml: String) -> [Volume] {
-        let root = Markup.parse(xml)
+        let roots = parse(xml)
         var volumes: [Volume] = []
 
-        for container in root.elements(named: "package") {
-            for (volumeIndex, volumeElement) in chapters(from: container).enumerated() {
-                let title = firstNonEmpty([
-                    volumeElement.element.attribute("name") ?? "",
-                    volumeElement.element.attribute("title") ?? "",
-                    stringValue(volumeElement.element, keys: ["name", "title", "volumename"]),
-                ])
-                let rows: [Element] = volumeElement.chapters
-                guard !rows.isEmpty else { continue }
-                var chapters: [ChapterLink] = []
-                for row in rows {
-                    guard let cid = intValue(row, keys: ["cid", "id", "chapterid"]), cid > 0 else { continue }
-                    let name = firstNonEmpty([
-                        stringValue(row, keys: ["title", "chaptername", "name"]),
-                        row.attribute("title") ?? "",
-                        row.attribute("name") ?? "",
-                    ])
-                    chapters.append(ChapterLink(id: cid, title: name))
-                }
+        func chapters(in record: Record) -> [ChapterLink] {
+            var result: [ChapterLink] = []
+            for child in record.children where child.name == "chapter" {
+                guard let cidText = child.attributes["cid"], let cid = Int(cidText), cid > 0 else { continue }
+                let title = firstNonEmpty([child.attributes["__text"] ?? ""])
+                result.append(ChapterLink(id: cid, title: title))
+            }
+            return result
+        }
+
+        for record in roots where record.name == "package" {
+            for volume in record.children where volume.name == "volume" {
+                let chapters = chapters(in: volume)
                 guard !chapters.isEmpty else { continue }
-                let volumeTitle = title.isEmpty ? "第 \(volumeIndex + 1) 卷" : title
-                volumes.append(Volume(id: "\(volumes.count)", title: volumeTitle, chapters: chapters))
+                let title = firstNonEmpty([volume.attributes["__text"] ?? ""])
+                volumes.append(Volume(
+                    id: "\(volumes.count)",
+                    title: title.isEmpty ? "第 \(volumes.count + 1) 卷" : title,
+                    chapters: chapters
+                ))
             }
         }
 
-        if volumes.isEmpty {
-            // Some builds answer with a flat `<chapter>` list and no volume wrapper.
-            var chapters: [ChapterLink] = []
-            for row in root.elements(named: "chapter") {
-                guard let cid = intValue(row, keys: ["cid", "id", "chapterid"]), cid > 0 else { continue }
-                let name = firstNonEmpty([
-                    stringValue(row, keys: ["title", "chaptername", "name"]),
-                ])
-                chapters.append(ChapterLink(id: cid, title: name))
-            }
-            if !chapters.isEmpty {
-                volumes.append(Volume(id: "0", title: "正文", chapters: chapters))
+        // Tolerate a flat chapter list with no volume wrapper.
+        if volumes.isEmpty, let package = roots.first(where: { $0.name == "package" }) {
+            let flat = chapters(in: package)
+            if !flat.isEmpty {
+                volumes.append(Volume(id: "0", title: "正文", chapters: flat))
             }
         }
         return volumes
     }
 
-    private struct VolumeChunk {
-        var element: Element
-        var chapters: [Element]
-    }
+    // MARK: - Chapters
 
-    /// Walks one `<package>` and yields its volumes. A volume is either an
-    /// explicit `volume`/`item` child that itself contains `chapter` rows, or —
-    /// when chapters hang directly off the package — a single implicit volume.
-    private static func chapters(from container: Element) -> [VolumeChunk] {
-        var chunks: [VolumeChunk] = []
-        var loose: [Element] = []
-        for child in container.childElements {
-            switch child.name {
-            case "volume", "item":
-                let rows = chapterRows(in: child)
-                if !rows.isEmpty {
-                    chunks.append(VolumeChunk(element: child, chapters: rows))
-                }
-            case "chapter":
-                loose.append(child)
-            default:
+    /// `action=book&do=text` answers with plain text, blank-line separated.
+    public static func chapter(_ body: String, aid: Int, cid: Int) -> ChapterContent {
+        let text = body
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var blocks: [ChapterContent.Block] = []
+        var title = ""
+        for rawLine in text.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let cleaned = line.replacingOccurrences(of: "\u{3000}", with: "")
+            if cleaned.isEmpty { continue }
+            if title.isEmpty, blocks.isEmpty, cleaned.count <= 40 {
+                // The relay puts the chapter title on its own first line.
+                title = cleaned
                 continue
             }
-        }
-        if !loose.isEmpty {
-            chunks.append(VolumeChunk(element: Element(name: "volume"), chapters: loose))
-        }
-        return chunks
-    }
-
-    private static func chapterRows(in container: Element) -> [Element] {
-        let direct = container.childElements.filter { $0.name == "chapter" || $0.name == "item" }
-        if !direct.isEmpty { return direct }
-        return container.elements(named: "chapter")
-    }
-
-    /// Parses a `book&do=text` chapter body.
-    ///
-    /// The relay wraps the body in `<content>` with `<p>` per paragraph and may
-    /// inline `<img>` illustrations, which are mapped to `.image` blocks.
-    public static func chapter(_ xml: String, aid: Int, cid: Int) -> ChapterContent {
-        let root = Markup.parse(xml)
-        let container = root.firstElement(named: "content") ?? root
-        let title = firstNonEmpty([
-            stringValue(container, keys: ["title", "chaptername"]),
-            stringValue(root, keys: ["title", "chaptername"]),
-        ])
-
-        var blocks: [ChapterContent.Block] = []
-        for paragraph in container.elements(named: "p") {
-            let text = normalize(paragraph.textContent)
-            if !text.isEmpty {
-                blocks.append(.paragraph(text))
-            }
-        }
-        for image in container.elements(named: "img") {
-            if let source = image.attribute("src") ?? image.attribute("data-src"),
-               let url = CoverURL.normalize(source) {
-                blocks.append(.image(url))
-            }
-        }
-        if blocks.isEmpty {
-            let text = normalize(container.textContent)
-            if !text.isEmpty {
-                blocks.append(.paragraph(text))
-            }
+            blocks.append(.paragraph(line))
         }
         return ChapterContent(novelID: aid, chapterID: cid, title: title, blocks: blocks)
     }
 
-    /// Parses `action=search` results, which use the same `item` rows.
-    public static func search(_ xml: String) -> [NovelSummary] {
-        items(xml)
-    }
+    // MARK: - Account
 
-    /// Parses the plain integer reply codes (`1` success … `22` …).
+    /// `action=login` and the bookcase writes answer with a bare integer.
     public static func resultCode(_ text: String) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Int(trimmed)
+        Int(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    /// Parses `action=userinfo`, which answers either plain text or an `<item>`.
     public static func userName(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if Int(trimmed) != nil { return nil }
         if trimmed.hasPrefix("<") {
-            let root = Markup.parse(trimmed)
-            let keys = ["username", "name", "user", "nickname"]
-            // Accept both a flat `<username>` child and the nested
-            // `<metadata><item><username>` shape the relay uses elsewhere.
-            let candidates = [root] + root.descendants()
-            for element in candidates {
-                let name = stringValue(element, keys: keys)
-                if !name.isEmpty, Int(name) == nil { return name }
+            for record in parse(trimmed) {
+                let name = firstNonEmpty([
+                    record.value("UserName") ?? "",
+                    record.value("username") ?? "",
+                    record.value("Name") ?? "",
+                ])
+                if !name.isEmpty { return name }
             }
             return nil
         }
-        if Int(trimmed) != nil { return nil }
-        return trimmed.isEmpty ? nil : trimmed
+        return trimmed
     }
 
-    /// Maps a bookcase/login reply code to a user-facing message.
     public static func message(for code: Int) -> String {
         switch code {
         case 1: return "操作成功"
@@ -235,39 +373,31 @@ public enum RelayParser {
         }
     }
 
-    // MARK: - Helpers
-
-    private static func stringValue(_ element: Element, keys: [String]) -> String {
-        for key in keys {
-            for child in element.childElements where child.name == key {
-                let text = normalize(child.textContent)
-                if !text.isEmpty { return text }
-            }
-            if let attribute = element.attribute(key) {
-                let text = normalize(attribute)
-                if !text.isEmpty { return text }
+    /// `action=xml&item=sort` → `<item sort="1">电击文库</item>`.
+    public static func sorts(_ xml: String) -> [LibraryCategory] {
+        var results: [LibraryCategory] = []
+        func walk(_ records: [Record]) {
+            for record in records {
+                if record.name == "item",
+                   let sortText = record.attributes["sort"],
+                   let id = Int(sortText) {
+                    let name = firstNonEmpty([record.attributes["__text"] ?? ""])
+                    if !name.isEmpty { results.append(LibraryCategory(id: id, name: name)) }
+                }
+                walk(record.children)
             }
         }
-        return ""
+        walk(parse(xml))
+        return results
     }
 
-    private static func intValue(_ element: Element, keys: [String]) -> Int? {
-        let raw = stringValue(element, keys: keys)
-        return Int(raw.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
+    // MARK: - Helpers
 
     private static func firstNonEmpty(_ values: [String]) -> String {
         for value in values {
-            let trimmed = normalize(value)
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
         }
         return ""
-    }
-
-    private static func normalize(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\u{3000}", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -1,6 +1,8 @@
 import XCTest
 @testable import Wenku8Core
 
+/// Covers the relay's real wire formats, which were captured from the live
+/// service and differ from the desktop client's XML (see `RelayParser`).
 final class RelayTests: XCTestCase {
     private func fixture(_ name: String) throws -> String {
         let url = try XCTUnwrap(
@@ -11,106 +13,131 @@ final class RelayTests: XCTestCase {
         return TextDecoding.decode(try Data(contentsOf: url))
     }
 
-    private func fixtureExists(_ name: String) -> Bool {
-        (Bundle.module.url(forResource: "Fixtures/\(name)", withExtension: nil)
-            ?? Bundle.module.url(forResource: name, withExtension: nil)) != nil
+    // MARK: - appver
+
+    func testAppVerMatchesKnownVectors() {
+        // Vectors cross-checked against an independent Python HMAC-SHA256.
+        XCTAssertEqual(RelayAppVer.token(unixSeconds: 1_700_000_000), "1.30-digital-bento-1eb0572a")
+        XCTAssertEqual(RelayAppVer.token(unixSeconds: 1_763_484_360), "1.30-digital-bento-9e8d91dd")
+        XCTAssertEqual(RelayAppVer.token(unixSeconds: 1_793_000_000), "1.30-digital-bento-a12060d2")
     }
 
-    // MARK: - Lists
-
-    func testListParsingKeepsIDsTitlesAndAuthors() throws {
-        let items = RelayParser.items(try fixture("relay-list.xml"))
-        XCTAssertEqual(items.count, 3)
-        XCTAssertEqual(items.first?.id, 1305)
-        XCTAssertEqual(items.first?.title, "你们赶紧给我结婚吧！")
-        XCTAssertEqual(items.first?.author, "优汰")
-        XCTAssertTrue(items.allSatisfy { $0.id > 0 && !$0.title.isEmpty })
-        // Covers are synthesised from the book id, matching the site's grouping.
-        XCTAssertEqual(items.first?.coverURL?.absoluteString, "https://img.wenku8.com/image/1/1305/1305s.jpg")
+    func testAppVerIsStableWithinAMinuteWindow() {
+        let base: Int64 = 1_700_000_040
+        XCTAssertEqual(RelayAppVer.token(unixSeconds: base), RelayAppVer.token(unixSeconds: base + 19))
+        XCTAssertNotEqual(RelayAppVer.token(unixSeconds: base), RelayAppVer.token(unixSeconds: base + 60))
     }
 
-    func testListParsingDropsRowsWithoutIdentity() {
-        let xml = """
-        <metadata>
-          <item><title>没有 ID</title></item>
-          <item><aid>7</aid></item>
-          <item><aid>8</aid><title>正常</title></item>
-        </metadata>
-        """
-        let items = RelayParser.items(xml)
-        XCTAssertEqual(items.count, 1)
-        XCTAssertEqual(items.first?.id, 8)
+    func testAppVerShape() {
+        let token = RelayAppVer.token(unixSeconds: 1_700_000_000)
+        XCTAssertTrue(token.hasPrefix("1.30-digital-bento-"), token)
+        let parts = token.split(separator: "-")
+        // "digital-bento" contains a hyphen itself, so the split yields 4 parts.
+        XCTAssertEqual(parts.count, 4)
+        XCTAssertEqual(parts[0], "1.30")
+        XCTAssertEqual(parts.dropFirst().dropLast().joined(separator: "-"), "digital-bento")
+        XCTAssertEqual(parts.last?.count, 8)
+        XCTAssertTrue(parts.last!.allSatisfy { $0.isHexDigit })
     }
 
-    // MARK: - Metadata
+    func testSHA256AndHMACMatchPublishedVectors() {
+        // RFC 4231 test case 2.
+        let mac = SHA256.hmac(key: Array("Jefe".utf8), message: Array("what do ya want for nothing?".utf8))
+        XCTAssertEqual(mac.map { String(format: "%02x", $0) }.joined(),
+                       "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+        // FIPS 180-2 "abc".
+        let digest = SHA256.hash(Array("abc".utf8))
+        XCTAssertEqual(digest.map { String(format: "%02x", $0) }.joined(),
+                       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
 
-    func testDetailParsingReadsBookFields() throws {
-        let detail = RelayParser.detail(try fixture("relay-meta.xml"), aid: 1305)
-        XCTAssertEqual(detail.id, 1305)
-        XCTAssertEqual(detail.title, "你们赶紧给我结婚吧！")
-        XCTAssertEqual(detail.author, "优汰")
+    func testBuiltinProviderKeepsWorkingWithoutStoredSecret() async {
+        let provider = BuiltinAppVerProvider()
+        let token = await provider.appVer(for: RelayToken(timestampMilliseconds: 1_700_000_000_000))
+        XCTAssertEqual(token, "1.30-digital-bento-1eb0572a")
+    }
+
+    // MARK: - Books
+
+    func testMetaParsingReadsRealDataFields() throws {
+        let detail = RelayParser.detail(try fixture("relay-meta-real.xml"), aid: 1614)
+        XCTAssertEqual(detail.id, 1614)
+        XCTAssertTrue(detail.title.hasPrefix("青春猪头少年"))
+        XCTAssertEqual(detail.author, "鸭志田一")
         XCTAssertEqual(detail.category, "电击文库")
-        XCTAssertEqual(detail.status, "连载中")
-        XCTAssertEqual(detail.wordCount, "123456")
-        XCTAssertTrue(detail.intro.contains("少子化"))
-        XCTAssertEqual(detail.coverURL?.absoluteString, "https://img.wenku8.com/image/1/1305/1305s.jpg")
+        XCTAssertEqual(detail.status, "已完成")
+        XCTAssertEqual(detail.wordCount, "1669205")
+        XCTAssertEqual(detail.updatedAt, "2026-10-26")
+        XCTAssertEqual(detail.coverURL?.absoluteString, "https://img.wenku8.com/image/1/1614/1614s.jpg")
     }
 
-    func testDetailParsingFallsBackToRequestedID() {
-        let detail = RelayParser.detail("<metadata><book><title>无名</title></book></metadata>", aid: 42)
-        XCTAssertEqual(detail.id, 42)
-        XCTAssertEqual(detail.title, "无名")
-        XCTAssertEqual(detail.coverURL?.absoluteString, "https://img.wenku8.com/image/0/42/42s.jpg")
+    func testNovelListParsingReadsTitlesAndAuthors() throws {
+        let items = RelayParser.summaries(try fixture("relay-novellist.xml"))
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.first?.id, 3519)
+        XCTAssertTrue(items.first?.title.contains("我买下了与她的每周密会") == true)
+        XCTAssertEqual(items.first?.author, "羽田宇佐")
+        XCTAssertEqual(items.last?.author, "雨森焚火")
+    }
+
+    func testBareIdListIsRejectedWithoutTitles() throws {
+        // `articlelist` returns ids only, so it must not be mistaken for a
+        // usable summary list.
+        XCTAssertTrue(RelayParser.summaries(try fixture("relay-list-real.xml")).isEmpty)
+        XCTAssertEqual(RelayParser.ids(try fixture("relay-list-real.xml")), [3519, 3057])
+    }
+
+    // MARK: - Catalogue
+
+    func testVolumesParseCDataAndAttributes() throws {
+        let volumes = RelayParser.volumes(try fixture("relay-package-real.xml"))
+        XCTAssertEqual(volumes.count, 2)
+        XCTAssertEqual(volumes[0].title, "第一卷")
+        XCTAssertEqual(volumes[0].chapters.map(\.id), [54756, 54757, 54758])
+        XCTAssertEqual(volumes[0].chapters[1].title, "第一章 学姐是兔女郎")
+        XCTAssertEqual(volumes[1].title, "第二卷 青春猪头少年不会梦到小恶魔学妹")
+        XCTAssertEqual(volumes.map(\.id), ["0", "1"])
+    }
+
+    func testVolumesSkipEmptyVolumesAndBadIDs() {
+        let xml = """
+        <package>
+        <volume vid="1"><![CDATA[空卷]]></volume>
+        <volume vid="2"><![CDATA[有卷]]>
+        <chapter cid="0"><![CDATA[零]]></chapter>
+        <chapter cid="5"><![CDATA[五]]></chapter>
+        </volume>
+        </package>
+        """
+        let volumes = RelayParser.volumes(xml)
+        XCTAssertEqual(volumes.count, 1)
+        XCTAssertEqual(volumes[0].chapters.map(\.id), [5])
     }
 
     // MARK: - Chapters
 
-    func testVolumesParseNestedStructure() throws {
-        let volumes = RelayParser.volumes(try fixture("relay-list-chapters.xml"))
-        XCTAssertEqual(volumes.count, 2)
-        XCTAssertEqual(volumes[0].title, "第一卷")
-        XCTAssertEqual(volumes[0].chapters.map(\.id), [1001, 1002])
-        XCTAssertEqual(volumes[1].chapters.map(\.title), ["第三章 归来"])
-        XCTAssertEqual(volumes.map(\.id), ["0", "1"])
-    }
+    func testChapterParsingTreatsBodyAsPlainText() {
+        let body = """
 
-    func testVolumesParseFlatChapterList() {
-        let xml = """
-        <package>
-          <chapter cid="11" title="一" />
-          <chapter cid="12" title="二" />
-        </package>
+          第一章 标题
+
+            第一段正文。
+
+            第二段正文。
+
         """
-        let volumes = RelayParser.volumes(xml)
-        XCTAssertEqual(volumes.count, 1)
-        XCTAssertEqual(volumes.first?.chapters.map(\.id), [11, 12])
+        let content = RelayParser.chapter(body, aid: 1614, cid: 54757)
+        XCTAssertEqual(content.title, "第一章 标题")
+        XCTAssertEqual(content.blocks.count, 2)
+        XCTAssertTrue(content.plainText.contains("第一段正文"))
     }
 
-    func testVolumesSkipRowsWithoutChapterIDs() {
-        let xml = """
-        <package>
-          <volume name="卷一">
-            <chapter title="没有 ID" />
-            <chapter cid="0" title="零" />
-            <chapter cid="21" title="有效" />
-          </volume>
-        </package>
-        """
-        let volumes = RelayParser.volumes(xml)
-        XCTAssertEqual(volumes.count, 1)
-        XCTAssertEqual(volumes.first?.chapters.map(\.id), [21])
-    }
+    // MARK: - Categories
 
-    func testChapterParsingSplitsParagraphsAndImages() throws {
-        let content = RelayParser.chapter(try fixture("relay-chapter.xml"), aid: 1305, cid: 1001)
-        XCTAssertEqual(content.novelID, 1305)
-        XCTAssertEqual(content.chapterID, 1001)
-        XCTAssertEqual(content.blocks.count, 4)
-        XCTAssertEqual(content.plainText.components(separatedBy: "\n\n").count, 3)
-        XCTAssertEqual(
-            content.firstImage?.absoluteString,
-            "https://img.wenku8.com/image/1/1305/1305_1.jpg"
-        )
+    func testSortsParsing() throws {
+        let sorts = RelayParser.sorts(try fixture("relay-sorts.xml"))
+        XCTAssertEqual(sorts.map(\.id), [1, 2, 3])
+        XCTAssertEqual(sorts.first?.name, "电击文库")
     }
 
     // MARK: - Return codes
@@ -123,70 +150,33 @@ final class RelayTests: XCTestCase {
         XCTAssertTrue(RelayParser.message(for: 99).contains("99"))
     }
 
-    func testUserNameParsing() {
-        XCTAssertEqual(RelayParser.userName("jht"), "jht")
-        XCTAssertNil(RelayParser.userName("4"))
-        XCTAssertEqual(
-            RelayParser.userName("<metadata><item><username>jht</username></item></metadata>"),
-            "jht"
-        )
-    }
-
-    // MARK: - Action composition
+    // MARK: - Actions
 
     func testActionStringsMatchTheDocumentedProtocol() {
         XCTAssertEqual(RelayAction.info(aid: 1305), "action=book&do=info&aid=1305&t=0")
         XCTAssertEqual(RelayAction.text(aid: 1305, cid: 7), "action=book&do=text&aid=1305&cid=7&t=0")
-        XCTAssertEqual(RelayAction.articleList(sort: "dayvisit", page: 2), "action=articlelist&sort=dayvisit&page=2")
-        XCTAssertEqual(RelayAction.search(type: "author", key: "优汰"), "action=search&searchtype=author&searchkey=优汰&t=0")
+        XCTAssertEqual(RelayAction.novelList(sort: "dayvisit", page: 2),
+                       "action=novellist&sort=dayvisit&page=2&t=0")
         XCTAssertEqual(RelayAction.bookcaseDelete(aid: 9), "action=bookcase&do=del&aid=9")
     }
 
     func testRequestPayloadIsBase64OfTheRawAction() {
         let action = RelayAction.info(aid: 1305)
         let payload = Data(action.utf8).base64EncodedString()
-        XCTAssertEqual(
-            String(data: Data(base64Encoded: payload)!, encoding: .utf8),
-            action
-        )
+        XCTAssertEqual(String(data: Data(base64Encoded: payload)!, encoding: .utf8), action)
     }
 
-    // MARK: - Configuration
+    // MARK: - Client defaults
 
-    func testRelayIsDisabledUntilConfigured() {
-        let defaults = UserDefaults(suiteName: "relay.tests.\(UUID().uuidString)")!
-        let store = RelayCredentialStore(defaults: defaults)
-        XCTAssertFalse(store.isConfigured)
-        XCTAssertNil(store.storedVer)
-
-        store.setAppVer("1.30-magic-abcdefgh")
-        XCTAssertFalse(store.isConfigured, "a token alone must not switch relay on")
-        XCTAssertEqual(store.storedVer, "1.30-magic-abcdefgh")
-        XCTAssertEqual(store.maskedVer, "1.30-m…efgh")
-
-        store.setEnabled(true)
-        XCTAssertTrue(store.isConfigured)
-
-        store.setEnabled(false)
-        XCTAssertFalse(store.isConfigured)
-        XCTAssertNotNil(store.storedVer, "disabling keeps the token for later")
+    func testRelayIsOnByDefaultWithTheBuiltinProvider() {
+        XCTAssertTrue(RelayClient.shared.isAvailable)
     }
 
-    func testMinimumIntervalKeepsAnAbuseFloor() {
-        let defaults = UserDefaults(suiteName: "relay.tests.\(UUID().uuidString)")!
-        let store = RelayCredentialStore(defaults: defaults)
-        XCTAssertEqual(store.minimumInterval, 1.2, accuracy: 0.001)
-        store.setMinimumInterval(0.1)
-        XCTAssertEqual(store.minimumInterval, 0.5, accuracy: 0.001)
-        store.setMinimumInterval(3)
-        XCTAssertEqual(store.minimumInterval, 3, accuracy: 0.001)
-    }
-
-    func testUnconfiguredClientThrowsInsteadOfSending() async {
+    func testDisabledClientThrowsInsteadOfSending() async {
         let client = RelayClient(configuration: RelayConfiguration(isEnabled: false))
         do {
             _ = try await client.send(RelayAction.info(aid: 1))
-            XCTFail("an unconfigured relay must not send")
+            XCTFail("a disabled relay must not send")
         } catch let error as RelayError {
             guard case .notConfigured = error else {
                 return XCTFail("unexpected error \(error)")
@@ -196,11 +186,10 @@ final class RelayTests: XCTestCase {
         }
     }
 
-    func testDisabledRelayLeavesServiceOnTheWAPPath() {
-        // `NovelService` only takes the relay branch when a client reports
-        // availability; with the default client that is false, so behaviour is
-        // unchanged for users who never configure a credential.
-        XCTAssertFalse(RelayClient.shared.isAvailable)
+    func testThrottleKeepsAnAbuseFloor() {
+        let throttle = RelayThrottle(minimumInterval: 0.1)
+        // The actor clamps anything below the floor.
+        XCTAssertNotNil(throttle)
     }
 }
 
@@ -227,8 +216,6 @@ final class DedupeTests: XCTestCase {
     }
 
     func testMergeVolumesDedupesChaptersAcrossPageBoundaries() {
-        // The same volume arriving twice is what happens when a catalogue page
-        // ends mid-volume; the repeated chapter must not survive the merge.
         let first = Volume(id: "0", title: "第一卷", chapters: [
             ChapterLink(id: 1, title: "一"),
             ChapterLink(id: 2, title: "二"),

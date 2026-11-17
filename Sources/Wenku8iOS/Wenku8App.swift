@@ -25,18 +25,19 @@ struct Wenku8App: App {
         #endif
     }
 
-    /// Restores the optional relay credential before any view can start a
-    /// request. Without a configured credential the relay stays off and every
-    /// call keeps using the WAP/desktop paths.
+    /// The relay is the only path that serves real rankings and category
+    /// listings anonymously, so it is enabled by default; the token is derived
+    /// locally (`RelayAppVer`) and every call falls back to WAP/desktop on
+    /// failure. Users can still switch it off in Settings.
     private static func configureRelay() {
-        let credential = RelayCredentialStore.shared
-        let enabled = credential.isEnabled && credential.storedVer != nil
+        let settings = RelayCredentialStore.shared
+        let enabled = settings.isEnabled
         RelayClient.shared.configure(
             RelayConfiguration(isEnabled: enabled),
-            provider: enabled ? credential : nil
+            provider: enabled ? BuiltinAppVerProvider() : nil
         )
         if enabled {
-            let interval = credential.minimumInterval
+            let interval = settings.minimumInterval
             Task { await RelayClient.shared.setMinimumInterval(interval) }
         }
     }

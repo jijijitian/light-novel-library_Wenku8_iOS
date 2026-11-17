@@ -12,7 +12,7 @@
 | 工程形态 | `project.yml`（XcodeGen）→ 生成 `Wenku8.xcodeproj`，用 **Xcode / xcodebuild** 构建 |
 | 部署目标 | iOS 17.0（Liquid Glass 仅在 iOS 26+ 生效，iOS 17/18 回落材质） |
 | 核心层 | 仍是纯 SwiftPM 模块，可在 Linux 上跑测试 |
-| 单元测试 | **51 个**，全部通过（`bash tools/test-core-linux.sh`） |
+| 单元测试 | **57 个**，全部通过（`bash tools/test-core-linux.sh`） |
 | 联网校验 | 全部通过（`bash tools/test-live.sh`） |
 | 已完成 | SwiftUI 重写、Liquid Glass、登录、加书架、阅读器、搜索、排行榜、书评 |
 | **本轮完成** | ① 首页卡片文字重叠已修 ② dock 改用 iOS 27 原生 Liquid Glass 悬浮栏 ③ relay API 已接入（凭证注入 + 限速 + 回退） ④ 构建从 xtool 迁到 Xcode ⑤ 真机已跑通 |
@@ -51,7 +51,8 @@ work/
 │   │   ├── DesktopParser.swift       桌面版解析
 │   │   ├── SugoiParser.swift         年度榜单解析（2006–2026）
 │   │   ├── AccountParser.swift       登录错误文案 / 登录拦截 / 书架变更结果
-│   │   ├── RelayClient.swift         ★ 中转传输层：限速 + 凭证注入 + 错误映射
+│   │   ├── RelayClient.swift         ★ 中转传输层：限速 + 错误映射
+│   │   ├── RelayAppVer.swift         ★ appver 推导 + 自建 SHA-256/HMAC
 │   │   ├── RelayParser.swift         ★ 中转 XML → 现有模型
 │   │   ├── RelayCredential.swift     ★ 凭证本地存储（UserDefaults）
 │   │   ├── Network.swift             URLSession 封装、双域名回退、UA 分流、Cookie
@@ -75,7 +76,7 @@ work/
 │       ├── AccountStore.swift        登录态 + 云端书架同步
 │       ├── LibraryStore.swift        本地书架/进度/搜索历史持久化
 │       └── WebSheet.swift            SFSafariViewController 包装
-├── Tests/Wenku8CoreTests/            51 个测试 + 25 个 fixture（含 4 个 relay XML）
+├── Tests/Wenku8CoreTests/            57 个测试 + 30 个 fixture（含 relay 真实响应）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        ★ 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            离线测试
@@ -166,50 +167,78 @@ bash tools/test-live.sh          # 联网：真实请求校验
 ```
 POST https://wenku8-relay.mewx.org/
 Content-Type: application/x-www-form-urlencoded
+User-Agent: okhttp/4.12.0      ← 必须，否则 Cloudflare 403 (error code 1010)
 
 body（裸拼接，request 值不做二次 URL 编码）：
-&appver=<version>-<magic>-<sig8>
+&appver=<version>-<codeName>-<sig8>
 &request=<base64("action=book&do=info&aid=1305&t=0")>
 &timetoken=<毫秒时间戳>
 ```
 
-不带有效 `appver` 时服务端返回 **400 Bad request**（已实测），所以凭证是硬门槛。
+### 5.2 appver 算法（已还原，已内置）
 
-### 5.2 为什么仓库里没有签名算法
+APK 里 `libcpp.so` 带着完整 DWARF 调试信息（`.debug_info` 1.2MB），
+直接把 `native-lib.cpp` 的源码行号和变量名都暴露了：
 
-`appver` 是对官方客户端逆向得到的防滥用凭据；pywenku8api 作者刻意不公开，理由就是
-「公开后存在被滥用于大规模抓取的风险」。本仓库曾计划公开，现已转为 private 但仍**不内置算法**。
-
-采用的方案是 **运行时注入**：
-
-```swift
-public protocol RelayAppVerProvider: Sendable {
-    func appVer(for token: RelayToken) async -> String?
-    func invalidate() async
-}
+```
+now       = time()                      // 秒
+window    = now / 60                    // 分钟窗口
+payload   = "1.30" | "digital-bento" | window      // 竖线拼接
+digest    = HMAC-SHA256(key: "digital-bento", message: payload).hex
+appver    = "1.30-digital-bento-" + digest[12..<20]
+sig8      = 十六进制字符串的第 12–20 位
 ```
 
-- 默认实现 `RelayCredentialStore` 把用户粘贴的凭证存进 `UserDefaults`
-- 入口：**设置 → 中转服务 → 开启 + 粘贴凭证**
-- 没有凭证时 `RelayClient.isAvailable == false`，所有接口原样走网页版
+关键点（都是踩过的坑）：
 
-### 5.3 实现要点
+- `hmac_sha256(x0, x1)` 的 **x0 是 key、x1 是 message**，别搞反
+- **key 是 codeName（`digital-bento`），不是 payload**
+- payload 里 **不包含 secret**，`getSecretFor1_30` 的返回值只作为 key
+- `time()` 返回**秒**，窗口 = 秒 / 60（不是毫秒 / 60000）
+- 只有 `1.30-digital-bento` 能过；`1.23`/`1.32` 变体一律 400
 
-| 文件 | 职责 |
+实现：`Sources/Wenku8Core/RelayAppVer.swift`（含自建 SHA-256 / HMAC，
+因为核心层要能在 Linux 上编译，不能用 CryptoKit）。
+
+### 5.3 真实响应格式（和 Android 注释里的 XML 不一样！）
+
+| 接口 | 真实格式 |
 | --- | --- |
-| `RelayClient.swift` | POST 组装、`RelayThrottle` 串行限速（默认 1.2 秒、下限 0.5 秒）、HTTP 状态 → `RelayError` 映射（401/403 会 `invalidate()` 凭证） |
-| `RelayParser.swift` | `metadata/item`、`package/volume/chapter`、`content/p/img` 三类 XML → 现有模型；返回码翻译 |
-| `RelayCredential.swift` | 凭证持久化、掩码显示、限速间隔持久化 |
-| `NovelService.swift` | 每个接口「relay 优先 → 失败回落 WAP/桌面」 |
+| `book&do=meta` | `<data name="Title" aid="1614"><![CDATA[…]></data>`、`<data name="Author" value="鸭志田一"/>` |
+| `book&do=intro` | 纯文本 |
+| `book&do=list` | `<package><volume vid="54755"><![CDATA[第一卷]]><chapter cid="54756"><![CDATA[主要人物]]></chapter>…` |
+| `book&do=text` | **纯文本**（非 XML），标题在首行，空行分段 |
+| `book&do=cover` | JPEG 二进制 |
+| `novellist` | `<result><item aid='3519'><data name='Title'><![CDATA[…]></data>…` |
+| `articlelist` | 只有 `<item aid='3519'/>`，**没有标题**，单独不可用 |
+| `xml&item=sort` | `<item sort="1">电击文库</item>` |
+| `login` / `bookcase` | 裸整数 |
 
-### 5.4 已知未验证点
+### 5.4 接入效果
 
-- **真实 XML 响应未抓取过**（没有有效凭证）。`RelayParser` 是按 Android 接口注释里的
-  XML 样例写的，容错做得比较宽（字段名多候选、扁平/嵌套章节都吃）。
-  拿到真实响应后，把样本存进 `Tests/Wenku8CoreTests/Fixtures/` 并补断言即可。
-- 书架 `del` 的返回码映射按文档实现（`1` 成功 / `7` 不在书架），未实测。
+`NovelService` 里 relay 优先、失败回落网页版：
 
----
+| 能力 | relay 前 | relay 后 |
+| --- | --- | --- |
+| 排行榜 | 年度榜单兜底 | 真实榜单（13 本/页，带标题作者） |
+| 按文库分类 | `needLogin` | 真实列表 |
+| 搜索 | WAP POST | 更快（1 次请求） |
+| 书籍详情 | WAP 或桌面 | meta + intro 合并，字段更全（字数/标签/最近章节） |
+| 目录/正文 | WAP，部分书「文章不存在」 | **版权下架的书也能读到**（见下） |
+
+**验证过的书**：`aid=1614`（青春猪头少年）。网页版 WAP 目录返回
+「对不起，该文章不存在！」，桌面正文返回「因版权问题，文库不再提供该小说的阅读！」；
+走 relay 后 17 卷 130 章全部可读，正文 874 段 / 22485 字。
+
+### 5.5 合规说明
+
+算法现已内置在仓库中，前提是**仓库已转为 private**。若将来改回 public，
+需要重新评估：这是公益服务的防滥用凭据，公开等于公开一个批量抓取工具。
+无论哪种情况都保持了强制限速（默认 1.2 秒/请求，下限 0.5 秒）。
+
+### 5.6 设置项
+
+**设置 → 中转服务** 只有一个开关（默认开启）。关掉就完全回到网页版路径。
 
 ## 6. 待办二（已完成）：首页卡片「查看详情」与页码点重叠
 
@@ -314,7 +343,7 @@ bash tools/bootstrap-xcodeproj.sh device
 | 书架 | `LibraryStore.swift`（本地）/ `AccountStore.swift`（云端） |
 | 网络 / UA / 回退 | `Sources/Wenku8Core/Network.swift` |
 | 所有业务接口 | `Sources/Wenku8Core/NovelService.swift` |
-| 中转服务 | `RelayClient.swift` / `RelayParser.swift` / `RelayCredential.swift` |
+| 中转服务 | `RelayClient.swift` / `RelayParser.swift` / `RelayAppVer.swift` |
 | 解析规则 | `WAPParser.swift` / `DesktopParser.swift` / `SugoiParser.swift` |
 | 工程配置 | `project.yml` |
 | CI | `.github/workflows/ios-build.yml` |

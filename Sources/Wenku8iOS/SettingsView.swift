@@ -9,7 +9,6 @@ struct SettingsView: View {
     @State private var showLogin = false
     @State private var accountMessage: String?
     @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
-    @State private var relayCredential = RelayCredentialStore.shared.storedVer ?? ""
     private let relayStore = RelayCredentialStore.shared
     @AppStorage("reader.fontSize") private var fontSize = 18.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
@@ -159,16 +158,13 @@ struct SettingsView: View {
 
     private func applyRelaySettings() {
         relayStore.setEnabled(relayEnabled)
-        let enabled = relayEnabled && relayStore.storedVer != nil
         RelayClient.shared.configure(
-            RelayConfiguration(isEnabled: enabled),
-            provider: enabled ? RelayCredentialStore.shared : nil
+            RelayConfiguration(isEnabled: relayEnabled),
+            provider: relayEnabled ? BuiltinAppVerProvider() : nil
         )
-        if enabled {
+        if relayEnabled {
             Task { await RelayClient.shared.setMinimumInterval(relayStore.minimumInterval) }
             accountMessage = "中转服务已启用"
-        } else if relayEnabled {
-            accountMessage = "已开启中转服务，但仍需填写访问凭证"
         } else {
             accountMessage = "已关闭中转服务，将使用网页版数据"
         }
@@ -184,32 +180,14 @@ struct SettingsView: View {
                 applyRelaySettings()
             }
 
-            if relayEnabled {
-                SecureField("访问凭证", text: $relayCredential)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.footnote.monospaced())
-                HStack {
-                    Button("保存凭证") {
-                        relayStore.setAppVer(relayCredential)
-                        applyRelaySettings()
-                        accountMessage = relayStore.storedVer == nil ? "已清除凭证" : "凭证已保存"
-                    }
-                    Spacer()
-                    if let masked = relayStore.maskedVer {
-                        Text(masked)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
         } header: {
             Text("中转服务")
         } footer: {
             Text("""
-            中转服务可提供网页版匿名访问不到的排行榜与分类列表。\
-            它是第三方公益服务，有独立配额，因此本应用对请求做了限速。\
-            访问凭证需由你自行提供，应用只把它保存在本机。
+            中转服务提供网页版匿名访问不到的排行榜、文库分类，\
+            以及部分因站点限制无法在网页版阅读的正文。\
+            它是第三方公益服务，有独立配额，因此本应用强制对请求限速。\
+            关闭后将改用网页版数据，排行榜会回退为年度榜单。
             """)
             .font(.footnote)
         }

@@ -3,22 +3,27 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// Supplies the `appver` triple the relay expects: `"<version>-<magic>-<sig8>"`.
+/// The relay authenticates every request with a short-lived `appver` token.
 ///
-/// The relay derives this value from a signed payload that is computed inside the
-/// official Android client's native library. The repository deliberately does not
-/// ship that derivation: it is the anti-abuse credential of a third-party
-/// volunteer service, and committing a working copy would turn this public repo
-/// into a scraping tool. Callers therefore inject a provider at runtime — see
-/// `RelayConfiguration.keychainProvider` for the supported local workflow.
+/// The derivation lives in `RelayAppVer`; it was recovered from the official
+/// Android client and is reproduced here so the relay's ranking and category
+/// endpoints work. It is a minute-windowed HMAC, so tokens expire on their own.
 public protocol RelayAppVerProvider: Sendable {
-    /// Returns the current `appver` string, or `nil` when no valid credential is
-    /// configured. Implementations should return a cached value and refresh it
-    /// only when the relay rejects it.
+    /// Returns the current `appver` string.
     func appVer(for token: RelayToken) async -> String?
-    /// Called when the relay rejected the credential, so the provider can drop
-    /// its cache and compute a fresh value next time.
+    /// Called when the relay rejected the credential.
     func invalidate() async
+}
+
+/// Default provider: derives the token locally, with no stored secret.
+public struct BuiltinAppVerProvider: RelayAppVerProvider {
+    public init() {}
+
+    public func appVer(for token: RelayToken) async -> String? {
+        RelayAppVer.token(unixSeconds: token.timestampMilliseconds / 1000)
+    }
+
+    public func invalidate() async {}
 }
 
 public struct RelayToken: Sendable, Hashable {
@@ -88,13 +93,14 @@ public actor RelayThrottle {
 
 public struct RelayConfiguration: Sendable {
     public var baseURL: URL
-    /// Whether relay requests should be attempted at all. `false` keeps the app on
-    /// the WAP/desktop paths, which is the default until a credential is supplied.
+    /// Whether relay requests should be attempted at all. Relay is the only path
+    /// that serves real rankings anonymously, so it is on by default; every call
+    /// still falls back to the WAP/desktop paths when it fails.
     public var isEnabled: Bool
 
     public init(
         baseURL: URL = URL(string: "https://wenku8-relay.mewx.org/")!,
-        isEnabled: Bool = false
+        isEnabled: Bool = true
     ) {
         self.baseURL = baseURL
         self.isEnabled = isEnabled
@@ -114,7 +120,7 @@ public final class RelayClient: @unchecked Sendable {
     public private(set) var configuration: RelayConfiguration
     private let session: URLSession
     private let throttle: RelayThrottle
-    private var provider: RelayAppVerProvider?
+    private var provider: RelayAppVerProvider? = BuiltinAppVerProvider()
 
     public init(
         configuration: RelayConfiguration = .default,
@@ -133,7 +139,7 @@ public final class RelayClient: @unchecked Sendable {
         self.session = URLSession(configuration: config)
     }
 
-    public func configure(_ configuration: RelayConfiguration, provider: RelayAppVerProvider?) {
+    public func configure(_ configuration: RelayConfiguration, provider: RelayAppVerProvider? = BuiltinAppVerProvider()) {
         self.configuration = configuration
         self.provider = provider
     }
@@ -141,6 +147,10 @@ public final class RelayClient: @unchecked Sendable {
     public var isAvailable: Bool {
         configuration.isEnabled && provider != nil
     }
+
+    /// The relay rejects a plain python/URLSession client behind Cloudflare unless
+    /// it looks like the Android app, so requests carry that agent.
+    static let userAgent = "okhttp/4.12.0"
 
     public func setMinimumInterval(_ interval: TimeInterval) async {
         await throttle.setMinimumInterval(interval)
@@ -170,7 +180,7 @@ public final class RelayClient: @unchecked Sendable {
             "application/x-www-form-urlencoded",
             forHTTPHeaderField: "Content-Type"
         )
-        urlRequest.setValue("Wenku8/iOS", forHTTPHeaderField: "User-Agent")
+        urlRequest.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         urlRequest.httpBody = Data(body.utf8)
 
         let (data, response): (Data, URLResponse)

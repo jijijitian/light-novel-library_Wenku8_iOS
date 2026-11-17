@@ -308,6 +308,24 @@ public enum Markup {
         }
     }
 
+    /// Strips tags and entities so a fragment can be shown as plain text.
+    /// Used for site notices that arrive wrapped in markup.
+    public static func plainText(_ html: String) -> String {
+        var text = ""
+        var insideTag = false
+        for character in html {
+            if character == "<" {
+                insideTag = true
+            } else if character == ">" {
+                insideTag = false
+                text.append(" ")
+            } else if !insideTag {
+                text.append(character)
+            }
+        }
+        return normalize(decodeEntities(text))
+    }
+
     public static func normalize(_ value: String) -> String {
         let replacements: [(String, String)] = [
             ("\u{00A0}", " "),

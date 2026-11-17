@@ -42,15 +42,19 @@ public struct NovelService: Sendable {
 
     private func relaySearch(_ key: String, type: String) async -> [NovelSummary]? {
         guard relayIsAvailable else { return nil }
-        guard let data = try? await relay.send(RelayAction.search(type: type, key: key)) else { return nil }
-        let items = RelayParser.search(TextDecoding.decode(data)).uniquedByID()
+        // The relay expects the keyword form-encoded inside the action string.
+        let encoded = TextDecoding.formEncode(key)
+        guard let data = try? await relay.send(RelayAction.search(type: type, key: encoded)) else { return nil }
+        let items = RelayParser.summaries(TextDecoding.decode(data)).uniquedByID()
         return items.isEmpty ? nil : items
     }
 
-    private func relayList(_ action: String) async -> [NovelSummary]? {
+    /// `novellist` returns full rows with titles; `articlelist` returns bare ids
+    /// and is useless on its own, so lists go through `novellist`.
+    private func relayNovelList(sort: String, page: Int) async -> [NovelSummary]? {
         guard relayIsAvailable else { return nil }
-        guard let data = try? await relay.send(action) else { return nil }
-        let items = RelayParser.items(TextDecoding.decode(data)).uniquedByID()
+        guard let data = try? await relay.send(RelayAction.novelList(sort: sort, page: page)) else { return nil }
+        let items = RelayParser.summaries(TextDecoding.decode(data)).uniquedByID()
         return items.isEmpty ? nil : items
     }
 
@@ -79,7 +83,7 @@ public struct NovelService: Sendable {
 
     public func rank(_ board: RankBoard, page: Int = 1) async throws -> [NovelSummary] {
         // The relay is the only path that serves real ranking data anonymously.
-        if let items = await relayList(RelayAction.articleList(sort: board.rawValue, page: page)) {
+        if let items = await relayNovelList(sort: board.rawValue, page: page) {
             return items
         }
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
@@ -130,7 +134,7 @@ public struct NovelService: Sendable {
 
     public func library(_ category: Int, page: Int = 1) async throws -> [NovelSummary] {
         let sort = category == 0 ? "all" : "\(category)"
-        if let items = await relayList(RelayAction.novelList(sort: sort, page: page)) {
+        if let items = await relayNovelList(sort: sort, page: page) {
             return items
         }
         let path = "/article/sortlist.php?class=\(category)&page=\(page)"
@@ -200,8 +204,15 @@ public struct NovelService: Sendable {
     public func detail(aid: Int) async throws -> NovelDetail {
         if relayIsAvailable,
            let data = try? await relay.send(RelayAction.meta(aid: aid)) {
-            let parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
-            if !parsed.title.isEmpty { return parsed }
+            var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
+            if !parsed.title.isEmpty {
+                // `meta` carries the short preview; `intro` carries the full text.
+                if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
+                    let full = RelayParser.intro(TextDecoding.decode(introData))
+                    if !full.isEmpty { parsed.intro = full }
+                }
+                return parsed
+            }
         }
         let html = try await client.wap("/article/articleinfo.php?id=\(aid)")
         var detail = WAPParser.novelDetail(html, aid: aid)
@@ -218,6 +229,17 @@ public struct NovelService: Sendable {
             let relayed = RelayParser.volumes(TextDecoding.decode(data))
             if !relayed.isEmpty { return Self.mergeVolumes(relayed) }
         }
+        do {
+            let volumes = try await wapVolumes(aid: aid)
+            if !volumes.isEmpty { return volumes }
+        } catch {
+            // Fall through to the desktop catalogue below: the WAP endpoint answers
+            // "对不起，该文章不存在！" for books the desktop site still indexes.
+        }
+        return try await desktopVolumes(aid: aid)
+    }
+
+    private func wapVolumes(aid: Int) async throws -> [Volume] {
         var all: [Volume] = []
         var page = 1
         var totalPages = 1
@@ -233,6 +255,18 @@ public struct NovelService: Sendable {
             if page > 200 { break }
         } while page <= totalPages
         return Self.mergeVolumes(all)
+    }
+
+    /// Desktop catalogue fallback (`/novel/<group>/<aid>/index.htm`).
+    ///
+    /// The group is `max(1, aid / 1000)`, matching the site's own folder layout.
+    /// Some books are only reachable this way, so an empty WAP catalogue must not
+    /// be reported as "this book has no chapters".
+    private func desktopVolumes(aid: Int) async throws -> [Volume] {
+        let group = max(1, aid / 1000)
+        let html = try await client.desktop("/novel/\(group)/\(aid)/index.htm")
+        if DesktopParser.isPlaceholder(html) { return [] }
+        return Self.mergeVolumes(DesktopParser.volumes(html))
     }
 
     /// Merges the volume fragments returned by each catalogue page.
@@ -290,9 +324,35 @@ public struct NovelService: Sendable {
         let blocks = pages.flatMap(\.blocks)
         let title = pages.first?.title ?? ""
         if blocks.isEmpty {
+            // Some books are delisted from reading while their catalogue still
+            // resolves; the desktop chapter page states the reason ("因版权问题…").
+            // Reporting that instead of a generic message stops it looking like a
+            // client fault.
+            if let reason = try? await desktopChapterNotice(aid: aid, cid: cid), !reason.isEmpty {
+                throw Wenku8Error.unavailable(reason)
+            }
             throw Wenku8Error.unavailable("该章节没有可显示的正文")
         }
         return ChapterContent(novelID: aid, chapterID: cid, title: title, blocks: blocks)
+    }
+
+    /// Reads the desktop chapter page and returns the site's own notice when the
+    /// body was replaced by one (delisted-for-copyright books do this).
+    private func desktopChapterNotice(aid: Int, cid: Int) async throws -> String? {
+        let group = max(1, aid / 1000)
+        let html = try await client.desktop("/novel/\(group)/\(aid)/\(cid).htm")
+        if DesktopParser.isPlaceholder(html) { return nil }
+        let text = Markup.plainText(html)
+        for marker in ["因版权问题", "不再提供该小说的阅读", "该文章不存在", "本章节是纯图片内容"] {
+            guard let range = text.range(of: marker) else { continue }
+            // Keep the sentence the marker sits in, so the user sees the site's
+            // wording rather than a bare fragment.
+            let tail = text[range.lowerBound...]
+            let sentence = tail.prefix { !"。！\n".contains($0) }
+            let notice = Markup.normalize(String(sentence))
+            if !notice.isEmpty { return notice + "。" }
+        }
+        return nil
     }
 
     public func reviews(aid: Int) async throws -> [NovelReview] {
@@ -371,7 +431,7 @@ public struct NovelService: Sendable {
                 if code == 4 { throw Wenku8Error.needLogin }
                 throw Wenku8Error.login(RelayParser.message(for: code))
             }
-            let items = RelayParser.items(text)
+            let items = RelayParser.summaries(text)
             if !items.isEmpty { return items }
         }
         let html = try await client.wap("/article/bookcase.php")

@@ -26,9 +26,10 @@ public final class RelayCredentialStore: RelayAppVerProvider, @unchecked Sendabl
         self.defaults = defaults
     }
 
-    /// Whether the user has switched relay support on *and* supplied a token.
-    public var isConfigured: Bool {
-        defaults.bool(forKey: Key.enabled) && !(storedVer ?? "").isEmpty
+    /// Relay is on unless the user turned it off.
+    public var isEnabled: Bool {
+        if defaults.object(forKey: Key.enabled) == nil { return true }
+        return defaults.bool(forKey: Key.enabled)
     }
 
     /// The stored credential, verbatim. Exposed so Settings can show whether one
@@ -52,10 +53,6 @@ public final class RelayCredentialStore: RelayAppVerProvider, @unchecked Sendabl
 
     public func setEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: Key.enabled)
-    }
-
-    public var isEnabled: Bool {
-        defaults.bool(forKey: Key.enabled)
     }
 
     public func setAppVer(_ ver: String?) {

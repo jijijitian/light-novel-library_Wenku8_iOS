@@ -68,4 +68,64 @@ public enum DesktopParser {
               let found = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[found])
     }
+
+    /// Extracts the desktop catalogue (`/novel/<group>/<aid>/index.htm`).
+    ///
+    /// The WAP catalogue endpoint answers "对不起，该文章不存在！" for some books that
+    /// the desktop catalogue still lists in full — 青春猪头少年 (aid 1614) is one —
+    /// so this is the fallback that keeps their chapter list reachable.
+    ///
+    /// Volume headings live in `<td class="vcss">` rows and chapters are
+    /// `<a href="<cid>.htm">title</a>`. Books without volume headings keep their
+    /// chapters in `<td class="css">`; both are handled.
+    public static func volumes(_ html: String) -> [Volume] {
+        let headingPattern = #"<td[^>]*class="vcss"[^>]*>\s*([^<]*?)\s*</td>"#
+        let chapterPattern = #"<a\s+href="(\d+)\.htm"[^>]*>([^<]{1,80})</a>"#
+        guard let headingRegex = try? NSRegularExpression(
+                pattern: headingPattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
+              let chapterRegex = try? NSRegularExpression(
+                pattern: chapterPattern, options: [.dotMatchesLineSeparators, .caseInsensitive])
+        else { return [] }
+
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        var volumes: [Volume] = []
+        var currentTitle = "正文"
+        var currentChapters: [ChapterLink] = []
+        var seen = Set<Int>()
+
+        // Walk both kinds of marker in document order so a volume heading closes
+        // the previous volume and opens the next one.
+        var markers: [(location: Int, title: String?, chapter: ChapterLink?)] = []
+        for match in headingRegex.matches(in: html, range: range) {
+            guard let titleRange = Range(match.range(at: 1), in: html) else { continue }
+            let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
+            markers.append((match.range.location, title.isEmpty ? nil : title, nil))
+        }
+        for match in chapterRegex.matches(in: html, range: range) {
+            guard let cidRange = Range(match.range(at: 1), in: html),
+                  let titleRange = Range(match.range(at: 2), in: html),
+                  let cid = Int(html[cidRange]) else { continue }
+            let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
+            guard !title.isEmpty, seen.insert(cid).inserted else { continue }
+            markers.append((match.range.location, nil, ChapterLink(id: cid, title: title)))
+        }
+        markers.sort { $0.location < $1.location }
+
+        func flush() {
+            guard !currentChapters.isEmpty else { return }
+            volumes.append(Volume(id: "\(volumes.count)", title: currentTitle, chapters: currentChapters))
+            currentChapters = []
+        }
+
+        for marker in markers {
+            if let title = marker.title {
+                flush()
+                currentTitle = title
+            } else if let chapter = marker.chapter {
+                currentChapters.append(chapter)
+            }
+        }
+        flush()
+        return volumes
+    }
 }

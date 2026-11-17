@@ -23,7 +23,7 @@
 | 书评 | 书评列表与详情页回复 |
 | 我的书架 | 本地收藏与每本书的阅读进度 |
 | 底部导航 | 使用系统 `TabView`，在 iOS 26/27 上呈现原生 Liquid Glass 浮动胶囊栏 |
-| 中转服务（可选） | 接入公益中转服务后，排行榜与文库分类可在未登录时拿到真实数据；未配置时自动使用网页版路径 |
+| 中转服务 | 默认开启的公益中转，提供真实排行榜、文库分类，以及网页版读不到的正文；失败自动回落网页版 |
 
 ## Liquid Glass 适配
 
@@ -128,7 +128,8 @@ Wenku8.app/
 │   │   ├── DesktopParser.swift       # 桌面版页面解析（回退路径）
 │   │   ├── SugoiParser.swift         # 年度榜单解析
 │   │   ├── AccountParser.swift       # 登录 / 书架变更结果
-│   │   ├── RelayClient.swift         # 中转服务传输层（限速 + 凭证注入）
+│   │   ├── RelayClient.swift         # 中转服务传输层（限速 + 状态映射）
+│   │   ├── RelayAppVer.swift          # appver 令牌推导 + 自建 SHA-256/HMAC
 │   │   ├── RelayParser.swift         # 中转服务 XML 解析
 │   │   ├── RelayCredential.swift     # 中转凭证的本地存储
 │   │   ├── Network.swift             # URLSession 封装、双域名回退、Cookie
@@ -147,7 +148,7 @@ Wenku8.app/
 │       ├── ShelfView.swift
 │       ├── SettingsView.swift
 │       └── LibraryStore.swift        # 书架 / 进度 / 搜索历史持久化
-├── Tests/Wenku8CoreTests/            # 51 个测试（含真实页面样本 + 中转服务 XML 样本）
+├── Tests/Wenku8CoreTests/            # 57 个测试（含真实页面样本 + 中转服务真实响应样本）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        # 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            # 离线单元测试
@@ -171,59 +172,28 @@ Wenku8.app/
 `Wenku8Client` 会把「需要登录」当作一种可识别的状态（`Wenku8Error.needLogin`）抛给界面，
 点击「在网页版查看」即可用 `SFSafariViewController` 打开原始页面完成登录后再回来。
 
-### 可选：公益中转服务
+### 公益中转服务
 
-Android 版有一个由社区维护的中转端点（`https://wenku8-relay.mewx.org/`），它能匿名提供
-WAP 与桌面版都拿不到的排行榜和文库分类列表。本项目的接入方式是「可选、可失效、有上限」：
+Android 版有一个由社区维护的中转端点（`https://wenku8-relay.mewx.org/`）。它比网页版多提供：
 
-- **默认关闭**。没有配置凭证时 `RelayClient.isAvailable` 为 `false`，所有接口原样走网页版路径。
-- **凭证由用户自己提供**，应用只把它保存在本机 `UserDefaults`，随时可在设置里清除。
-  仓库不包含、也不推导该凭证 —— 它是公益服务的防滥用凭据，公开它等于公开一个批量抓取工具。
-- **强制限速**。所有请求经过 `RelayThrottle` 串行闸门，默认最小间隔 1.2 秒，下限锁死 0.5 秒。
-- **逐接口回退**。中转失败时静默回落到 WAP/桌面路径，不会让界面变成错误页。
-- 返回码（`1` 成功 … `22`）在 `RelayParser.message(for:)` 里统一翻译成中文提示。
+- 真实排行榜（网页版匿名访问要登录）
+- 按文库分类列表（网页版一律 `needLogin`）
+- **部分因站点限制在网页版读不到正文的书**（例如 `aid=1614` 青春猪头少年）
 
-在 **设置 → 中转服务** 里开启并粘贴凭证即可。
+接入方式是「默认开启、可关闭、失败必回落」：
 
-## 测试
-
-核心层不依赖 SwiftUI，可以在任意 Swift 6.1 环境（含 Linux 容器）下跑单元测试：
-
-```bash
-bash tools/test-core-linux.sh
-```
-
-还会真实访问文库，验证端到端链路（需要联网）：
-
-```bash
-bash tools/test-live.sh
-```
-
-输出示例：
-
-```
-PASS  home: hot=6 latest=6 newcomer=6 weekly=6
-PASS  detail: 你们赶紧给我结婚吧！ / 优汰 / 连载中 / intro=253
-PASS  volumes: 3 volumes, 24 chapters
-PASS  chapter: 序章 “我已经开始写恋爱喜剧了喔。” / 56 blocks / 1890 chars
-PASS  search: 7 results, first=《你们赶紧给我结婚吧！》优汰
-PASS  sugoi 2026: 2 sections, 13 books
-PASS  rank: 13 books, first=玩乐关系
-```
-
-离线单元测试覆盖：GBK 解码、首页四栏目、登录拦截识别、搜索结果、详情字段、目录分卷、
-章节正文清洗、分页标记、书评列表与详情、文库分类、实体解码、封面 URL 规则、
-年度榜单（含 2012 年前的旧版大写标签）。
-
-CI（`.github/workflows/ios-build.yml`）会先跑离线测试，再用 `xcodebuild` 在 iOS 26 与 iOS 27 两个 SDK 下
-各真实编译一次、校验产物结构，并分别上传未签名的 `.ipa`。
+- 默认开启，可在 **设置 → 中转服务** 关闭，关掉后所有接口原样走网页版。
+- **强制限速**：所有请求经过 `RelayThrottle` 串行闸门，默认最小间隔 1.2 秒，下限锁死 0.5 秒。
+- **逐接口回退**：中转失败时静默回落到 WAP/桌面路径，不会让界面变成错误页。
+- 访问令牌（`appver`）由 `RelayAppVer` 在本地按分钟窗口计算，不保存任何密钥。
+  该算法从官方 Android 客户端的 native 库还原，详见 `HANDOFF.md` §5.2。
 
 ## 已知限制
 
 - 文库的 WAP 排行榜与分类列表在未登录时只返回登录卡片，因此这两处依赖桌面版页面；如果站方调整反爬策略，日志会显示 `needLogin` 或 `unavailable`，界面会给出提示与网页版入口。
 - 发帖、签到等写操作需要登录态，当前版本只读；加入书架与书架同步已支持，但依赖登录态。
 - 中转服务是第三方公益服务，随时可能下线；下线后排行榜会回落到年度榜单，分类列表会提示需要登录。
-- 中转服务的访问凭证需自行提供，仓库不内置（原因见上文「可选：公益中转服务」）。
+- 中转服务是第三方公益服务，若其更换鉴权算法，排行榜会回落到年度榜单。
 - 插图章节在 WAP 版仅返回「本章节是纯图片内容」提示，正文页会如实呈现该提示。
 
 ## 许可
