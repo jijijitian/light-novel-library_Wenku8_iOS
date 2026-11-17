@@ -162,26 +162,45 @@ struct HeroBanner: View {
     var body: some View {
         TabView(selection: $selection) {
             ForEach(Array(novels.enumerated()), id: \.element.id) { index, novel in
-                ZStack(alignment: .bottomLeading) {
+                ZStack {
                     AppTheme.gradient(for: novel.id)
-                    CoverCard(url: novel.coverURL, title: novel.title, width: 108, height: 154)
-                        .rotation3DEffect(.degrees(-8), axis: (x: 0, y: 1, z: 0))
-                        .padding(20)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Spacer(minLength: 0)
-                        Text("编辑推荐")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .glassCapsule()
-                        Text(novel.title)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                            .shadow(radius: 4, y: 1)
+                    HStack(alignment: .center, spacing: 18) {
+                        CoverCard(url: novel.coverURL, title: novel.title, width: 104, height: 148)
+                            .rotation3DEffect(.degrees(-6), axis: (x: 0, y: 1, z: 0))
+                            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("编辑推荐")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .glassCapsule()
+
+                            Text(novel.title)
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .shadow(radius: 4, y: 1)
+
+                            if let author = novel.author, !author.isEmpty {
+                                Text(author)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.85))
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Label("查看详情", systemImage: "chevron.right.circle.fill")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(16)
-                    .frame(maxWidth: 260, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
                 }
                 .frame(height: 190)
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))

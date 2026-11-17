@@ -13,42 +13,54 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $router.tab) {
-            NavigationStack(path: $router.homePath) {
-                HomeView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+        // Uses the iOS 18+ `Tab` builder so iOS 26/27 renders Apple's own Liquid
+        // Glass dock: the search tab gets the system `.search` role, which the
+        // platform separates to the trailing edge and morphs into a search field.
+        TabView(selection: tabSelection) {
+            Tab("书架首页", systemImage: "house.fill", value: Tab.home) {
+                NavigationStack(path: $router.homePath) {
+                    HomeView()
+                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+                }
             }
-            .tabItem { Label("书架首页", systemImage: "house.fill") }
-            .tag(Tab.home)
 
-            NavigationStack(path: $router.rankPath) {
-                RankView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+            Tab("排行", systemImage: "chart.bar.fill", value: Tab.rank) {
+                NavigationStack(path: $router.rankPath) {
+                    RankView()
+                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+                }
             }
-            .tabItem { Label("排行", systemImage: "chart.bar.fill") }
-            .tag(Tab.rank)
 
-            NavigationStack(path: $router.searchPath) {
-                SearchView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+            Tab("搜索", systemImage: "magnifyingglass", value: Tab.search, role: .search) {
+                NavigationStack(path: $router.searchPath) {
+                    SearchView()
+                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+                }
             }
-            .tabItem { Label("搜索", systemImage: "magnifyingglass") }
-            .tag(Tab.search)
 
-            NavigationStack(path: $router.shelfPath) {
-                ShelfView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+            Tab("我的书架", systemImage: "books.vertical.fill", value: Tab.shelf) {
+                NavigationStack(path: $router.shelfPath) {
+                    ShelfView()
+                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+                }
             }
-            .tabItem { Label("我的书架", systemImage: "books.vertical.fill") }
-            .tag(Tab.shelf)
 
-            NavigationStack(path: $router.settingsPath) {
-                SettingsView()
-                    .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+            Tab("设置", systemImage: "gearshape.fill", value: Tab.settings) {
+                NavigationStack(path: $router.settingsPath) {
+                    SettingsView()
+                        .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
+                }
             }
-            .tabItem { Label("设置", systemImage: "gearshape.fill") }
-            .tag(Tab.settings)
         }
+    }
+
+    /// The search tab is selected by the system through a `TabRole`-driven value;
+    /// keep the app's own `Tab` enum as the single source of truth.
+    private var tabSelection: Binding<Tab> {
+        Binding(
+            get: { router.tab },
+            set: { router.tab = $0 }
+        )
     }
 }
 

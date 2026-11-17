@@ -5,12 +5,14 @@ import Wenku8Core
 struct Wenku8App: App {
     @StateObject private var store = LibraryStore()
     @StateObject private var router = AppRouter()
+    @StateObject private var account = AccountStore()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(store)
                 .environmentObject(router)
+                .environmentObject(account)
                 .tint(AppTheme.accent)
         }
     }

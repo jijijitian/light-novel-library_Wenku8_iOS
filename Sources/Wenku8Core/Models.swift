@@ -273,6 +273,7 @@ public enum Wenku8Error: LocalizedError, Sendable {
     case parse(String)
     case needLogin
     case unavailable(String)
+    case login(String)
 
     public var errorDescription: String? {
         switch self {
@@ -280,6 +281,7 @@ public enum Wenku8Error: LocalizedError, Sendable {
         case .parse(let message): return message
         case .needLogin: return "该功能需要登录文库账号"
         case .unavailable(let message): return message
+        case .login(let message): return message
         }
     }
 }

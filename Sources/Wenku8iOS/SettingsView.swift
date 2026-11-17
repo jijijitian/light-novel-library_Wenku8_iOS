@@ -3,8 +3,11 @@ import Wenku8Core
 
 struct SettingsView: View {
     @EnvironmentObject private var store: LibraryStore
+    @EnvironmentObject private var account: AccountStore
     @State private var showWeb = false
     @State private var showLicense = false
+    @State private var showLogin = false
+    @State private var accountMessage: String?
     @AppStorage("reader.fontSize") private var fontSize = 18.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
 
@@ -25,6 +28,8 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 4)
             }
+
+            accountSection
 
             Section("阅读") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -90,6 +95,60 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLicense) {
             LicenseSheet()
+        }
+        .sheet(isPresented: $showLogin) {
+            LoginView()
+        }
+    }
+
+    @ViewBuilder
+    private var accountSection: some View {
+        Section("文库账号") {
+            if account.isSignedIn {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(account.userName ?? "已登录").font(.subheadline.weight(.semibold))
+                        Text("已同步云端书架 \(account.remoteNovels.count) 本")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if account.isSyncingShelf {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                Button {
+                    Task {
+                        await account.syncShelf()
+                        accountMessage = "已同步云端书架"
+                    }
+                } label: {
+                    Label("立即同步书架", systemImage: "arrow.triangle.2.circlepath")
+                }
+                Button(role: .destructive) {
+                    account.signOut()
+                    accountMessage = "已退出登录"
+                } label: {
+                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            } else {
+                Button {
+                    showLogin = true
+                } label: {
+                    Label("登录文库账号", systemImage: "person.badge.key")
+                }
+                Text("登录后可把小说加入文库云端书架，并在多台设备间同步。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let accountMessage {
+                Text(accountMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

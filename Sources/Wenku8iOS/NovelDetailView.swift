@@ -41,8 +41,11 @@ struct NovelDetailView: View {
     var novelID: Int
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var store: LibraryStore
+    @EnvironmentObject private var account: AccountStore
     @StateObject private var model = NovelDetailViewModel()
     @State private var showFullIntro = false
+    @State private var showLogin = false
+    @State private var shelfMessage: String?
     @State private var webItem: WebSheetItem?
 
     var body: some View {
@@ -64,19 +67,26 @@ struct NovelDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     if let detail = model.detail {
-                        store.toggle(
-                            NovelSummary(
-                                id: detail.id,
-                                title: detail.title,
-                                author: detail.author,
-                                coverURL: detail.coverURL
-                            )
+                        let summary = NovelSummary(
+                            id: detail.id,
+                            title: detail.title,
+                            author: detail.author,
+                            coverURL: detail.coverURL
                         )
+                        store.toggle(summary)
+                        if store.isSaved(detail.id) {
+                            Task {
+                                shelfMessage = await account.addToRemoteShelf(summary)
+                            }
+                        } else {
+                            shelfMessage = "已从本地书架移除"
+                        }
                     }
                 } label: {
                     Image(systemName: store.isSaved(novelID) ? "bookmark.fill" : "bookmark")
                 }
                 .disabled(model.detail == nil)
+                .accessibilityLabel(store.isSaved(novelID) ? "移出书架" : "加入书架")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -99,6 +109,23 @@ struct NovelDetailView: View {
         .task { await model.load(novelID: novelID) }
         .sheet(item: $webItem) { item in
             WebSheet(url: item.url)
+        }
+        .sheet(isPresented: $showLogin) {
+            LoginView()
+        }
+        .alert("书架", isPresented: Binding(
+            get: { shelfMessage != nil },
+            set: { if !$0 { shelfMessage = nil } }
+        )) {
+            Button("知道了") { shelfMessage = nil }
+            if !account.isSignedIn {
+                Button("去登录") {
+                    shelfMessage = nil
+                    showLogin = true
+                }
+            }
+        } message: {
+            Text(shelfMessage ?? "")
         }
     }
 

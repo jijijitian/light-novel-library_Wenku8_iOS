@@ -141,6 +141,10 @@ struct ReaderView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
+        // Reading is a full-screen mode: the app's tab bar must not sit under the
+        // text, otherwise it both steals vertical space and clashes with the
+        // reader's own glass control bar.
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -354,9 +358,8 @@ struct ReaderView: View {
             .padding(16)
             .glassCard(cornerRadius: 26)
             .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+            .padding(.bottom, 8)
         }
-        .ignoresSafeArea(edges: .bottom)
     }
 
     private func recordProgress() {

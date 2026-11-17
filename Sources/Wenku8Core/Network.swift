@@ -123,6 +123,36 @@ public final class Wenku8Client: @unchecked Sendable {
         try await withHostFallback(endpoints.hosts, path: path, referer: referer, desktop: true)
     }
 
+    /// POSTs an HTML form to the desktop site. Login and bookcase mutations live
+    /// there: `login.php?do=submit` answers with an error page on bad credentials
+    /// and a redirect on success, so the caller compares cookies afterwards.
+    public func desktopPost(_ path: String, fields: [String: String]) async throws -> String {
+        var lastError: Error?
+        for host in endpoints.hosts {
+            guard let url = URL(string: host + path) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                request.setValue(
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    forHTTPHeaderField: "Accept"
+                )
+                request.setValue(Self.desktopUserAgent, forHTTPHeaderField: "User-Agent")
+                request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+                let body = fields
+                    .map { "\(TextDecoding.formEncode($0.key))=\(TextDecoding.formEncode($0.value))" }
+                    .joined(separator: "&")
+                request.httpBody = Data(body.utf8)
+                let response = try await send(request)
+                return response.text
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? Wenku8Error.network("网络不可用")
+    }
+
     private func withHostFallback(
         _ hosts: [String],
         path: String,
@@ -161,6 +191,14 @@ public final class Wenku8Client: @unchecked Sendable {
 
     public func hasSession() -> Bool {
         !(sessionCookieValue() ?? "").isEmpty
+    }
+
+    /// The site identifies a signed-in user purely by PHPSESSID, so signing out
+    /// means dropping every cookie it issued for the wenku8 hosts.
+    public func clearSessionCookies() {
+        for cookie in cookieStorage.cookies ?? [] where cookie.domain.contains("wenku8") {
+            cookieStorage.deleteCookie(cookie)
+        }
     }
 
     static func isChallenge(_ data: Data) -> Bool {

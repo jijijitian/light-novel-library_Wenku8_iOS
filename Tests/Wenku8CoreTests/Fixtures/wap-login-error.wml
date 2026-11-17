@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head>
+<meta http-equiv="Cache-Control" content="max-age=0" />
+</head>
+<card id="msgwin" title="轻小说文库 - 最新最全的日本动漫轻小说在线阅读与下载基地 - 提示">
+<p>
+
+您好!游客,<a href="/wap/login.php?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74" title="登录">登录</a>.<a href="/wap/register.php?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74" title="注册">注册</a><br/>
+
+
+<a href="/wap/?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74" title="首页">首页</a>.
+<a href="/wap/message.php?box=inbox&amp;PHPSESSID=a8d52fbebde359751b4ebbad30b89c74">消息</a>.
+<a href="/wap/article/bookcase.php?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74">书架</a>.
+<a href="/wap/article/search.php?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74" title="搜书">搜书</a><br/>
+<a href="/wap/article/sort.php?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74" title="分类">分类</a>.
+<a href="/wap/article/top.php?PHPSESSID=a8d52fbebde359751b4ebbad30b89c74" title="排行">排行</a>.
+<a href="/wap/article/sortlist.php?fullflag=1&amp;PHPSESSID=a8d52fbebde359751b4ebbad30b89c74">全本</a>.
+<a href="/wap/article/toplist.php?sort=postdate&amp;PHPSESSID=a8d52fbebde359751b4ebbad30b89c74">新书</a><br/>
+
+
+
+该用户不存在，请注意字母大小写是否输入正确！<br/><br/>
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1&amp;PHPSESSID=a8d52fbebde359751b4ebbad30b89c74">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p>
+</p>
+</card>
+</wml>

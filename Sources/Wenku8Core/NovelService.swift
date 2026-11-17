@@ -249,4 +249,91 @@ public struct NovelService: Sendable {
         guard let html = try? await client.wap("/") else { return nil }
         return WAPParser.accountName(html)
     }
+
+    // MARK: - Account
+
+    public struct Session: Sendable, Equatable {
+        public var userName: String
+        public var isRemote: Bool
+
+        public init(userName: String, isRemote: Bool) {
+            self.userName = userName
+            self.isRemote = isRemote
+        }
+    }
+
+    /// Signs in through the desktop form (`login.php?do=submit`). Success is
+    /// confirmed by re-reading the WAP header, because the site marks a valid
+    /// session there rather than in the POST response body.
+    public func signIn(username: String, password: String) async throws -> Session {
+        let name = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !password.isEmpty else {
+            throw Wenku8Error.login("请填写账号与密码")
+        }
+        client.clearSessionCookies()
+
+        let html = try await client.desktopPost("/login.php?do=submit", fields: [
+            "action": "login",
+            "usecookie": "315360000",
+            "username": name,
+            "password": password,
+        ])
+
+        if let message = AccountParser.loginErrorMessage(html) {
+            throw Wenku8Error.login(message)
+        }
+
+        guard let resolved = await accountName() else {
+            throw Wenku8Error.login("登录未生效，请稍后重试")
+        }
+        return Session(userName: resolved, isRemote: true)
+    }
+
+    public func signOut() {
+        client.clearSessionCookies()
+    }
+
+    public func currentUserName() async -> String? {
+        guard let html = try? await client.wap("/") else { return nil }
+        return AccountParser.accountName(html)
+    }
+
+    // MARK: - Remote bookcase
+
+    public func remoteBookcase() async throws -> [NovelSummary] {
+        let html = try await client.wap("/article/bookcase.php")
+        if AccountParser.isLoginGate(html) {
+            throw Wenku8Error.needLogin
+        }
+        return AccountParser.bookcaseNovels(html)
+    }
+
+    @discardableResult
+    public func addToBookcase(aid: Int) async throws -> BookcaseMutationResult {
+        let html = try await client.wap("/article/addbookcase.php?bid=\(aid)")
+        let outcome = AccountParser.mutationOutcome(html, novelID: aid)
+        switch outcome {
+        case .notSignedIn:
+            throw Wenku8Error.needLogin
+        case .failed(let message):
+            throw Wenku8Error.login(message)
+        default:
+            return outcome
+        }
+    }
+
+    @discardableResult
+    public func removeFromBookcase(aid: Int) async throws -> BookcaseMutationResult {
+        let html = try await client.wap("/article/bookcase.php?delid=\(aid)")
+        if AccountParser.isLoginGate(html) {
+            throw Wenku8Error.needLogin
+        }
+        // The site returns the updated shelf page without a dedicated confirmation,
+        // so verify by listing the shelf again only when the page looked odd.
+        let outcome = AccountParser.mutationOutcome(html, novelID: aid)
+        if case .failed(let message) = outcome {
+            throw Wenku8Error.login(message)
+        }
+        return outcome
+    }
 }

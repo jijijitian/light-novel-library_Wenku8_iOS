@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE wml PUBLIC "-//WAPFORUM//DTD WML 1.1//EN" "http://www.wapforum.org/DTD/wml_1.1.xml">
+<wml>
+<head><meta http-equiv="Cache-Control" content="no-cache" /></head>
+<card id="login.php" title="轻小说文库 - 登录">
+<p>
+
+您好!游客,<a href="/wap/login.php" title="登录">登录</a>.<a href="/wap/register.php" title="注册">注册</a><br/>
+
+
+<a href="/wap/" title="首页">首页</a>.
+<a href="/wap/message.php?box=inbox">消息</a>.
+<a href="/wap/article/bookcase.php">书架</a>.
+<a href="/wap/article/search.php" title="搜书">搜书</a><br/>
+<a href="/wap/article/sort.php" title="分类">分类</a>.
+<a href="/wap/article/top.php" title="排行">排行</a>.
+<a href="/wap/article/sortlist.php?fullflag=1">全本</a>.
+<a href="/wap/article/toplist.php?sort=postdate">新书</a><br/>
+
+
+<br />
+帐号：<input name="username" /><br />
+密码：<input name="password" type="password" /><br />
+<anchor title="登录">登录<go href="login.php" method="post"><postfield name="action" value="login" /><postfield name="jumpurl" value="" /><postfield name="username" value="$(username)" /><postfield name="password" value="$(password)" /></go></anchor>.<a href="/wap/register.php" title="注册">注册</a><br /><br />
+<a href="https://www.wenku8.net/login.php" title="登录">如你的浏览器无法登录，你可以通过这里登录之后，重新访问wap首页刷新即可</a><br />
+
+<p align="center">
+<a href="/wap/newmessage.php?tosys=1">联系管理员</a><br />
+(c) 轻小说文库<br />
+<a href="">进入电脑版文库</a></p><img src="//ia.51.la/go1?id=21300667&amp;pvFlag=1" style="border:none" />
+</p>
+</card>
+</wml>
