@@ -25,7 +25,7 @@ extension View {
     /// Wraps content in a Liquid Glass shape on iOS 26+, and in a thin material
     /// with a hairline stroke everywhere else.
     @ViewBuilder
-    func glassSurface<S: Shape>(
+    func glassSurface<S: Shape & InsettableShape>(
         _ shape: S,
         tint: Color? = nil,
         interactive: Bool = false
