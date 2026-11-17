@@ -37,7 +37,11 @@ Text("目录")
 - `prominentGlassButtonShape()` / `secondaryGlassButtonShape()` —— 按钮样式，iOS 26 起用 `.buttonStyle(.glassProminent)` 与 `.buttonStyle(.glass)`，并配合 `.buttonBorderShape(.capsule)` 而非自行裁剪形状。
 - `GlassContainer` —— iOS 26 起包一层 `GlassEffectContainer`，相邻玻璃控件获得融合动效（排行榜的榜单选择器、搜索页的标签）。
 - 滚动内容（列表行、正文）**不使用**玻璃，玻璃只出现在导航、按钮与固定浮层上，避免滚动时的渲染开销与视觉噪点。
-- 阅读器的底部控制条属于固定浮层，使用 `.glassCard`；工具栏按钮沿用系统在 iOS 26 上自带的玻璃背景。
+- 阅读器的底部控制条属于固定浮层，使用 `.glassCard`；工具栏按钮沿用系统在 iOS 26+ 上自带的玻璃背景。
+
+`MinimumOSVersion` 保持 17.0，因此在 iOS 17/18 上仍可安装运行，只是玻璃控件回落成材质面板；
+在 iOS 26/27 设备上才会真正启用 Liquid Glass。CI 会分别在 Xcode 27.1（`iphoneos27.1`）与
+Xcode 26.6（`iphoneos26.5`）两个 SDK 下各编译一次，确保两套可用性分支都能通过编译。
 
 ## 构建
 
@@ -47,13 +51,25 @@ Text("目录")
 
 ### 方式一：xtool + GitHub Actions（推荐，无需本地环境）
 
-推送代码后，`.github/workflows/ios-build.yml` 会在 `macos-26` runner 上：
+推送代码后，`.github/workflows/ios-build.yml` 会并行跑两个构建，确认代码在 iOS 26 与 iOS 27 SDK 下都能编译：
 
-1. 在 Linux Swift 容器里跑核心层单元测试；
-2. 用 xtool 编译出 `Wenku8iOS.app` 并校验 bundle 结构；
-3. 打包成未签名 `.ipa` 上传为构建产物。
+| 任务 | Runner | Xcode / SDK |
+| --- | --- | --- |
+| Core tests | `ubuntu-latest` + `swift:6.1-noble` 容器 | Linux Swift 6.1 |
+| xtool build (iOS 27 SDK) | `xcode-27` | Xcode 27.1 / `iphoneos27.1` |
+| xtool build (iOS 26 SDK) | `macos-26` | Xcode 26.6 / `iphoneos26.5` |
 
-构建产物（Actions → 某次运行 → Artifacts → `Wenku8iOS-unsigned`）解压后即可用于真机签名安装。
+每个构建都会校验产物并上传为独立的 Artifact：
+
+- `Wenku8iOS-unsigned-ios27` —— 用 iOS 27 SDK 编译（真机推荐用这个）
+- `Wenku8iOS-unsigned-ios26` —— 用 iOS 26 SDK 编译
+
+产物校验覆盖：`CFBundleIdentifier`（`org.mewx.wenku8.ios`）、`MinimumOSVersion`（17.0）、
+arm64 Mach-O、`_main` 入口符号、已链接的 `SwiftUI.framework` / `UIKit.framework`、
+`Wenku8iOS_Wenku8Core.bundle` 资源名与 `Bundle.module` 一致、以及 `.ipa` 的 SHA-256。
+
+下载 Artifact 解压后得到 `Wenku8iOS-unsigned.ipa`，用你惯用的签名方式（xtool、AltStore/SideStore 等）
+签名后即可装到真机。
 
 ### 方式二：xtool（Linux / Windows WSL / macOS，无需 Xcode 工程）
 
@@ -198,8 +214,8 @@ PASS  rank: 13 books, first=玩乐关系
 章节正文清洗、分页标记、书评列表与详情、文库分类、实体解码、封面 URL 规则、
 年度榜单（含 2012 年前的旧版大写标签）。
 
-CI（`.github/workflows/ios-build.yml`）会先跑离线测试，再在 macOS runner 上用 xtool 真实编译、
-校验产物结构，并上传未签名的 `.ipa`。
+CI（`.github/workflows/ios-build.yml`）会先跑离线测试，再用 xtool 在 iOS 27 与 iOS 26 两个 SDK 下
+各真实编译一次、校验产物结构，并分别上传未签名的 `.ipa`。
 
 ## 已知限制
 
