@@ -1,6 +1,13 @@
 import Foundation
 
 public enum DesktopParser {
+    /// The desktop site serves a "本站正式关闭" notice in place of list pages for
+    /// anonymous clients. Treating that page as a parse failure keeps the UI from
+    /// presenting an empty ranking as if the site had no books.
+    public static func isPlaceholder(_ html: String) -> Bool {
+        html.contains("本站正式关闭") || html.contains("感谢每一位朋友的支持")
+    }
+
     /// Extracts novel cards from the desktop list markup: a cover link plus title.
     public static func novelCards(_ html: String) -> [NovelSummary] {
         guard let regex = try? NSRegularExpression(

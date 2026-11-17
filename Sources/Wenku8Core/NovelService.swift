@@ -60,29 +60,55 @@ public struct NovelService: Sendable {
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
-            throw Wenku8Error.needLogin
+            return try await rankedFallback(board, page: page)
         }
         let items = WAPParser.linksIn(html)
         if items.isEmpty {
-            return try await desktopRank(board, page: page)
+            return try await rankedFallback(board, page: page)
         }
         return items
+    }
+
+    /// The WAP ranking needs a session and the desktop ranking serves a shutdown
+    /// notice to anonymous clients, so fall back to the yearly Sugoi ranking,
+    /// which is a static page and still lists real books.
+    private func rankedFallback(_ board: RankBoard, page: Int) async throws -> [NovelSummary] {
+        if let items = try? await desktopRank(board, page: page), !items.isEmpty {
+            return items
+        }
+        let year = SugoiParser.availableYears[max(0, min(page - 1, SugoiParser.availableYears.count - 1))]
+        let books = try await sugoi(year: year).allBooks
+        guard !books.isEmpty else {
+            throw Wenku8Error.unavailable("排行榜暂时无法访问，请稍后再试")
+        }
+        return books
     }
 
     public func desktopRank(_ board: RankBoard, page: Int = 1) async throws -> [NovelSummary] {
         let path = "/modules/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.desktop(path)
-        let items = DesktopParser.novelCards(html)
-        if items.isEmpty {
-            throw Wenku8Error.unavailable("排行榜暂时无法访问，请稍后再试")
+        guard !DesktopParser.isPlaceholder(html) else { return [] }
+        return DesktopParser.novelCards(html)
+    }
+
+    public func sugoi(year: Int) async throws -> SugoiParser.Year {
+        let html = try await client.desktop("/zt/sugoi/\(year).php")
+        guard !DesktopParser.isPlaceholder(html) else {
+            throw Wenku8Error.unavailable("榜单页面暂时无法访问")
         }
-        return items
+        let parsed = SugoiParser.parse(html, year: year)
+        guard !parsed.allBooks.isEmpty else {
+            throw Wenku8Error.unavailable("\(year) 年度榜单暂时无法访问")
+        }
+        return parsed
     }
 
     public func library(_ category: Int, page: Int = 1) async throws -> [NovelSummary] {
         let path = "/article/sortlist.php?class=\(category)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
+            // The library listing is session-only on every mirror, so report the real
+            // reason instead of substituting an unrelated ranking.
             throw Wenku8Error.needLogin
         }
         return WAPParser.linksIn(html)

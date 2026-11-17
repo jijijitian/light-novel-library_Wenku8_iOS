@@ -93,35 +93,64 @@ struct RankBoardPicker: View {
 @MainActor
 final class RankListViewModel: ObservableObject {
     @Published private(set) var novels: [NovelSummary] = []
+    @Published private(set) var sugoiSections: [SugoiParser.Section] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
     @Published private(set) var needsLogin = false
+    @Published private(set) var notice: String?
 
     private let service: NovelService
-    private var loadedBoards = Set<String>()
+    private var loadedKeys = Set<String>()
 
     init(service: NovelService = NovelService()) {
         self.service = service
     }
 
-    func load(board: RankBoard, page: Int = 1, force: Bool = false) async {
-        let key = "\(board.rawValue)-\(page)"
-        guard force || !loadedBoards.contains(key) else { return }
+    func load(board: RankBoard, year: Int = SugoiParser.availableYears[0], force: Bool = false) async {
+        let key = "\(board.rawValue)-\(year)"
+        guard force || !loadedKeys.contains(key) else { return }
         guard !isLoading else { return }
+        isLoading = true
+        notice = nil
+        defer { isLoading = false }
+
+        do {
+            let result = try await service.rank(board, page: 1)
+            novels = result
+            sugoiSections = []
+            needsLogin = false
+            error = nil
+            loadedKeys.insert(key)
+        } catch Wenku8Error.needLogin {
+            await loadSugoi(year: year, reason: "排行榜需要登录文库账号，先看看年度榜单")
+            loadedKeys.insert(key)
+        } catch {
+            await loadSugoi(year: year, reason: "排行榜暂时不可用，已切换到年度榜单")
+            if novels.isEmpty {
+                self.error = error
+            }
+            loadedKeys.insert(key)
+        }
+    }
+
+    func loadSugoi(year: Int, reason: String? = nil) async {
         isLoading = true
         defer { isLoading = false }
         do {
-            let result = try await service.rank(board, page: page)
-            novels = result
-            needsLogin = false
+            let parsed = try await service.sugoi(year: year)
+            sugoiSections = parsed.sections
+            novels = []
             error = nil
-            loadedBoards.insert(key)
-        } catch Wenku8Error.needLogin {
-            needsLogin = true
-            error = Wenku8Error.needLogin
+            needsLogin = false
+            notice = reason.map { "\($0)（\(year) 年度）" }
         } catch {
             self.error = error
+            sugoiSections = []
         }
+    }
+
+    var isEmpty: Bool {
+        novels.isEmpty && sugoiSections.isEmpty
     }
 }
 
@@ -130,34 +159,89 @@ struct RankListView: View {
     @EnvironmentObject private var router: AppRouter
     @StateObject private var model = RankListViewModel()
     @State private var showWeb = false
+    @State private var year = SugoiParser.availableYears[0]
 
     var body: some View {
         ScrollView {
-            if model.isLoading && model.novels.isEmpty {
-                LoadingRow()
-            } else if let error = model.error, model.novels.isEmpty {
-                VStack(spacing: 12) {
-                    ErrorStateView(error: error) {
-                        Task { await model.load(board: board, force: true) }
+            VStack(alignment: .leading, spacing: 16) {
+                if let notice = model.notice {
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle.fill").foregroundStyle(.tint)
+                        Text(notice).font(.caption).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
-                    Button("在网页版查看") { showWeb = true }
-                        .secondaryGlassButtonShape()
+                    .padding(12)
+                    .glassCard(cornerRadius: 16)
                 }
-            } else {
-                NovelGrid(novels: model.novels) { novel in
-                    router.open(.novel(novel.id))
+
+                yearPicker
+
+                if model.isLoading && model.isEmpty {
+                    LoadingRow()
+                } else if let error = model.error, model.isEmpty {
+                    VStack(spacing: 12) {
+                        ErrorStateView(error: error) {
+                            Task { await model.load(board: board, year: year, force: true) }
+                        }
+                        Button("在网页版查看") { showWeb = true }
+                            .secondaryGlassButtonShape()
+                    }
+                } else if !model.novels.isEmpty {
+                    NovelGrid(novels: model.novels) { novel in
+                        router.open(.novel(novel.id))
+                    }
+                } else {
+                    ForEach(model.sugoiSections) { section in
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(title: section.caption, symbol: "trophy.fill")
+                            NovelGrid(novels: section.novels) { novel in
+                                router.open(.novel(novel.id))
+                            }
+                        }
+                        .padding(14)
+                        .glassCard(cornerRadius: 22)
+                    }
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 28)
         }
         .background { AppBackground() }
         .navigationTitle(board.title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.load(board: board, force: true) }
-        .task { await model.load(board: board) }
+        .refreshable { await model.load(board: board, year: year, force: true) }
+        .task { await model.load(board: board, year: year) }
+        .onChange(of: year) { _, newValue in
+            Task { await model.loadSugoi(year: newValue) }
+        }
         .sheet(isPresented: $showWeb) {
             WebSheet(url: URL(string: "https://www.wenku8.net/wap/article/toplist.php?sort=\(board.rawValue)"))
+        }
+    }
+
+    private var yearPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            GlassContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(SugoiParser.availableYears, id: \.self) { value in
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) { year = value }
+                        } label: {
+                            Text("\(String(value))年度")
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                        }
+                        .buttonStyle(.plain)
+                        .glassCapsule(
+                            tint: year == value ? AppTheme.accent.opacity(0.55) : nil,
+                            interactive: true
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
         }
     }
 }
