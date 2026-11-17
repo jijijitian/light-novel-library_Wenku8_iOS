@@ -12,10 +12,10 @@
 | 工程形态 | `project.yml`（XcodeGen）→ 生成 `Wenku8.xcodeproj`，用 **Xcode / xcodebuild** 构建 |
 | 部署目标 | iOS 17.0（Liquid Glass 仅在 iOS 26+ 生效，iOS 17/18 回落材质） |
 | 核心层 | 仍是纯 SwiftPM 模块，可在 Linux 上跑测试 |
-| 单元测试 | **57 个**，全部通过（`bash tools/test-core-linux.sh`） |
+| 单元测试 | **61 个**，全部通过（`bash tools/test-core-linux.sh`） |
 | 联网校验 | 全部通过（`bash tools/test-live.sh`） |
 | 已完成 | SwiftUI 重写、Liquid Glass、登录、加书架、阅读器、搜索、排行榜、书评 |
-| **本轮完成** | ① 首页卡片文字重叠已修 ② dock 改用 iOS 27 原生 Liquid Glass 悬浮栏 ③ relay API 已接入（凭证注入 + 限速 + 回退） ④ 构建从 xtool 迁到 Xcode ⑤ 真机已跑通 |
+| **本轮完成** | ① 首页卡片重叠已修 ② dock 改用 iOS 27 原生 Liquid Glass ③ relay API 完整接入（算法已还原） ④ 构建从 xtool 迁到 Xcode ⑤ 真机跑通 ⑥ 左右翻页/首行缩进/图片支持 |
 | 真机 | iPhone 17 Pro，Xcode 27.2 自动签名，已安装并运行 |
 
 ---
@@ -68,7 +68,8 @@ work/
 │       ├── RankView.swift            排行榜 + LibraryListView
 │       ├── SearchView.swift          搜索 + FlowLayout
 │       ├── NovelDetailView.swift     详情（书架按钮在这里）
-│       ├── ReaderView.swift          阅读器
+│       ├── ReaderView.swift          阅读器（上下/左右翻页、首行缩进、插图、全屏查看）
+│       ├── ReaderPreferences.swift   阅读偏好（翻页方式 / 首行缩进）
 │       ├── ReviewView.swift          书评列表/详情
 │       ├── ShelfView.swift           我的书架
 │       ├── SettingsView.swift        设置（账号区 + 中转服务区）
@@ -273,6 +274,48 @@ sig8      = 十六进制字符串的第 12–20 位
 回到系统 `TabView` 后导航由系统管理，这个隐患消失。
 
 顺带恢复阅读器隐藏标签栏：`.toolbar(.hidden, for: .tabBar)`。
+
+## 7.5 阅读器增强（本轮新增）
+
+### 7.5.1 左右翻页 / 上下滑动
+
+- `ReaderPreferences.swift` 定义 `ReaderLayout { vertical, horizontal }`，
+  存于 `@AppStorage("reader.layout")`。
+- 入口两处：**设置 → 阅读 → 翻页方式**（分段控件），以及阅读器控制条左下角的
+  布局切换按钮（图标形态，快速切换）。
+- 实现：`horizontal` 模式用分页 `TabView`（`indexDisplayMode: .never`）承载章节，
+  左右滑动由 `DragGesture` 判定（>40pt 触发），章节内容垂直方向锁定不可滚，
+  滑到边界自动切到上一章 / 下一章。
+- 相邻章节会 `prefetch`，避免滑动后看到空白页。
+
+### 7.5.2 首行缩进
+
+- `@AppStorage("reader.indentFirstLine")`，默认关闭。
+- 开启后每段 `.padding(.leading, fontSize * 2)`，即两个全角字符宽，
+  随字号自适应（18pt → 36pt，28pt → 56pt）。
+- 封面/插图块不受影响。
+
+### 7.5.3 图片支持
+
+这里有个**真实的知识点**：relay 返回的插图不是 `<img>`，而是内联标记
+
+```
+<!--image-->https://pic.777743.xyz/1/1614/54785/67547.jpg<!--image-->
+```
+
+之前的解析器把这个标记当普通文本，于是在正文里排出一屏幕 URL。
+现在 `RelayParser.splitImages(in:)` 把它拆成 `.image` 块，并且：
+
+- 只有 `http(s)` / `//` 开头的才当图片，否则回退成文本（`CoverURL.normalize`
+  会接受任意字符串，不校验会产生空图片块）
+- 同一行里文字 + 图片混排也能正确处理
+- 图片源是 `pic.777743.xyz`，实测 5392×3542 原始扫描，可直接访问，不需要特殊 UA
+
+界面部分：
+
+- `ReaderImage` 行内渲染，失败显示占位，加载中显示骨架
+- 点击图片进入 `ImageViewer`：全屏、双指缩放（1–5x）、双击放大/还原
+- 控制条是浮层，章节内容底部预留 260pt，避免图片被压在面板下面
 
 ## 8. 已知问题与坑（踩过的，别再踩）
 

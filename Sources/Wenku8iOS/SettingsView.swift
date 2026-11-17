@@ -10,8 +10,10 @@ struct SettingsView: View {
     @State private var accountMessage: String?
     @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
     private let relayStore = RelayCredentialStore.shared
-    @AppStorage("reader.fontSize") private var fontSize = 18.0
-    @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
+    @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
+    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
+    @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
+    @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
 
     var body: some View {
         Form {
@@ -49,6 +51,35 @@ struct SettingsView: View {
                         Text("\(Int(lineSpacing))").foregroundStyle(.secondary)
                     }
                     Slider(value: $lineSpacing, in: 2...16, step: 1)
+                }
+
+                // A segmented Picker bound to @AppStorage does not reliably
+                // re-read the stored value inside a Form on iOS 26+, so the
+                // selection is projected through an explicit Binding.
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("翻页方式", systemImage: "rectangle.split.1x2")
+                    Picker("翻页方式", selection: Binding(
+                        get: { ReaderLayout(rawValue: layoutRaw) ?? .vertical },
+                        set: { layoutRaw = $0.rawValue }
+                    )) {
+                        ForEach(ReaderLayout.allCases) { layout in
+                            Text(layout.title).tag(layout)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                Toggle(isOn: Binding(
+                    get: { indentFirstLine },
+                    set: { indentFirstLine = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("首行缩进", systemImage: "text.append")
+                        Text("每段首行缩进两个字符")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 

@@ -12,6 +12,10 @@ settings:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: C428Z585GG
     CODE_SIGN_STYLE: Automatic
+    # XcodeGen injects the legacy "iPhone Developer" identity, which no longer
+    # matches any certificate on current Xcode. Naming the modern identity
+    # explicitly fixes device builds; leaving it empty disables signing entirely.
+    CODE_SIGN_IDENTITY: "Apple Development"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 targets:

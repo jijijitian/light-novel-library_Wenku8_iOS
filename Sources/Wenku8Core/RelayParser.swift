@@ -310,24 +310,93 @@ public enum RelayParser {
     // MARK: - Chapters
 
     /// `action=book&do=text` answers with plain text, blank-line separated.
+    ///
+    /// Illustrations arrive inline as `<!--image-->https://…jpg<!--image-->`.
+    /// Without handling that marker the URLs were simply printed into the body,
+    /// which is why illustration chapters used to show a wall of links.
     public static func chapter(_ body: String, aid: Int, cid: Int) -> ChapterContent {
         let text = body
             .replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
         var blocks: [ChapterContent.Block] = []
         var title = ""
+
         for rawLine in text.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            let cleaned = line.replacingOccurrences(of: "\u{3000}", with: "")
-            if cleaned.isEmpty { continue }
-            if title.isEmpty, blocks.isEmpty, cleaned.count <= 40 {
-                // The relay puts the chapter title on its own first line.
-                title = cleaned
-                continue
+            if line.isEmpty { continue }
+
+            let (lineTitle, lineBlocks) = splitImages(in: rawLine)
+            if title.isEmpty, blocks.isEmpty, lineBlocks.allSatisfy({ if case .paragraph = $0 { return true }; return false }) {
+                let plain = line.replacingOccurrences(of: "\u{3000}", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if !plain.isEmpty, plain.count <= 40 {
+                    title = plain
+                    continue
+                }
             }
-            blocks.append(.paragraph(line))
+            if !lineTitle.isEmpty, title.isEmpty, blocks.isEmpty {
+                title = lineTitle
+            }
+            blocks.append(contentsOf: lineBlocks)
         }
+
         return ChapterContent(novelID: aid, chapterID: cid, title: title, blocks: blocks)
+    }
+
+    /// Splits one line into its text runs and illustration URLs.
+    static func splitImages(in line: String) -> (title: String, blocks: [ChapterContent.Block]) {
+        var blocks: [ChapterContent.Block] = []
+        guard line.contains("<!--image-->") else {
+            let plain = line.trimmingCharacters(in: .whitespaces)
+            return ("", plain.isEmpty ? [] : [.paragraph(plain)])
+        }
+
+        var remainder = line
+        while let open = remainder.range(of: "<!--image-->") {
+            let before = String(remainder[remainder.startIndex..<open.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+            if !before.isEmpty {
+                blocks.append(.paragraph(before))
+            }
+            let afterOpen = remainder[open.upperBound...]
+            if let close = afterOpen.range(of: "<!--image-->") {
+                let raw = String(afterOpen[afterOpen.startIndex..<close.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let url = imageURL(from: raw) {
+                    blocks.append(.image(url))
+                } else if !raw.isEmpty {
+                    blocks.append(.paragraph(raw))
+                }
+                remainder = String(afterOpen[close.upperBound...])
+            } else {
+                let raw = String(afterOpen).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let url = imageURL(from: raw) {
+                    blocks.append(.image(url))
+                } else if !raw.isEmpty {
+                    blocks.append(.paragraph(raw))
+                }
+                remainder = ""
+                break
+            }
+        }
+        let tail = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            blocks.append(.paragraph(tail))
+        }
+        return ("", blocks)
+    }
+
+    /// Only absolute http(s) URLs become image blocks. `CoverURL.normalize`
+    /// accepts any string, which would turn a broken marker into an empty image.
+    static func imageURL(from raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lowered = trimmed.lowercased()
+        guard lowered.hasPrefix("http://") || lowered.hasPrefix("https://") || lowered.hasPrefix("//") else {
+            return nil
+        }
+        return CoverURL.normalize(trimmed)
     }
 
     // MARK: - Account

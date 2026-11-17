@@ -9,20 +9,6 @@ struct Wenku8App: App {
 
     init() {
         Self.configureRelay()
-        Self.applyLaunchTabOverride()
-    }
-
-    /// Lets a debug launch open a specific tab, so the dock can be checked on a
-    /// device without hand-driving the UI:
-    ///   devicectl device process launch --terminate-existing \
-    ///     --environment-variables '{"WENKU8_START_TAB":"rank"}' <udid> org.mewx.wenku8.ios
-    /// The value is ignored in release builds.
-    private static func applyLaunchTabOverride() {
-        #if DEBUG
-        guard let raw = ProcessInfo.processInfo.environment["WENKU8_START_TAB"],
-              let tab = RootView.AppTab(launchToken: raw) else { return }
-        AppRouter.launchTab = tab
-        #endif
     }
 
     /// The relay is the only path that serves real rankings and category
@@ -55,16 +41,43 @@ struct Wenku8App: App {
 
 @MainActor
 final class AppRouter: ObservableObject {
-    /// Set once by `Wenku8App.applyLaunchTabOverride()` before the first view is
-    /// built; normal launches leave it at `.home`.
-    static var launchTab: RootView.AppTab = .home
-
-    @Published var tab: RootView.AppTab = AppRouter.launchTab
+    @Published var tab: RootView.AppTab
     @Published var homePath: [Route] = []
     @Published var rankPath: [Route] = []
     @Published var searchPath: [Route] = []
     @Published var shelfPath: [Route] = []
     @Published var settingsPath: [Route] = []
+
+    /// The initial tab can be forced with `WENKU8_START_TAB` so a debug launch can
+    /// open a specific screen without hand-driving the UI:
+    ///   devicectl device process launch --terminate-existing \
+    ///     --environment-variables '{"WENKU8_START_TAB":"settings"}' <udid> org.mewx.wenku8.ios
+    /// The value is ignored in release builds.
+    init(tab: RootView.AppTab? = nil) {
+        self.tab = tab ?? Self.launchTab
+        #if DEBUG
+        // `WENKU8_OPEN_CHAPTER=aid:cid` jumps straight into the reader, which is
+        // needed to inspect the reader without hand-driving the UI. The chapter
+        // list is empty here, so `ReaderView` shows the chapter it just loaded
+        // instead of a placeholder title.
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_CHAPTER"],
+           let colon = raw.firstIndex(of: ":"),
+           let aid = Int(raw[raw.startIndex..<colon]),
+           let cid = Int(raw[raw.index(after: colon)...]) {
+            homePath = [.reader(novelID: aid, chapters: [ChapterLink(id: cid, title: "")], startIndex: 0)]
+        }
+        #endif
+    }
+
+    private static var launchTab: RootView.AppTab {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_START_TAB"],
+           let tab = RootView.AppTab(launchToken: raw) {
+            return tab
+        }
+        #endif
+        return .home
+    }
 
     enum Route: Hashable {
         case novel(Int)

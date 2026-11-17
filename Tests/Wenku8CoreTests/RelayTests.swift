@@ -240,3 +240,65 @@ final class DedupeTests: XCTestCase {
         XCTAssertEqual(Set(merged.map(\.id)).count, merged.count, "volume ids must be unique")
     }
 }
+
+final class RelayImageTests: XCTestCase {
+    private func fixture(_ name: String) throws -> String {
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: "Fixtures/\(name)", withExtension: nil)
+                ?? Bundle.module.url(forResource: name, withExtension: nil),
+            "missing fixture \(name)"
+        )
+        return TextDecoding.decode(try Data(contentsOf: url))
+    }
+
+    func testIllustrationChapterParsesImageMarkers() throws {
+        let content = RelayParser.chapter(try fixture("relay-illustration.txt"), aid: 1614, cid: 54785)
+        let images = content.blocks.filter {
+            if case .image = $0 { return true }
+            return false
+        }
+        XCTAssertEqual(images.count, 3, "every <!--image--> marker becomes a block")
+        XCTAssertEqual(content.title, "插图")
+        XCTAssertEqual(
+            content.firstImage?.absoluteString,
+            "https://pic.777743.xyz/1/1614/54785/67547.jpg"
+        )
+        // The URLs must not leak into the readable text.
+        XCTAssertFalse(content.plainText.contains("pic.777743.xyz"))
+    }
+
+    func testMarkersWithoutURLsDegradeToText() {
+        let (_, blocks) = RelayParser.splitImages(in: "<!--image-->not-a-url<!--image-->")
+        XCTAssertEqual(blocks.count, 1)
+        if case .paragraph(let text) = blocks[0] {
+            XCTAssertEqual(text, "not-a-url")
+        } else {
+            XCTFail("expected a paragraph fallback")
+        }
+    }
+
+    func testProseIsUnaffectedByImageHandling() {
+        let (_, blocks) = RelayParser.splitImages(in: "　　普通段落没有插图。")
+        XCTAssertEqual(blocks.count, 1)
+        if case .paragraph(let text) = blocks[0] {
+            XCTAssertTrue(text.contains("普通段落"))
+        } else {
+            XCTFail("expected a paragraph")
+        }
+    }
+
+    func testMixedTextAndImageOnOneLine() {
+        let (_, blocks) = RelayParser.splitImages(
+            in: "前文<!--image-->https://example.com/a.jpg<!--image-->后文"
+        )
+        XCTAssertEqual(blocks.count, 3)
+        guard case .paragraph(let first) = blocks[0],
+              case .image(let url) = blocks[1],
+              case .paragraph(let last) = blocks[2] else {
+            return XCTFail("expected paragraph/image/paragraph, got \(blocks)")
+        }
+        XCTAssertEqual(first, "前文")
+        XCTAssertEqual(url.absoluteString, "https://example.com/a.jpg")
+        XCTAssertEqual(last, "后文")
+    }
+}

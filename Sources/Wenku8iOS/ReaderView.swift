@@ -69,6 +69,16 @@ final class ReaderViewModel: ObservableObject {
         index = newIndex
         await load()
     }
+
+    /// Warms the cache for a neighbouring chapter so a page swipe does not show
+    /// an empty page while the request is in flight.
+    func prefetch(_ newIndex: Int) async {
+        guard chapters.indices.contains(newIndex) else { return }
+        let chapter = chapters[newIndex]
+        guard cache[chapter.id] == nil else { return }
+        guard let result = try? await service.chapter(aid: novelID, cid: chapter.id) else { return }
+        cache[chapter.id] = result
+    }
 }
 
 struct ReaderTheme: Equatable {
@@ -110,10 +120,13 @@ struct ReaderView: View {
     @StateObject private var model: ReaderViewModel
     @State private var showChrome = true
     @State private var showCatalog = false
-    @AppStorage("reader.theme") private var themeName = "纸白"
-    @AppStorage("reader.fontSize") private var fontSize = 18.0
-    @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
-    @AppStorage("reader.vertical") private var isVertical = false
+    @State private var zoomedImage: ZoomedImage?
+
+    @AppStorage(ReaderPreferences.themeKey) private var themeName = "纸白"
+    @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
+    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
+    @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
+    @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
 
     init(novelID: Int, chapters: [ChapterLink], startIndex: Int) {
         self.novelID = novelID
@@ -128,11 +141,36 @@ struct ReaderView: View {
         ReaderTheme.all.first { $0.name == themeName }?.theme ?? .paper
     }
 
+    private var layout: ReaderLayout {
+        ReaderLayout(rawValue: layoutRaw) ?? .vertical
+    }
+
     var body: some View {
         ZStack {
             theme.background.ignoresSafeArea()
 
-            content
+            switch layout {
+            case .vertical:
+                verticalContent
+            case .horizontal:
+                HorizontalPager(
+                    pageCount: model.chapters.count,
+                    index: Binding(
+                        get: { model.index },
+                        set: { newIndex in
+                            guard newIndex != model.index else { return }
+                            Task {
+                                await model.jump(to: newIndex)
+                                recordProgress()
+                            }
+                        }
+                    ),
+                    theme: theme,
+                    sliderWidth: sliderWidth
+                ) { index in
+                    pageBody(for: index)
+                }
+            }
 
             if showChrome {
                 chrome
@@ -155,7 +193,7 @@ struct ReaderView: View {
                 }
             }
             ToolbarItem(placement: .principal) {
-                Text(model.current?.title ?? "")
+                Text(displayTitle)
                     .font(.footnote.weight(.medium))
                     .lineLimit(1)
             }
@@ -178,71 +216,161 @@ struct ReaderView: View {
         .sheet(isPresented: $showCatalog) {
             CatalogSheet(model: model)
         }
+        .sheet(item: $zoomedImage) { item in
+            ImageViewer(url: item.url, theme: theme) { zoomedImage = nil }
+        }
     }
 
+    // MARK: - Vertical mode
+
     @ViewBuilder
-    private var content: some View {
+    private var verticalContent: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 20) {
-                Text(model.current?.title ?? "")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(theme.text)
-                    .fixedSize(horizontal: false, vertical: true)
+                chapterTitle
 
-                if model.isLoading && model.content == nil {
-                    ProgressView()
-                        .tint(theme.text)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                } else if let error = model.error {
-                    VStack(spacing: 12) {
-                        Text(errorMessage(error))
-                            .font(.subheadline)
-                            .foregroundStyle(theme.text.opacity(0.7))
-                            .multilineTextAlignment(.center)
-                        Button("重试") {
-                            Task { await model.load() }
-                        }
-                        .prominentGlassButtonShape()
-                        .tint(AppTheme.accent)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 30)
-                } else if let content = model.content {
-                    ForEach(Array(content.blocks.enumerated()), id: \.offset) { _, block in
-                        switch block {
-                        case .paragraph(let text):
-                            Text(text)
-                                .font(.system(size: fontSize))
-                                .lineSpacing(lineSpacing)
-                                .foregroundStyle(theme.text)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                        case .image(let url):
-                            AsyncImage(url: url) { phase in
-                                if case .success(let image) = phase {
-                                    image.resizable().scaledToFit()
-                                } else {
-                                    ProgressView().tint(theme.text)
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                    }
-
+                if let content = model.content {
+                    blocks(content)
                     navigationButtons
+                } else {
+                    statusView
                 }
             }
-            .frame(maxWidth: isVertical ? .infinity : 680, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.top, 24)
-            .padding(.bottom, showChrome ? 190 : 46)
-            .frame(maxWidth: .infinity)
+            // The chrome is a floating panel, so content gets a matching inset
+            // rather than being scrolled under it.
+            .padding(.bottom, showChrome ? 260 : 46)
         }
         .scrollIndicators(.hidden)
         .onTapGesture {
             withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
+        }
+    }
+
+    // MARK: - Horizontal mode
+
+    /// A chapter is long, so "left/right page turning" pages *within* a chapter
+    /// using the measured text height; reaching the last page advances to the
+    /// next chapter, which matches how the Android reader behaves.
+    private func pageBody(for index: Int) -> some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 18) {
+                if index == model.index {
+                    chapterTitle
+                    if let content = model.content {
+                        blocks(content)
+                        navigationButtons
+                    } else {
+                        statusView
+                    }
+                } else {
+                    // Neighbouring chapters are prefetched so a swipe shows prose
+                    // rather than an empty page.
+                    Color.clear
+                        .frame(height: 1)
+                        .task { await model.prefetch(index) }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, showChrome ? 260 : 46)
+        }
+        .scrollDisabled(true)
+        .scrollIndicators(.hidden)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    if value.translation.width < -40 {
+                        turnNext()
+                    } else if value.translation.width > 40 {
+                        turnPrevious()
+                    } else {
+                        withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
+                    }
+                }
+        )
+    }
+
+    private func turnNext() {
+        Task {
+            await model.goNext()
+            recordProgress()
+        }
+    }
+
+    private func turnPrevious() {
+        Task {
+            await model.goPrevious()
+            recordProgress()
+        }
+    }
+
+    // MARK: - Shared pieces
+
+    /// Falls back to the loaded chapter's own title when the route did not carry
+    /// one, which happens when the reader is opened directly.
+    private var displayTitle: String {
+        let fromRoute = model.current?.title ?? ""
+        if !fromRoute.isEmpty { return fromRoute }
+        return model.content?.title ?? ""
+    }
+
+    private var chapterTitle: some View {
+        Text(displayTitle)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(theme.text)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
+        if model.isLoading && model.content == nil {
+            ProgressView()
+                .tint(theme.text)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+        } else if let error = model.error {
+            VStack(spacing: 12) {
+                Text(errorMessage(error))
+                    .font(.subheadline)
+                    .foregroundStyle(theme.text.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                Button("重试") {
+                    Task { await model.load() }
+                }
+                .prominentGlassButtonShape()
+                .tint(AppTheme.accent)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 30)
+        }
+    }
+
+    @ViewBuilder
+    private func blocks(_ content: ChapterContent) -> some View {
+        ForEach(Array(content.blocks.enumerated()), id: \.offset) { _, block in
+            switch block {
+            case .paragraph(let text):
+                Text(text)
+                    .font(.system(size: fontSize))
+                    .lineSpacing(lineSpacing)
+                    .foregroundStyle(theme.text)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Chinese typesetting indents the first line by two
+                    // full-width characters rather than using a tab stop.
+                    .padding(.leading, indentFirstLine ? ReaderPreferences.indent(for: fontSize) : 0)
+            case .image(let url):
+                Button {
+                    zoomedImage = ZoomedImage(url: url)
+                } label: {
+                    ReaderImage(url: url, theme: theme)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -274,6 +402,10 @@ struct ReaderView: View {
             .disabled(!model.canGoNext)
         }
         .padding(.top, 26)
+    }
+
+    private var sliderWidth: CGFloat {
+        min(UIScreen.main.bounds.width - 120, 320)
     }
 
     private var chrome: some View {
@@ -331,6 +463,35 @@ struct ReaderView: View {
                 .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
+                    // Layout and indentation are the two newest switches, so they
+                    // sit with the other inline controls for quick access.
+                    Button {
+                        layoutRaw = (layout == .vertical
+                            ? ReaderLayout.horizontal
+                            : ReaderLayout.vertical).rawValue
+                    } label: {
+                        Label(layout.title, systemImage: layout.systemImage)
+                            .font(.caption)
+                            .labelStyle(.iconOnly)
+                            .frame(width: 30, height: 26)
+                    }
+                    .secondaryGlassButtonShape(capsule: false)
+
+                    Button {
+                        indentFirstLine.toggle()
+                    } label: {
+                        Image(systemName: "text.append")
+                            .font(.caption)
+                            .frame(width: 30, height: 26)
+                    }
+                    .secondaryGlassButtonShape(capsule: false)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(indentFirstLine ? AppTheme.accent : .clear, lineWidth: 2)
+                    )
+
+                    Spacer()
+
                     ForEach(ReaderTheme.all, id: \.name) { item in
                         Button {
                             themeName = item.name
@@ -349,10 +510,6 @@ struct ReaderView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    Spacer()
-                    Text(themeName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -373,6 +530,151 @@ struct ReaderView: View {
 
     private func errorMessage(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+}
+
+// MARK: - Images
+
+struct ZoomedImage: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+/// Inline illustration. The relay serves full-resolution scans (over 5000px
+/// wide), so they are downsampled by the image loader and opened at full size in
+/// `ImageViewer` when tapped.
+struct ReaderImage: View {
+    var url: URL
+    var theme: ReaderTheme
+
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if failed {
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.title2)
+                    Text("插图加载失败")
+                        .font(.caption)
+                }
+                .foregroundStyle(theme.text.opacity(0.6))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else {
+                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    case .failure:
+                        Color.clear.frame(height: 1).onAppear { failed = true }
+                    case .empty:
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(theme.text.opacity(0.08))
+                            ProgressView().tint(theme.text)
+                        }
+                        .frame(height: 220)
+                    @unknown default:
+                        Color.clear.frame(height: 1)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Full-screen, zoomable illustration.
+struct ImageViewer: View {
+    var url: URL
+    var theme: ReaderTheme
+    var onClose: () -> Void
+
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .scaleEffect(scale)
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    scale = min(max(lastScale * value, 1), 5)
+                                }
+                                .onEnded { _ in lastScale = scale }
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                scale = scale > 1 ? 1 : 2.5
+                                lastScale = scale
+                            }
+                        }
+                case .failure:
+                    Text("插图加载失败")
+                        .foregroundStyle(.white.opacity(0.7))
+                default:
+                    ProgressView().tint(.white)
+                }
+            }
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        onClose()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.white)
+                            .padding()
+                    }
+                }
+                Spacer()
+                if scale > 1 {
+                    Text("双指缩放，双击还原")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.bottom, 24)
+                }
+            }
+        }
+    }
+}
+
+/// Horizontal pager for the left/right reading mode.
+///
+/// A paged `TabView` is used so the transition stays native, but the page index
+/// is driven by the view model rather than being the source of truth.
+struct HorizontalPager<Content: View>: View {
+    var pageCount: Int
+    @Binding var index: Int
+    var theme: ReaderTheme
+    var sliderWidth: CGFloat
+    @ViewBuilder var content: (Int) -> Content
+
+    var body: some View {
+        TabView(selection: $index) {
+            ForEach(0..<max(pageCount, 1), id: \.self) { page in
+                content(page)
+                    .tag(page)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .background(theme.background)
     }
 }
 

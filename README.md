@@ -19,7 +19,7 @@
 | 搜索 | 按书名或作者搜索，本地保存搜索历史，支持按文库分类浏览 |
 | 小说详情 | 封面、作者、文库、状态、字数、更新时间、完整简介、同类推荐 |
 | 章节目录 | 按卷分组的 DisclosureGroup 目录，标记当前阅读位置 |
-| 阅读器 | 四种配色（纸白/护眼/夜间/跟随系统）、字号与行距实时调节、章节目录跳转、自动记录进度、插图渲染 |
+| 阅读器 | 四种配色（纸白/护眼/夜间/跟随系统）、字号与行距实时调节、**上下滑动 / 左右翻页两种翻页方式**、**可开关的首行缩进**、章节目录跳转、自动记录进度、**插图渲染 + 全屏缩放查看** |
 | 书评 | 书评列表与详情页回复 |
 | 我的书架 | 本地收藏与每本书的阅读进度 |
 | 底部导航 | 使用系统 `TabView`，在 iOS 26/27 上呈现原生 Liquid Glass 浮动胶囊栏 |
@@ -143,12 +143,13 @@ Wenku8.app/
 │       ├── RankView.swift
 │       ├── SearchView.swift
 │       ├── NovelDetailView.swift
+│       ├── ReaderPreferences.swift   # 翻页方式 / 首行缩进偏好
 │       ├── ReaderView.swift
 │       ├── ReviewView.swift
 │       ├── ShelfView.swift
 │       ├── SettingsView.swift
 │       └── LibraryStore.swift        # 书架 / 进度 / 搜索历史持久化
-├── Tests/Wenku8CoreTests/            # 57 个测试（含真实页面样本 + 中转服务真实响应样本）
+├── Tests/Wenku8CoreTests/            # 61 个测试（含真实页面样本 + 中转服务真实响应样本）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        # 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            # 离线单元测试
