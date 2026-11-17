@@ -4,7 +4,7 @@ import Wenku8Core
 struct RootView: View {
     @EnvironmentObject private var router: AppRouter
 
-    enum Tab: Hashable {
+    enum AppTab: Hashable {
         case home
         case rank
         case search
@@ -17,35 +17,35 @@ struct RootView: View {
         // Glass dock: the search tab gets the system `.search` role, which the
         // platform separates to the trailing edge and morphs into a search field.
         TabView(selection: tabSelection) {
-            Tab("书架首页", systemImage: "house.fill", value: Tab.home) {
+            Tab("书架首页", systemImage: "house.fill", value: AppTab.home) {
                 NavigationStack(path: $router.homePath) {
                     HomeView()
                         .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
                 }
             }
 
-            Tab("排行", systemImage: "chart.bar.fill", value: Tab.rank) {
+            Tab("排行", systemImage: "chart.bar.fill", value: AppTab.rank) {
                 NavigationStack(path: $router.rankPath) {
                     RankView()
                         .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
                 }
             }
 
-            Tab("搜索", systemImage: "magnifyingglass", value: Tab.search, role: .search) {
+            Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 NavigationStack(path: $router.searchPath) {
                     SearchView()
                         .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
                 }
             }
 
-            Tab("我的书架", systemImage: "books.vertical.fill", value: Tab.shelf) {
+            Tab("我的书架", systemImage: "books.vertical.fill", value: AppTab.shelf) {
                 NavigationStack(path: $router.shelfPath) {
                     ShelfView()
                         .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
                 }
             }
 
-            Tab("设置", systemImage: "gearshape.fill", value: Tab.settings) {
+            Tab("设置", systemImage: "gearshape.fill", value: AppTab.settings) {
                 NavigationStack(path: $router.settingsPath) {
                     SettingsView()
                         .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
@@ -54,9 +54,8 @@ struct RootView: View {
         }
     }
 
-    /// The search tab is selected by the system through a `TabRole`-driven value;
-    /// keep the app's own `Tab` enum as the single source of truth.
-    private var tabSelection: Binding<Tab> {
+    /// Keeps the app's own tab enum as the single source of truth for selection.
+    private var tabSelection: Binding<AppTab> {
         Binding(
             get: { router.tab },
             set: { router.tab = $0 }

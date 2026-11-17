@@ -20,7 +20,7 @@ struct Wenku8App: App {
 
 @MainActor
 final class AppRouter: ObservableObject {
-    @Published var tab: RootView.Tab = .home
+    @Published var tab: RootView.AppTab = .home
     @Published var homePath: [Route] = []
     @Published var rankPath: [Route] = []
     @Published var searchPath: [Route] = []
