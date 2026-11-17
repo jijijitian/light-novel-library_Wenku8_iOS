@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <volume name="第一卷">
+    <chapter cid="1001" title="第一章 开端" />
+    <chapter cid="1002" title="第二章 转折" />
+  </volume>
+  <volume name="第二卷">
+    <chapter cid="1003" title="第三章 归来" />
+  </volume>
+</package>

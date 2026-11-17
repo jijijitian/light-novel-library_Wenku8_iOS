@@ -28,9 +28,30 @@ public struct SearchQuery: Hashable, Sendable {
 
 public struct NovelService: Sendable {
     private let client: Wenku8Client
+    private let relay: RelayClient
 
-    public init(client: Wenku8Client = .shared) {
+    public init(client: Wenku8Client = .shared, relay: RelayClient = .shared) {
         self.client = client
+        self.relay = relay
+    }
+
+    /// Relay-first helpers. The relay is a third-party volunteer service, so every
+    /// call here is best-effort: a `nil` return simply means "use the WAP/desktop
+    /// path", which stays fully functional.
+    private var relayIsAvailable: Bool { relay.isAvailable }
+
+    private func relaySearch(_ key: String, type: String) async -> [NovelSummary]? {
+        guard relayIsAvailable else { return nil }
+        guard let data = try? await relay.send(RelayAction.search(type: type, key: key)) else { return nil }
+        let items = RelayParser.search(TextDecoding.decode(data))
+        return items.isEmpty ? nil : items
+    }
+
+    private func relayList(_ action: String) async -> [NovelSummary]? {
+        guard relayIsAvailable else { return nil }
+        guard let data = try? await relay.send(action) else { return nil }
+        let items = RelayParser.items(TextDecoding.decode(data))
+        return items.isEmpty ? nil : items
     }
 
     // MARK: - Home
@@ -57,6 +78,10 @@ public struct NovelService: Sendable {
     // MARK: - Ranking
 
     public func rank(_ board: RankBoard, page: Int = 1) async throws -> [NovelSummary] {
+        // The relay is the only path that serves real ranking data anonymously.
+        if let items = await relayList(RelayAction.articleList(sort: board.rawValue, page: page)) {
+            return items
+        }
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
@@ -104,6 +129,10 @@ public struct NovelService: Sendable {
     }
 
     public func library(_ category: Int, page: Int = 1) async throws -> [NovelSummary] {
+        let sort = category == 0 ? "all" : "\(category)"
+        if let items = await relayList(RelayAction.novelList(sort: sort, page: page)) {
+            return items
+        }
         let path = "/article/sortlist.php?class=\(category)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
@@ -125,6 +154,9 @@ public struct NovelService: Sendable {
     public func search(_ query: SearchQuery) async throws -> [NovelSummary] {
         let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return [] }
+        if let items = await relaySearch(keyword, type: query.field.parameter) {
+            return items
+        }
         let fields = [
             "action": "search",
             "searchtype": query.field.parameter,
@@ -166,6 +198,11 @@ public struct NovelService: Sendable {
     // MARK: - Detail
 
     public func detail(aid: Int) async throws -> NovelDetail {
+        if relayIsAvailable,
+           let data = try? await relay.send(RelayAction.meta(aid: aid)) {
+            let parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
+            if !parsed.title.isEmpty { return parsed }
+        }
         let html = try await client.wap("/article/articleinfo.php?id=\(aid)")
         var detail = WAPParser.novelDetail(html, aid: aid)
         if detail.title.isEmpty {
@@ -176,6 +213,11 @@ public struct NovelService: Sendable {
     }
 
     public func volumes(aid: Int) async throws -> [Volume] {
+        if relayIsAvailable,
+           let data = try? await relay.send(RelayAction.chapterList(aid: aid)) {
+            let relayed = RelayParser.volumes(TextDecoding.decode(data))
+            if !relayed.isEmpty { return Self.mergeVolumes(relayed) }
+        }
         var all: [Volume] = []
         var page = 1
         var totalPages = 1
@@ -210,6 +252,11 @@ public struct NovelService: Sendable {
     }
 
     public func chapter(aid: Int, cid: Int) async throws -> ChapterContent {
+        if relayIsAvailable,
+           let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) {
+            let parsed = RelayParser.chapter(TextDecoding.decode(data), aid: aid, cid: cid)
+            if !parsed.blocks.isEmpty { return parsed }
+        }
         var pages: [ChapterContent] = []
         var page = 1
         var total = 1
@@ -301,6 +348,16 @@ public struct NovelService: Sendable {
     // MARK: - Remote bookcase
 
     public func remoteBookcase() async throws -> [NovelSummary] {
+        if relayIsAvailable,
+           let data = try? await relay.send(RelayAction.bookcaseList()) {
+            let text = TextDecoding.decode(data)
+            if let code = RelayParser.resultCode(text), code > 1 {
+                if code == 4 { throw Wenku8Error.needLogin }
+                throw Wenku8Error.login(RelayParser.message(for: code))
+            }
+            let items = RelayParser.items(text)
+            if !items.isEmpty { return items }
+        }
         let html = try await client.wap("/article/bookcase.php")
         if AccountParser.isLoginGate(html) {
             throw Wenku8Error.needLogin
@@ -310,6 +367,16 @@ public struct NovelService: Sendable {
 
     @discardableResult
     public func addToBookcase(aid: Int) async throws -> BookcaseMutationResult {
+        if relayIsAvailable,
+           let code = RelayParser.resultCode(try await relay.sendText(RelayAction.bookcaseAdd(aid: aid))) {
+            switch code {
+            case 1: return .succeeded
+            case 5: return .alreadyPresent
+            case 4: throw Wenku8Error.needLogin
+            case 6: throw Wenku8Error.login("书架已满，请先清理后再添加")
+            default: throw Wenku8Error.login(RelayParser.message(for: code))
+            }
+        }
         let html = try await client.wap("/article/addbookcase.php?bid=\(aid)")
         let outcome = AccountParser.mutationOutcome(html, novelID: aid)
         switch outcome {
@@ -324,6 +391,15 @@ public struct NovelService: Sendable {
 
     @discardableResult
     public func removeFromBookcase(aid: Int) async throws -> BookcaseMutationResult {
+        if relayIsAvailable,
+           let code = RelayParser.resultCode(try await relay.sendText(RelayAction.bookcaseDelete(aid: aid))) {
+            switch code {
+            case 1: return .succeeded
+            case 7: return .notPresent
+            case 4: throw Wenku8Error.needLogin
+            default: throw Wenku8Error.login(RelayParser.message(for: code))
+            }
+        }
         let html = try await client.wap("/article/bookcase.php?delid=\(aid)")
         if AccountParser.isLoginGate(html) {
             throw Wenku8Error.needLogin

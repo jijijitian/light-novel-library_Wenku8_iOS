@@ -2,6 +2,12 @@ import SwiftUI
 
 /// Centralises the Liquid Glass treatment so every surface degrades the same way
 /// on systems that predate iOS 26.
+///
+/// The `Glass` type and the `.glassEffect` family only exist in the iOS 26 SDK,
+/// so they are fenced behind `#if compiler(>=6.2)` — that is the toolchain that
+/// ships with Xcode 26. Building with an older Xcode (iOS 18 SDK) still compiles
+/// and simply takes the material fallback below, which is the same appearance
+/// an iOS 17/18 device sees at runtime.
 enum GlassSurface {
     static var isAvailable: Bool {
         if #available(iOS 26.0, *) { return true }
@@ -9,6 +15,7 @@ enum GlassSurface {
     }
 }
 
+#if compiler(>=6.2)
 @available(iOS 26.0, *)
 private func makeGlass(tint: Color?, interactive: Bool) -> Glass {
     var glass: Glass = .regular
@@ -20,6 +27,7 @@ private func makeGlass(tint: Color?, interactive: Bool) -> Glass {
     }
     return glass
 }
+#endif
 
 extension View {
     /// Wraps content in a Liquid Glass shape on iOS 26+, and in a thin material
@@ -30,13 +38,21 @@ extension View {
         tint: Color? = nil,
         interactive: Bool = false
     ) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffect(makeGlass(tint: tint, interactive: interactive), in: shape)
         } else {
-            self
-                .background(.ultraThinMaterial, in: shape)
-                .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75))
+            materialSurface(shape)
         }
+        #else
+        materialSurface(shape)
+        #endif
+    }
+
+    private func materialSurface<S: Shape & InsettableShape>(_ shape: S) -> some View {
+        self
+            .background(.ultraThinMaterial, in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75))
     }
 
     func glassCapsule(tint: Color? = nil, interactive: Bool = false) -> some View {
@@ -50,16 +66,21 @@ extension View {
     /// Prominent action button: Liquid Glass on iOS 26+, bordered prominent before that.
     @ViewBuilder
     func prominentGlassButtonShape() -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.buttonStyle(.glassProminent).buttonBorderShape(.capsule)
         } else {
             self.buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         }
+        #else
+        self.buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        #endif
     }
 
     /// Secondary action button: Liquid Glass on iOS 26+, bordered before that.
     @ViewBuilder
     func secondaryGlassButtonShape(capsule: Bool = true) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             if capsule {
                 self.buttonStyle(.glass).buttonBorderShape(.capsule)
@@ -71,6 +92,13 @@ extension View {
         } else {
             self.buttonStyle(.bordered)
         }
+        #else
+        if capsule {
+            self.buttonStyle(.bordered).buttonBorderShape(.capsule)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+        #endif
     }
 }
 
@@ -80,11 +108,15 @@ struct GlassContainer<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) { content() }
         } else {
             content()
         }
+        #else
+        content()
+        #endif
     }
 }
 

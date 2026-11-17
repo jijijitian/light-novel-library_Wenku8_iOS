@@ -42,4 +42,4 @@ let package = Package(
 PACKAGE
 
 cd "$SCRATCH"
-swift test "$@"
+swift test --disable-sandbox "$@"

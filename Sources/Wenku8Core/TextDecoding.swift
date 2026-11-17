@@ -79,11 +79,42 @@ public enum TextDecoding {
     }
 }
 
+/// Resource lookup that works in all three build shapes: SwiftPM (`Bundle.module`,
+/// the CI and test path), the Xcode framework target (resources land in the
+/// framework bundle), and a flattened app bundle.
+enum CoreResources {
+    #if SWIFT_PACKAGE
+    static var bundle: Bundle { .module }
+    #else
+    static var bundle: Bundle {
+        let name = "Wenku8Core.bundle"
+        let candidates = [
+            Bundle.main.url(forResource: "gbk-table", withExtension: "bin") != nil ? Bundle.main : nil,
+            Bundle(for: BundleToken.self),
+        ]
+        for candidate in candidates {
+            if let candidate,
+               candidate.url(forResource: "gbk-table", withExtension: "bin") != nil {
+                return candidate
+            }
+        }
+        if let url = Bundle.main.url(forResource: name, withExtension: nil),
+           let nested = Bundle(url: url),
+           nested.url(forResource: "gbk-table", withExtension: "bin") != nil {
+            return nested
+        }
+        return .main
+    }
+    #endif
+}
+
+private final class BundleToken {}
+
 enum GBKTable {
     static let columns = 190
 
     static let scalars: [UInt16] = {
-        guard let url = Bundle.module.url(forResource: "gbk-table", withExtension: "bin"),
+        guard let url = CoreResources.bundle.url(forResource: "gbk-table", withExtension: "bin"),
               let data = try? Data(contentsOf: url),
               data.count % 2 == 0 else {
             return []

@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State private var showLicense = false
     @State private var showLogin = false
     @State private var accountMessage: String?
+    @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
+    @State private var relayCredential = RelayCredentialStore.shared.storedVer ?? ""
+    private let relayStore = RelayCredentialStore.shared
     @AppStorage("reader.fontSize") private var fontSize = 18.0
     @AppStorage("reader.lineSpacing") private var lineSpacing = 8.0
 
@@ -70,6 +73,8 @@ struct SettingsView: View {
                     Label("项目主页", systemImage: "globe")
                 }
             }
+
+            relaySection
 
             Section("关于") {
                 Button {
@@ -152,6 +157,64 @@ struct SettingsView: View {
         }
     }
 
+    private func applyRelaySettings() {
+        relayStore.setEnabled(relayEnabled)
+        let enabled = relayEnabled && relayStore.storedVer != nil
+        RelayClient.shared.configure(
+            RelayConfiguration(isEnabled: enabled),
+            provider: enabled ? RelayCredentialStore.shared : nil
+        )
+        if enabled {
+            Task { await RelayClient.shared.setMinimumInterval(relayStore.minimumInterval) }
+            accountMessage = "中转服务已启用"
+        } else if relayEnabled {
+            accountMessage = "已开启中转服务，但仍需填写访问凭证"
+        } else {
+            accountMessage = "已关闭中转服务，将使用网页版数据"
+        }
+    }
+
+    @ViewBuilder
+    private var relaySection: some View {
+        Section {
+            Toggle(isOn: $relayEnabled) {
+                Label("启用中转服务", systemImage: "antenna.radiowaves.left.and.right")
+            }
+            .onChange(of: relayEnabled) { _, _ in
+                applyRelaySettings()
+            }
+
+            if relayEnabled {
+                SecureField("访问凭证", text: $relayCredential)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.footnote.monospaced())
+                HStack {
+                    Button("保存凭证") {
+                        relayStore.setAppVer(relayCredential)
+                        applyRelaySettings()
+                        accountMessage = relayStore.storedVer == nil ? "已清除凭证" : "凭证已保存"
+                    }
+                    Spacer()
+                    if let masked = relayStore.maskedVer {
+                        Text(masked)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("中转服务")
+        } footer: {
+            Text("""
+            中转服务可提供网页版匿名访问不到的排行榜与分类列表。\
+            它是第三方公益服务，有独立配额，因此本应用对请求做了限速。\
+            访问凭证需由你自行提供，应用只把它保存在本机。
+            """)
+            .font(.footnote)
+        }
+    }
+
     private var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
@@ -169,7 +232,7 @@ struct LicenseSheet: View {
                     Text("轻小说文库 iOS 版").font(.title3.weight(.bold))
                     Text("""
                     本项目是 MewX 的《轻小说文库 Android 版》的 iOS 重制版本，\
-                    以 SwiftUI 重写界面，并使用 xtool 在非 macOS 环境完成构建。
+                    以 SwiftUI 重写界面，使用 Xcode 构建。
 
                     数据全部来自轻小说文库（wenku8.net）公开网页，仅供学习交流。\
                     应用不存储、不转售任何作品内容，所有版权归原作者与出版机构所有。

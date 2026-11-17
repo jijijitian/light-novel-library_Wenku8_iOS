@@ -160,58 +160,89 @@ struct HeroBanner: View {
     var onSelect: (NovelSummary) -> Void
 
     var body: some View {
-        TabView(selection: $selection) {
-            ForEach(Array(novels.enumerated()), id: \.element.id) { index, novel in
-                ZStack {
-                    AppTheme.gradient(for: novel.id)
-                    HStack(alignment: .center, spacing: 18) {
-                        CoverCard(url: novel.coverURL, title: novel.title, width: 104, height: 148)
-                            .rotation3DEffect(.degrees(-6), axis: (x: 0, y: 1, z: 0))
-                            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+        VStack(spacing: 10) {
+            TabView(selection: $selection) {
+                ForEach(Array(novels.enumerated()), id: \.element.id) { index, novel in
+                    ZStack {
+                        AppTheme.gradient(for: novel.id)
+                        HStack(alignment: .center, spacing: 18) {
+                            CoverCard(url: novel.coverURL, title: novel.title, width: 104, height: 148)
+                                .rotation3DEffect(.degrees(-6), axis: (x: 0, y: 1, z: 0))
+                                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("编辑推荐")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .glassCapsule()
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("编辑推荐")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .glassCapsule()
 
-                            Text(novel.title)
-                                .font(.headline.weight(.bold))
-                                .foregroundStyle(.white)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .shadow(radius: 4, y: 1)
+                                Text(novel.title)
+                                    .font(.headline.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .shadow(radius: 4, y: 1)
 
-                            if let author = novel.author, !author.isEmpty {
-                                Text(author)
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.85))
-                                    .lineLimit(1)
+                                if let author = novel.author, !author.isEmpty {
+                                    Text(author)
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.85))
+                                        .lineLimit(1)
+                                }
+
+                                Spacer(minLength: 0)
+
+                                // Sits right under the author line instead of being
+                                // pushed to the card's bottom edge, so it can never
+                                // collide with the page indicator below the card.
+                                Label("查看详情", systemImage: "chevron.right.circle.fill")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(.white.opacity(0.9))
                             }
-
-                            Spacer(minLength: 0)
-
-                            Label("查看详情", systemImage: "chevron.right.circle.fill")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.white.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 16)
+                    .frame(height: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .tag(index)
+                    .onTapGesture { onSelect(novel) }
                 }
-                .frame(height: 190)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .tag(index)
-                .onTapGesture { onSelect(novel) }
+            }
+            // The system page indicator is drawn *inside* the paged TabView, which
+            // is why it used to sit on top of the card. It is disabled here and
+            // re-drawn below the card instead, so the dots always get their own row.
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 190)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.2), radius: 14, y: 8)
+
+            if novels.count > 1 {
+                PageDots(count: novels.count, selection: selection)
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: .always))
-        .frame(height: 190)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.2), radius: 14, y: 8)
+    }
+}
+
+/// Custom page indicator, tinted to match the hero card gradients.
+struct PageDots: View {
+    var count: Int
+    var selection: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<count, id: \.self) { index in
+                Capsule()
+                    .fill(index == selection ? AppTheme.accent : Color.primary.opacity(0.22))
+                    .frame(width: index == selection ? 16 : 6, height: 6)
+                    .animation(.easeInOut(duration: 0.2), value: selection)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
     }
 }
 

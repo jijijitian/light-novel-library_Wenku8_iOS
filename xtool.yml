@@ -1,7 +1,0 @@
-version: 1
-bundleID: org.mewx.wenku8.ios
-product: Wenku8iOS
-infoPath: Support/Info.plist
-iconPath: Support/AppIcon.png
-resources:
-- Support/PrivacyInfo.xcprivacy

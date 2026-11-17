@@ -21,20 +21,20 @@ jobs:
         run: bash tools/test-core-linux.sh
 
   build:
-    name: xtool build (${{ matrix.label }})
+    name: Xcode build (${{ matrix.label }})
     needs: core-tests
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: iOS 27 SDK
-            runner: xcode-27
-            expect_sdk: "27"
-            artifact: Wenku8iOS-unsigned-ios27
           - label: iOS 26 SDK
             runner: macos-26
             expect_sdk: "26"
-            artifact: Wenku8iOS-unsigned-ios26
+            artifact: Wenku8-unsigned-ios26
+          - label: iOS 27 SDK
+            runner: xcode-27
+            expect_sdk: "27"
+            artifact: Wenku8-unsigned-ios27
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
@@ -46,55 +46,75 @@ jobs:
           xcodebuild -version
           echo "--- iOS SDKs on this runner ---"
           xcodebuild -showsdks -json | tee sdks.json
-          SDK_PATH=$(xcrun -sdk iphoneos -show-sdk-path)
-          echo "SDK_PATH=$SDK_PATH"
           SDK_VERSION=$(xcrun -sdk iphoneos --show-sdk-version)
-          echo "SDK_VERSION=$SDK_VERSION"
           echo "SDK_VERSION=$SDK_VERSION" >> "$GITHUB_ENV"
           case "$SDK_VERSION" in
             ${{ matrix.expect_sdk }}.*) echo "matches expected major ${{ matrix.expect_sdk }}" ;;
             *) echo "expected iOS ${{ matrix.expect_sdk }} SDK, got $SDK_VERSION"; exit 1 ;;
           esac
 
-      - name: Install xtool
+      - name: Install XcodeGen
         run: |
           set -euo pipefail
-          brew install xtool-org/tap/xtool
-          xtool --help | head -20
+          brew install xcodegen
+          xcodegen --version
 
-      - name: Build app bundle
+      - name: Generate the Xcode project
         run: |
           set -euo pipefail
-          xtool dev build --configuration release 2>&1 | tee build.log
-          test -d xtool/Wenku8iOS.app
-          echo "built with iOS $SDK_VERSION SDK" | tee -a build.log
+          xcodegen generate --spec project.yml
+          test -d Wenku8.xcodeproj
+          # The project is generated, never committed: a checked-in pbxproj would
+          # drift from project.yml and from the source tree.
+          git status --porcelain | grep -v '^?? Wenku8.xcodeproj' || true
+
+      - name: Build for device (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Wenku8.xcodeproj \
+            -scheme Wenku8 \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+          grep -q "BUILD SUCCEEDED" build.log
 
       - name: Verify bundle contents
         run: |
           set -euo pipefail
-          APP=xtool/Wenku8iOS.app
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          test -n "$APP"
           echo "--- Info.plist ---"
           plutil -p "$APP/Info.plist"
           echo "--- bundle tree ---"
           find "$APP" -maxdepth 2 | sort
-          test -x "$APP/Wenku8iOS"
+          test -x "$APP/Wenku8"
           echo "CFBundleIdentifier=$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")"
           echo "MinimumOSVersion=$(plutil -extract MinimumOSVersion raw "$APP/Info.plist")"
-          test -f "$APP/AppIcon.png"
+          test -f "$APP/AppIcon60x60@2x.png" || test -f "$APP/Assets.car"
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          test -f "$APP/gbk-table.bin"
+          plutil -extract CFBundleIdentifier raw "$APP/Info.plist" | grep -q 'org.mewx.wenku8.ios'
 
       - name: Verify executable entry point and frameworks
         run: |
           set -euo pipefail
-          APP=xtool/Wenku8iOS.app
-          BIN="$APP/Wenku8iOS"
+          BIN="$APP/Wenku8"
           echo "--- architecture ---"
           file "$BIN"
           lipo -info "$BIN"
           echo "--- min OS recorded in the Mach-O ---"
-          otool -l "$BIN" | tee macho-load-commands.txt >/dev/null
+          otool -l "$BIN" > macho-load-commands.txt
           if grep -q "LC_BUILD_VERSION" macho-load-commands.txt; then
             # platform 2 = iOS
-            grep -A 4 "LC_BUILD_VERSION" macho-load-commands.txt | tee buildversion.txt
+            grep -A 4 "LC_BUILD_VERSION" macho-load-commands.txt > buildversion.txt
+            cat buildversion.txt
             grep -q "platform 2" buildversion.txt
           else
             grep "LC_VERSION_MIN_IPHONEOS" macho-load-commands.txt
@@ -108,38 +128,26 @@ jobs:
           otool -L "$BIN" > frameworks.txt
           grep "SwiftUI.framework" frameworks.txt
           grep "UIKit.framework" frameworks.txt
-          echo "--- resource bundle name ---"
-          ls -d "$APP"/*.bundle
-          # The bundle must match what Bundle.module looks up at runtime. Read it
-          # from the bundle rather than piping `strings` (whose SIGPIPE makes the
-          # step fail spuriously when grep exits early).
-          BUNDLE_DIR=$(ls -d "$APP"/*.bundle | head -1)
-          echo "bundle dir: $BUNDLE_DIR"
-          test -f "$BUNDLE_DIR/gbk-table.bin"
-          plutil -extract CFBundleIdentifier raw "$BUNDLE_DIR/Info.plist" || true
-          echo "--- Liquid Glass API availability ---"
-          # glassEffect/GlassEffectContainer are iOS 26+, so the built binary must
-          # still build against a matching SDK; record which one was used.
+          echo "--- liquid glass support in the built binary ---"
           echo "built against iOS $SDK_VERSION SDK"
           xcrun --sdk iphoneos --show-sdk-version
 
       - name: Package unsigned ipa
         run: |
           set -euo pipefail
-          chmod -R 755 xtool/Wenku8iOS.app
-          rm -rf Payload Wenku8iOS-unsigned.ipa
+          rm -rf Payload Wenku8-unsigned.ipa
           mkdir -p Payload
-          cp -R xtool/Wenku8iOS.app Payload/
-          zip -qry Wenku8iOS-unsigned.ipa Payload
-          ls -lh Wenku8iOS-unsigned.ipa
-          shasum -a 256 Wenku8iOS-unsigned.ipa | tee ipa.sha256
+          cp -R "$APP" Payload/
+          zip -qry Wenku8-unsigned.ipa Payload
+          ls -lh Wenku8-unsigned.ipa
+          shasum -a 256 Wenku8-unsigned.ipa | tee ipa.sha256
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
-            Wenku8iOS-unsigned.ipa
+            Wenku8-unsigned.ipa
             ipa.sha256
             build.log
             sdks.json

@@ -7,6 +7,26 @@ struct Wenku8App: App {
     @StateObject private var router = AppRouter()
     @StateObject private var account = AccountStore()
 
+    init() {
+        Self.configureRelay()
+    }
+
+    /// Restores the optional relay credential before any view can start a
+    /// request. Without a configured credential the relay stays off and every
+    /// call keeps using the WAP/desktop paths.
+    private static func configureRelay() {
+        let credential = RelayCredentialStore.shared
+        let enabled = credential.isEnabled && credential.storedVer != nil
+        RelayClient.shared.configure(
+            RelayConfiguration(isEnabled: enabled),
+            provider: enabled ? credential : nil
+        )
+        if enabled {
+            let interval = credential.minimumInterval
+            Task { await RelayClient.shared.setMinimumInterval(interval) }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

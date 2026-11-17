@@ -56,4 +56,4 @@ let package = Package(
 PACKAGE
 
 cd "$SCRATCH"
-swift run wenku8-smoke
+swift run --disable-sandbox wenku8-smoke
