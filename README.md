@@ -151,7 +151,7 @@ Wenku8.app/
 │       ├── ShelfView.swift
 │       ├── SettingsView.swift
 │       └── LibraryStore.swift        # 书架 / 进度 / 搜索历史持久化
-├── Tests/Wenku8CoreTests/            # 80 个测试（含真实页面样本 + 中转服务真实响应样本）
+├── Tests/Wenku8CoreTests/            # 89 个测试（含真实页面样本 + 中转服务/书架真实响应样本）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        # 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            # 离线单元测试

@@ -12,7 +12,7 @@
 | 工程形态 | `project.yml`（XcodeGen）→ 生成 `Wenku8.xcodeproj`，用 **Xcode / xcodebuild** 构建 |
 | 部署目标 | iOS 17.0（Liquid Glass 仅在 iOS 26+ 生效，iOS 17/18 回落材质） |
 | 核心层 | 仍是纯 SwiftPM 模块，可在 Linux 上跑测试 |
-| 单元测试 | **80 个**，全部通过（`bash tools/test-core-linux.sh`） |
+| 单元测试 | **89 个**，全部通过（`bash tools/test-core-linux.sh`） |
 | 联网校验 | 全部通过（`bash tools/test-live.sh`） |
 | 已完成 | SwiftUI 重写、Liquid Glass、登录、加书架、阅读器、搜索、排行榜、书评 |
 | **本轮完成** | ① 首页卡片重叠已修 ② dock 改用 iOS 27 原生 Liquid Glass ③ relay API 完整接入（算法已还原） ④ 构建从 xtool 迁到 Xcode ⑤ 真机跑通 ⑥ 左右翻页/首行缩进/图片支持 |
@@ -77,7 +77,7 @@ work/
 │       ├── AccountStore.swift        登录态 + 云端书架同步
 │       ├── LibraryStore.swift        本地书架/进度/搜索历史持久化
 │       └── WebSheet.swift            SFSafariViewController 包装
-├── Tests/Wenku8CoreTests/            80 个测试 + 30 个 fixture（含 relay 真实响应）
+├── Tests/Wenku8CoreTests/            89 个测试 + 31 个 fixture（含 relay/书架真实响应）
 ├── tools/
 │   ├── bootstrap-xcodeproj.sh        ★ 生成工程 / 编译 / 装真机
 │   ├── test-core-linux.sh            离线测试
@@ -361,6 +361,43 @@ sig8      = 十六进制字符串的第 12–20 位
 - `ReaderMetrics.bottomInset` 固定 40，正文位置**不受面板显示与否影响**
 - `ReaderMetrics.chromeOpacity = 0.82`，面板半透明浮在正文上方，底下文字仍可辨认
 - 左右翻页模式同样用固定 inset，不会因为弹出面板而重新分页
+
+## 7.9 云端书架解析（第七轮修复）
+
+书架一直显示为空，但账号里其实有 14 本。原因是**桌面书架的行不是 `/book/<aid>.htm` 链接**，
+而是 `readbookcase.php?aid=…&bid=…`，所以通用卡片解析器一个都匹配不到。
+
+真实结构（从已登录页面抓取）：
+
+```html
+<input type="checkbox" name="checkid[]" value="<bid>">
+<a href="…readbookcase.php?aid=<aid>&bid=<bid>">书名</a>
+<td><a href="authorarticle.php?author=羽田宇佐">羽田宇佐</a></td>
+<a href="…readbookcase.php?aid=<aid>&bid=<bid>&cid=<cid>">第11话 有宫城在的地方</a>
+```
+
+新增 `DesktopParser.bookcase(_:) -> [ShelfEntry]`：
+
+- 按 `<tr` 切行，靠 `checkid[]` 识别书籍行
+- 书名/作者/最新章节分别从锚点抓取
+- `ShelfEntry` 同时带回 `latestChapter`（站点记录的阅读进度）
+- 按 aid 去重；兼容 `&amp;` 形式的查询串
+
+实测（jijijitian 账号）：**14 本全部解析成功，含作者与章节标题**。
+
+## 7.10 阅读器正文被挤压的根因
+
+之前把底部 inset 改成常量（`ReaderMetrics.bottomInset`）并没有解决问题，因为
+**真正的元凶是导航栏**：
+
+```swift
+.toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
+```
+
+导航栏显隐会改变顶部安全区，于是每次点正文，整段文字都会重新排版、高度变化。
+
+现在导航栏**常驻可见**，只有浮层面板自己响应 `showChrome`，
+左右翻页模式的 `PagedReadingView` 也不依赖 `showChrome` 计算尺寸。
 
 ## 8. 已知问题与坑（踩过的，别再踩）
 
