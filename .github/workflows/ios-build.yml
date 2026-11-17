@@ -97,10 +97,18 @@ jobs:
           test -x "$APP/Wenku8"
           echo "CFBundleIdentifier=$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")"
           echo "MinimumOSVersion=$(plutil -extract MinimumOSVersion raw "$APP/Info.plist")"
-          test -f "$APP/AppIcon60x60@2x.png" || test -f "$APP/Assets.car"
+          # The icon must have been compiled into an asset catalog, and both the
+          # privacy manifest and the GBK table must be inside the bundle — the GBK
+          # table lives in the embedded Wenku8Core.framework, not at the app root.
+          test -f "$APP/Assets.car"
+          test -n "$(find "$APP" -maxdepth 1 -name 'AppIcon*.png' | head -1)"
           test -f "$APP/PrivacyInfo.xcprivacy"
-          test -f "$APP/gbk-table.bin"
-          plutil -extract CFBundleIdentifier raw "$APP/Info.plist" | grep -q 'org.mewx.wenku8.ios'
+          CORE_FW="$APP/Frameworks/Wenku8Core.framework"
+          test -d "$CORE_FW"
+          test -f "$CORE_FW/gbk-table.bin"
+          test -f "$CORE_FW/Wenku8Core"
+          plutil -extract CFBundleIdentifier raw "$APP/Info.plist" > bundle-id.txt
+          grep -q 'org.mewx.wenku8.ios' bundle-id.txt
 
       - name: Verify executable entry point and frameworks
         run: |

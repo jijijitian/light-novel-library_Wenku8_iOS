@@ -52,12 +52,12 @@ struct HomeView: View {
                 } else if model.rows.isEmpty && model.isLoading {
                     LoadingRow(text: "正在载入文库首页…")
                 } else {
-                    if let hero = heroNovels.first {
+                    if !heroNovels.isEmpty {
+                        // Each card already carries its own tap gesture, so there is no
+                        // outer one here: a second handler would open whichever novel
+                        // happened to be first instead of the card the user tapped.
                         HeroBanner(novels: heroNovels, selection: $heroIndex) { novel in
                             router.open(.novel(novel.id))
-                        }
-                        .onTapGesture {
-                            router.open(.novel(hero.id))
                         }
                     }
 
