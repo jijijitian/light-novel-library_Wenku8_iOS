@@ -59,6 +59,32 @@ jobs:
           plutil -extract MinimumOSVersion raw "$APP/Info.plist"
           test -f "$APP/AppIcon.png"
 
+      - name: Verify executable entry point and frameworks
+        run: |
+          set -euo pipefail
+          APP=xtool/Wenku8iOS.app
+          BIN="$APP/Wenku8iOS"
+          echo "--- architecture ---"
+          file "$BIN"
+          lipo -info "$BIN"
+          echo "--- entry point symbol ---"
+          nm -gU "$BIN" | grep -E "(_main|_main$)" || {
+            echo "missing main symbol: the SwiftUI @main struct was not linked in"
+            exit 1
+          }
+          echo "--- linked frameworks ---"
+          otool -L "$BIN" | tee frameworks.txt
+          grep -q "SwiftUI.framework" frameworks.txt
+          grep -q "UIKit.framework" frameworks.txt
+          echo "--- resource bundle name ---"
+          ls -d "$APP"/*.bundle
+          strings "$BIN" | grep -q "Wenku8iOS_Wenku8Core.bundle" || {
+            echo "resource bundle name mismatch: Bundle.module would not resolve"
+            exit 1
+          }
+          echo "--- embed check ---"
+          ls -la "$APP/Wenku8iOS_Wenku8Core.bundle"
+
       - name: Package unsigned ipa
         run: |
           set -euo pipefail

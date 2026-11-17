@@ -176,7 +176,7 @@ public enum WAPParser {
     }
 
     public static func chapterContent(_ html: String, aid: Int, cid: Int) -> ChapterContent {
-        let (current, total) = pagination(html)
+        let (_, total) = pagination(html)
         var blocks: [ChapterContent.Block] = []
 
         if let range = html.range(of: "[1/") {
