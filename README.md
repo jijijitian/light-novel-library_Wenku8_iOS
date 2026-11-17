@@ -96,7 +96,7 @@ bash tools/bootstrap-xcodeproj.sh build      # 只编译模拟器版本
 - `Wenku8-unsigned-ios26` —— 用 iOS 26 SDK 编译
 - `Wenku8-unsigned-ios27` —— 用 iOS 27 SDK 编译
 
-产物校验覆盖：`CFBundleIdentifier`（`org.mewx.wenku8.ios`）、`MinimumOSVersion`（17.0）、
+产物校验覆盖：`CFBundleIdentifier`（`org.jijijitian.wenku8.ios`）、`MinimumOSVersion`（17.0）、
 arm64 Mach-O、`_main` 入口符号、已链接的 `SwiftUI.framework` / `UIKit.framework`、
 `PrivacyInfo.xcprivacy`、`gbk-table.bin`、以及 `.ipa` 的 SHA-256。
 

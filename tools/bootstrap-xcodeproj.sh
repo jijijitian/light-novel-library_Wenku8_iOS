@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 ACTION="${1:-generate}"
 TEAM="${DEVELOPMENT_TEAM:-C428Z585GG}"
-BUNDLE_ID="${BUNDLE_ID:-org.mewx.wenku8.ios}"
+BUNDLE_ID="${BUNDLE_ID:-org.jijijitian.wenku8.ios}"
 
 # XcodeGen: prefer a system install, otherwise download the release binary once.
 XCODEGEN="$(command -v xcodegen || true)"

@@ -1,6 +1,6 @@
 name: Wenku8
 options:
-  bundleIdPrefix: org.mewx.wenku8
+  bundleIdPrefix: org.jijijitian.wenku8
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -36,7 +36,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.mewx.wenku8.ios.core
+        PRODUCT_BUNDLE_IDENTIFIER: org.jijijitian.wenku8.ios.core
         PRODUCT_NAME: Wenku8Core
         GENERATE_INFOPLIST_FILE: YES
         DEFINES_MODULE: YES
@@ -57,7 +57,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.mewx.wenku8.ios
+        PRODUCT_BUNDLE_IDENTIFIER: org.jijijitian.wenku8.ios
         PRODUCT_NAME: Wenku8
         # XcodeGen's application template hard-codes the legacy
         # "iPhone Developer" identity, which beats the project-level value and

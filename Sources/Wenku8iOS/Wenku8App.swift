@@ -63,7 +63,7 @@ final class AppRouter: ObservableObject {
     /// The initial tab can be forced with `WENKU8_START_TAB` so a debug launch can
     /// open a specific screen without hand-driving the UI:
     ///   devicectl device process launch --terminate-existing \
-    ///     --environment-variables '{"WENKU8_START_TAB":"settings"}' <udid> org.mewx.wenku8.ios
+    ///     --environment-variables '{"WENKU8_START_TAB":"settings"}' <udid> org.jijijitian.wenku8.ios
     /// The value is ignored in release builds.
     init(tab: RootView.AppTab? = nil) {
         self.tab = tab ?? Self.launchTab

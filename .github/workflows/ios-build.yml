@@ -108,7 +108,7 @@ jobs:
           test -f "$CORE_FW/gbk-table.bin"
           test -f "$CORE_FW/Wenku8Core"
           plutil -extract CFBundleIdentifier raw "$APP/Info.plist" > bundle-id.txt
-          grep -q 'org.mewx.wenku8.ios' bundle-id.txt
+          grep -q 'org.jijijitian.wenku8.ios' bundle-id.txt
 
       - name: Verify executable entry point and frameworks
         run: |
