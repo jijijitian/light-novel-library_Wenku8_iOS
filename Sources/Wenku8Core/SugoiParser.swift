@@ -18,7 +18,13 @@ public enum SugoiParser {
         public var novels: [NovelSummary]
     }
 
-    public static let availableYears: [Int] = Array(stride(from: 2026, through: 2006, by: -1))
+    /// Years the site publishes a yearly board for.
+    ///
+    /// The site keeps a page per year back to 2005. A year with no data answers with an
+    /// empty page rather than a 404, so the range is listed here and the fetch reports
+    /// "no data" for a year that turns out to be empty, instead of the year silently
+    /// being missing from the picker.
+    public static let availableYears: [Int] = Array(stride(from: 2026, through: 2005, by: -1))
 
     public static func parse(_ html: String, year: Int) -> Year {
         var sections: [Section] = []

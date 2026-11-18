@@ -17,6 +17,21 @@ struct RankView: View {
                         subtitle: "点击任意榜单查看完整排行",
                         symbol: "chart.bar"
                     )
+                    // 年度 first, as an ordinary row: it is a board like the others, not
+                    // a separate section of the page.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("年度")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                        NavigationLink {
+                            YearlyRankView()
+                        } label: {
+                            boardRow(title: "年度排行", symbol: "trophy")
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     ForEach(Self.groupedBoards, id: \.title) { group in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(group.title)
@@ -40,38 +55,6 @@ struct RankView: View {
                 .padding(14)
                 .glassCard(cornerRadius: 22)
 
-                // The yearly boards used to be reachable only by tapping a year above a
-                // normal ranking — an accidental switch rather than a destination. They
-                // now have their own entry here, which is where a reader would look.
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(
-                        title: "年度排行",
-                        subtitle: "按年份查看当年的完整榜单",
-                        symbol: "trophy"
-                    )
-                    NavigationLink {
-                        YearlyRankView()
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "trophy")
-                                .font(.subheadline)
-                                .frame(width: 26)
-                                .foregroundStyle(.tint)
-                            Text("年度排行")
-                                .font(.subheadline)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(14)
-                .glassCard(cornerRadius: 22)
             }
             .padding(.horizontal, 18)
             .padding(.top, 8)
@@ -82,12 +65,17 @@ struct RankView: View {
     }
 
     private func boardRow(_ board: RankBoard) -> some View {
+        boardRow(title: board.title, symbol: board.symbol)
+    }
+
+    /// One row in the board index.
+    private func boardRow(title: String, symbol: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: board.symbol)
+            Image(systemName: symbol)
                 .font(.subheadline)
                 .frame(width: 26)
                 .foregroundStyle(.tint)
-            Text(board.title).font(.subheadline)
+            Text(title).font(.subheadline)
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.footnote)
