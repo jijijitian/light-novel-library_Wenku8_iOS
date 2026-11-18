@@ -9,6 +9,9 @@ struct DataSourceSettingsView: View {
     @State private var relayMessage: String?
     /// Outcome of the login check that follows a data source change.
     @State private var sessionMessage: String?
+    /// Set when the switch left the app signed out, so the section offers a way back in.
+    @State private var needsLogin = false
+    @State private var showLogin = false
 
     private let relayStore = RelayCredentialStore.shared
 
@@ -63,18 +66,40 @@ struct DataSourceSettingsView: View {
             }
             if let sessionMessage {
                 Section {
-                    Label(sessionMessage, systemImage: "person.crop.circle.badge.checkmark")
-                        .font(.footnote)
+                    Label(
+                        sessionMessage,
+                        systemImage: needsLogin
+                            ? "person.crop.circle.badge.exclamationmark"
+                            : "person.crop.circle.badge.checkmark"
+                    )
+                    .font(.footnote)
+                    if needsLogin {
+                        Button {
+                            showLogin = true
+                        } label: {
+                            Label("登录", systemImage: "person.crop.circle")
+                        }
+                    }
                 } header: {
                     Text("登录状态")
                 } footer: {
-                    Text("切换域名或开关中转服务后，应用会检查一次登录是否仍然有效；失效时会用本次运行中登录过的账号密码自动重登。密码只在内存中保留，退出应用即清除。")
+                    Text("切换域名或开关中转服务后，应用会检查一次登录是否仍然有效。应用不保存账号密码，失效时需要重新登录。")
                         .font(.footnote)
                 }
             }
         }
         .navigationTitle("数据来源")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showLogin) {
+            LoginView()
+        }
+        .onChange(of: account.isSignedIn) { _, signedIn in
+            // Signing in from here settles the check the switch raised.
+            if signedIn {
+                needsLogin = false
+                sessionMessage = "已登录"
+            }
+        }
     }
 
     private func applyRelaySettings() {
@@ -97,7 +122,17 @@ struct DataSourceSettingsView: View {
     /// Re-checks the login after the data source changed and reports what happened.
     private func verifySession() {
         Task {
-            sessionMessage = await account.verifySessionAfterSourceChange()
+            switch await account.verifySessionAfterSourceChange() {
+            case .notSignedIn:
+                sessionMessage = nil
+                needsLogin = false
+            case .valid(let name):
+                sessionMessage = "登录状态正常（\(name)）"
+                needsLogin = false
+            case .expired:
+                sessionMessage = "切换数据源后登录已失效"
+                needsLogin = true
+            }
         }
     }
 }
