@@ -170,6 +170,14 @@ final class RankListViewModel: ObservableObject {
     var isEmpty: Bool {
         novels.isEmpty && sugoiSections.isEmpty
     }
+
+    /// Whether the yearly list is what is on screen.
+    ///
+    /// The ranking itself is the normal case; the yearly boards are a fallback for when
+    /// it cannot be served, and the year selector belongs only to them.
+    var isShowingYearlyFallback: Bool {
+        novels.isEmpty && !sugoiSections.isEmpty
+    }
 }
 
 struct RankListView: View {
@@ -192,7 +200,13 @@ struct RankListView: View {
                     .glassCard(cornerRadius: 16)
                 }
 
-                yearPicker
+                // Only while the yearly list is what is on screen. The picker used to
+                // sit above a normal ranking, so tapping a year silently replaced a
+                // 日点击榜 with a 2025 年度榜 — a switch the reader never asked for and
+                // could not undo, since the yearly boards have no other entry point.
+                if model.isShowingYearlyFallback {
+                    yearPicker
+                }
 
                 if model.isLoading && model.isEmpty {
                     LoadingRow()
@@ -231,6 +245,9 @@ struct RankListView: View {
         .refreshable { await model.load(board: board, year: year, force: true) }
         .task { await model.load(board: board, year: year) }
         .onChange(of: year) { _, newValue in
+            // Changing the year only applies while the yearly list is showing; if a
+            // normal ranking is up, switching years must not replace it.
+            guard model.isShowingYearlyFallback else { return }
             Task { await model.loadSugoi(year: newValue) }
         }
         .sheet(isPresented: $showWeb) {
@@ -238,6 +255,7 @@ struct RankListView: View {
         }
     }
 
+    /// The yearly-board selector, shown only when the yearly list is displayed.
     private var yearPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             GlassContainer(spacing: 8) {

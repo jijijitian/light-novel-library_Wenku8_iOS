@@ -325,3 +325,31 @@ final class RelayCategoriesTests: XCTestCase {
         XCTAssertNil(RelayParser.categories(""))
     }
 }
+
+final class RelayRankLiveTests: XCTestCase {
+    /// A real `action=novellist&sort=dayvisit` response, captured from the service.
+    ///
+    /// The ranking screen was showing the yearly Sugoi list under a "日点击榜" title,
+    /// which meant `rank()` was failing and the caller fell back. This pins the parser
+    /// against the response the service actually returns.
+    private func fixture(_ name: String) throws -> String {
+        let url = Bundle.module.url(
+            forResource: (name as NSString).deletingPathExtension,
+            withExtension: (name as NSString).pathExtension,
+            subdirectory: "Fixtures"
+        )
+        guard let url else { throw XCTSkip("missing fixture \(name)") }
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    func testLiveDayVisitRankingParses() throws {
+        let xml = try fixture("relay-rank-live.xml")
+        let items = RelayParser.summaries(xml)
+        XCTAssertEqual(items.count, 10)
+        XCTAssertEqual(items.first?.title, "败北女角太多了！(败犬女主太多了！)")
+        XCTAssertEqual(items.first?.id, 3057)
+        XCTAssertEqual(items.first?.author, "雨森焚火")
+        // Every row must carry an id and a title; an empty card is unopenable.
+        XCTAssertTrue(items.allSatisfy { $0.id > 0 && !$0.title.isEmpty })
+    }
+}
