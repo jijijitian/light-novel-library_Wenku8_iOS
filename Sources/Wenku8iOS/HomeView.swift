@@ -4,7 +4,11 @@ import Wenku8Core
 @MainActor
 final class HomeViewModel: ObservableObject {
     @Published private(set) var rows: [HomeRow] = []
-    @Published private(set) var isLoading = false
+    /// Starts true: the first render happens before `.task` runs, so a false initial
+    /// value showed one frame of empty page before the skeleton appeared.
+    @Published private(set) var isLoading = true
+    /// Guards against overlapping fetches, separately from the display flag.
+    private var isFetching = false
     @Published private(set) var error: Error?
     @Published private(set) var lastUpdated: Date?
 
@@ -21,9 +25,15 @@ final class HomeViewModel: ObservableObject {
     }
 
     func reload() async {
-        guard !isLoading else { return }
+        // No re-entry guard on `isLoading`: it starts true so the skeleton is drawn from
+        // the first frame, and guarding on it would mean the initial load never ran.
+        guard !isFetching else { return }
+        isFetching = true
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            isFetching = false
+        }
         do {
             let result = try await service.homeRows()
             rows = result
@@ -50,7 +60,9 @@ struct HomeView: View {
                         Task { await model.reload() }
                     }
                 } else if model.rows.isEmpty && model.isLoading {
-                    LoadingRow(text: "正在载入文库首页…")
+                    // Same shape as the loaded page — banner, then four sections of six
+                    // covers — so the layout does not jump when the data arrives.
+                    HomeSkeleton()
                 } else {
                     if !heroNovels.isEmpty {
                         // Each card already carries its own tap gesture, so there is no
@@ -270,5 +282,39 @@ struct AppBackground: View {
                 .offset(x: 140, y: 300)
         }
         .ignoresSafeArea()
+    }
+}
+
+/// The home page's shape, drawn before its data exists.
+///
+/// The page is a banner followed by several sections of covers; showing a single spinner
+/// made the whole layout appear at once when the fetch returned. The skeleton reserves
+/// that layout so the content fills spaces that are already there.
+struct HomeSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            RoundedRectangle(cornerRadius: 26)
+                .fill(.quaternary)
+                .frame(height: 200)
+
+            ForEach(0..<3, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 12) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(.quaternary)
+                        .frame(width: 120, height: 14)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 14)],
+                        alignment: .leading,
+                        spacing: 16
+                    ) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            PlaceholderGridCell()
+                        }
+                    }
+                }
+            }
+        }
+        .redacted(reason: .placeholder)
+        .accessibilityHidden(true)
     }
 }
