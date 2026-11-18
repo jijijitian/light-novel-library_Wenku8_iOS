@@ -355,11 +355,12 @@ struct NovelDetailView: View {
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("部分下载")
         } else {
-            Image(systemName: "circle")
-                .font(.caption)
-                .foregroundStyle(.quaternary)
+            // Nothing stored and nothing in flight: this volume is not in the offline
+            // cache, so it has no state to report. The space is still reserved so the
+            // titles of downloaded and undownloaded volumes line up.
+            Color.clear
                 .frame(width: 16, height: 16)
-                .accessibilityLabel("未下载")
+                .accessibilityHidden(true)
         }
     }
 
@@ -378,11 +379,12 @@ struct NovelDetailView: View {
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("已下载")
         } else {
-            Image(systemName: "circle")
-                .font(.caption)
-                .foregroundStyle(.quaternary)
+            // Nothing stored and nothing in flight: this volume is not in the offline
+            // cache, so it has no state to report. The space is still reserved so the
+            // titles of downloaded and undownloaded volumes line up.
+            Color.clear
                 .frame(width: 16, height: 16)
-                .accessibilityLabel("未下载")
+                .accessibilityHidden(true)
         }
     }
 
