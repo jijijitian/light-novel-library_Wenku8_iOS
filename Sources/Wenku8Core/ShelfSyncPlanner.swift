@@ -1,5 +1,4 @@
 import Foundation
-import Wenku8Core
 
 /// Works out what a shelf sync has to do.
 ///

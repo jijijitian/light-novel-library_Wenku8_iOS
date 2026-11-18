@@ -1,5 +1,12 @@
 import Foundation
 
+// `HTTPCookie` does not exist in swift-corelibs-foundation at all — not even from
+// `FoundationNetworking`, which only carries `URLSession` and its neighbours. The whole
+// file is therefore Apple-only, which costs nothing: it exists to persist a URLSession
+// cookie jar, and Linux has no such jar. The core-tests job compiles this module on
+// Linux, so this guard is what keeps that job green.
+#if canImport(Darwin)
+
 /// Keeps the relay's session cookies across launches.
 ///
 /// The app talks to two hosts with two independent sessions: `wenku8.net` for the
@@ -96,3 +103,24 @@ enum RelayHost {
         domain.contains(defaultHostFragment) || domain.contains("wenku8-relay")
     }
 }
+#else
+
+/// No-op stand-in for platforms without `HTTPCookie`.
+///
+/// The core module is compiled on Linux for the parser tests; there is no cookie jar
+/// there to persist, so every call is a no-op rather than a compile error.
+enum SharedCookieStore {
+    static func restoreRelayCookies() {}
+    static func persistRelayCookies() {}
+    static func clearRelayCookies() {}
+}
+
+enum RelayHost {
+    static let defaultHostFragment = "mewx.org"
+
+    static func isRelay(_ domain: String) -> Bool {
+        domain.contains(defaultHostFragment) || domain.contains("wenku8-relay")
+    }
+}
+
+#endif

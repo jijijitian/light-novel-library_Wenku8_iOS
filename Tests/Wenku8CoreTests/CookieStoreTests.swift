@@ -1,6 +1,10 @@
 import XCTest
 @testable import Wenku8Core
 
+// The cookie jar is an Apple-platform type; on Linux there is nothing to round-trip, so
+// the encoding test is skipped there rather than failing to compile.
+#if canImport(Darwin)
+
 final class CookieStoreTests: XCTestCase {
     /// The relay's cookie has to survive a relaunch; before this the shelf was empty
     /// after every restart until the reader signed in again.
@@ -42,3 +46,4 @@ final class CookieStoreTests: XCTestCase {
         XCTAssertFalse(RelayHost.isRelay("wenku8.cc"))
     }
 }
+#endif
