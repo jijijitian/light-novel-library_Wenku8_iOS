@@ -12,7 +12,12 @@ public final class OfflineDownloadManager: ObservableObject {
         public var novelID: Int
         public var completed: Int
         public var total: Int
-        public var currentTitle: String
+        /// The book being downloaded. The chapter title changes constantly and identified
+        /// nothing to the reader — the progress row showed a chapter name where a book
+        /// name was expected.
+        public var novelTitle: String
+        /// Chapter currently in flight, shown as the detail line.
+        public var currentChapterTitle: String
 
         public var fraction: Double {
             total > 0 ? Double(completed) / Double(total) : 0
@@ -82,12 +87,13 @@ public final class OfflineDownloadManager: ObservableObject {
                 novelID: aid,
                 completed: entry.chapterIDs.count - missing.count,
                 total: entry.chapterIDs.count,
-                currentTitle: missing.first?.title ?? ""
+                novelTitle: detail.title,
+                currentChapterTitle: missing.first?.title ?? ""
             )
 
             for chapter in missing {
                 if Task.isCancelled { break }
-                progress?.currentTitle = chapter.title
+                progress?.currentChapterTitle = chapter.title
                 do {
                     let content = try await service.chapter(aid: aid, cid: chapter.id)
                     await store.saveChapter(content, for: aid)

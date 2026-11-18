@@ -32,25 +32,14 @@ struct OfflineLibraryView: View {
                 }
             }
 
-            if manager.isDownloading, let progress = manager.progress {
-                Section("正在下载") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(progress.currentTitle)
-                            .font(.subheadline)
-                            .lineLimit(1)
-                        ProgressView(value: progress.fraction)
-                            .tint(AppTheme.accent)
-                        Text("\(progress.completed)/\(progress.total) 章")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
         }
         .navigationTitle("离线缓存")
         .navigationBarTitleDisplayMode(.inline)
         .task { await refresh() }
         .onChange(of: manager.progress) { _, newValue in
+            // Refresh on every step, not just at the end: the row for the book being
+            // downloaded was showing a stale chapter count for the whole download.
+            Task { await refresh() }
             if newValue == nil { Task { await refresh() } }
         }
         .alert("删除本地缓存？", isPresented: Binding(
@@ -73,7 +62,8 @@ struct OfflineLibraryView: View {
     }
 
     private func row(_ entry: OfflineStore.Entry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let live = manager.progress.flatMap { $0.novelID == entry.novelID ? $0 : nil }
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.title)
@@ -86,14 +76,28 @@ struct OfflineLibraryView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Image(systemName: entry.isComplete ? "checkmark.circle.fill" : "circle.dashed")
-                    .foregroundStyle(entry.isComplete ? .green : .secondary)
+                if live != nil {
+                    Button {
+                        manager.cancel()
+                        Task { await refresh() }
+                    } label: {
+                        Image(systemName: "pause.circle")
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("暂停下载")
+                } else {
+                    Image(systemName: entry.isComplete ? "checkmark.circle.fill" : "circle.dashed")
+                        .foregroundStyle(entry.isComplete ? .green : .secondary)
+                }
             }
             HStack(spacing: 8) {
-                Text("\(entry.storedChapterIDs.count)/\(entry.chapterIDs.count) 章")
+                // While downloading, report the live figure, so the row the reader is
+                // watching actually advances.
+                Text("\(live?.completed ?? entry.storedChapterIDs.count)/\(entry.chapterIDs.count) 章")
                 Text("·")
                 Text(formatBytes(entry.bytes))
-                if !entry.isComplete {
+                if live == nil, !entry.isComplete {
                     Text("·")
                     Button("继续") {
                         manager.download(novelID: entry.novelID)
@@ -104,7 +108,14 @@ struct OfflineLibraryView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-            if !entry.isComplete {
+            if let live {
+                ProgressView(value: live.fraction)
+                    .tint(AppTheme.accent)
+                Text(live.currentChapterTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            } else if !entry.isComplete {
                 ProgressView(value: entry.progress)
                     .tint(AppTheme.accent)
             }

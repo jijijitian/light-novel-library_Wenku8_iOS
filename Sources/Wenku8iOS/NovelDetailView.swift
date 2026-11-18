@@ -204,7 +204,7 @@ struct NovelDetailView: View {
                 }
                 ProgressView(value: progress.fraction)
                     .tint(AppTheme.accent)
-                Text("\(progress.completed)/\(progress.total)  ·  \(progress.currentTitle)")
+                Text("\(progress.completed)/\(progress.total)  ·  \(progress.currentChapterTitle)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
