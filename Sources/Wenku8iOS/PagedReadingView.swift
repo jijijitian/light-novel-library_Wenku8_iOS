@@ -27,6 +27,17 @@ struct PagedReadingView: View {
     @Binding var requestedPage: Int?
     /// Set when the reader swipes past the final page of the final chapter.
     @State private var reachedBookEnd = false
+    /// Where the *next* chapter load should land. Going forward starts at the first
+    /// page; going back must land on the last page, and the chapter-change handler
+    /// is what applies it (it runs after the content update, which reset to 0).
+    @State private var landOnLastPage = false
+    /// Suppresses the scroll animation for the jump that follows a chapter load.
+    @State private var suppressScrollAnimation = false
+    /// True while the reader itself is moving the scroll view, so its position
+    /// reports are not treated as user turns.
+    @State private var isProgrammaticScroll = false
+    /// Page width, used to map a tap to its third of the screen.
+    @State private var measuredWidth: CGFloat = 0
     var onLongPressImage: (URL) -> Void
 
     @State private var pageIndex = 0
@@ -45,6 +56,7 @@ struct PagedReadingView: View {
             // adding `safeAreaInsets.top` here would double-count it and push the
             // first line far down the page. Only our own padding is added.
             let topPadding = CGFloat(topInset) + Self.topPadding
+            let _ = { measuredWidth = proxy.size.width }()
             let footerHeight: CGFloat = 0
             let size = CGSize(
                 width: proxy.size.width - Self.horizontalPadding * 2,
@@ -67,9 +79,19 @@ struct PagedReadingView: View {
             .onChange(of: size.height) { _, _ in
                 rebuild(size: size)
             }
+            .onChange(of: model.index) { _, _ in
+                // A different chapter is being fetched: drop the old pages now
+                // rather than leaving them under the overlay.
+                pages = []
+            }
             .onChange(of: model.content?.chapterID) { _, _ in
-                pageIndex = 0
                 rebuild(size: size)
+                // No animation: the pages were just replaced, so animating from the
+                // old offset would read as an extra page turn after loading.
+                pageIndex = landOnLastPage ? max(0, pages.count - 1) : 0
+                landOnLastPage = false
+                suppressScrollAnimation = true
+                updatePageLabel()
             }
             .onChange(of: fontSize) { _, _ in rebuild(size: size) }
             .onChange(of: lineSpacing) { _, _ in rebuild(size: size) }
@@ -119,7 +141,8 @@ struct PagedReadingView: View {
     /// looked like the swipe had done nothing.
     private var loadingOverlay: some View {
         ZStack {
-            theme.background.opacity(0.96)
+            theme.background
+                .ignoresSafeArea()
             VStack(spacing: 10) {
                 ProgressView().tint(theme.text)
                 Text(model.current?.title ?? "正在载入…")
@@ -204,19 +227,31 @@ struct PagedReadingView: View {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
-        }
+        // Novella's tap zones: the outer 30% on each side turns the page, the
+        // middle 40% toggles the menu. A `SpatialTapGesture` is needed because the
+        // action has to know *where* the tap landed.
         .gesture(
-            DragGesture(minimumDistance: 30)
+            SpatialTapGesture()
                 .onEnded { value in
-                    if value.translation.width < -40 {
-                        advance()
-                    } else if value.translation.width > 40 {
-                        retreat()
-                    }
+                    handleTap(at: value.location, width: measuredWidth)
                 }
         )
+    }
+
+    /// Routes a tap to a page turn or the menu, following Novella's proportions.
+    private func handleTap(at location: CGPoint, width: CGFloat) {
+        guard width > 0 else {
+            withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
+            return
+        }
+        let ratio = location.x / width
+        if ratio <= 0.3 {
+            retreat()
+        } else if ratio >= 0.7 {
+            advance()
+        } else {
+            withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
+        }
     }
 
     /// Horizontal pager built on a `ScrollView` rather than a paged `TabView`.
@@ -241,9 +276,18 @@ struct PagedReadingView: View {
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.paging)
+            // One source of truth: the scroll view reports where it settled, but
+            // nothing writes back into it while it is moving. Previously
+            // `scrollPosition` and `onChange(of: pageIndex)` pushed each other,
+            // which at two pages produced a tight feedback loop (and a haptic
+            // burst from the slider).
             .scrollPosition(id: Binding(
                 get: { pageIndex },
-                set: { if let value = $0 { pageIndex = value } }
+                set: { newValue in
+                    guard let newValue, newValue != pageIndex,
+                          !isProgrammaticScroll else { return }
+                    pageIndex = newValue
+                }
             ))
             .frame(height: topPadding + size.height)
             // Runs alongside the scroll view's own drag: `translation` tells us the
@@ -262,8 +306,24 @@ struct PagedReadingView: View {
                     }
             )
             .onChange(of: pageIndex) { _, newValue in
-                withAnimation(.easeInOut(duration: 0.18)) {
+                // Animate only for a real page turn. After a chapter load the
+                // content was just replaced, and animating the jump produced a
+                // second, bogus page-turn once loading finished.
+                isProgrammaticScroll = true
+                if suppressScrollAnimation {
                     readerProxy.scrollTo(newValue, anchor: .leading)
+                    // Consume it so the next genuine page turn animates again.
+                    DispatchQueue.main.async {
+                        suppressScrollAnimation = false
+                        isProgrammaticScroll = false
+                    }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        readerProxy.scrollTo(newValue, anchor: .leading)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        isProgrammaticScroll = false
+                    }
                 }
                 updatePageLabel()
             }
@@ -311,7 +371,8 @@ struct PagedReadingView: View {
         if pageIndex + 1 < pages.count {
             withAnimation(.easeInOut(duration: 0.18)) { pageIndex += 1 }
         } else if model.canGoNext {
-            pageIndex = 0
+            // The chapter-change handler resets to page 0; nothing else to do here.
+            landOnLastPage = false
             Task { await model.goNext() }
         } else {
             // Last page of the last chapter: tell the reader the book is finished
@@ -324,23 +385,12 @@ struct PagedReadingView: View {
         if pageIndex > 0 {
             withAnimation(.easeInOut(duration: 0.18)) { pageIndex -= 1 }
         } else if model.canGoPrevious {
-            // Opening the previous chapter should land on its last page, so the
-            // flow reads continuously in both directions.
-            Task {
-                await model.goPrevious()
-                if let content = model.content {
-                    let built = ChapterPaginator.paginate(
-                        blocks: content.blocks,
-                        size: measuredSize,
-                        fontSize: fontSize,
-                        lineSpacing: lineSpacing,
-                        indent: indent,
-                        textColor: UIColor(theme.text)
-                    )
-                    pages = built
-                    pageIndex = max(0, built.count - 1)
-                }
-            }
+            // Ask the chapter-change handler to land on the last page. Doing the
+            // jump here did not survive: that handler runs after `goPrevious()`
+            // completes and used to reset the index to 0, which is why stepping
+            // back always opened the previous chapter at its first page.
+            landOnLastPage = true
+            Task { await model.goPrevious() }
         }
     }
 }
