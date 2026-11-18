@@ -144,19 +144,28 @@ struct CoverImage: View {
     var url: URL?
 
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.18))) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFill()
-            case .failure:
+        Group {
+            if url == nil {
+                // No URL means there is nothing to fetch — not "still fetching". An
+                // `AsyncImage` given nil stays in `.empty` for good, so it drew a spinner
+                // that never stopped on covers the source does not have.
                 placeholder
-            case .empty:
-                ZStack {
-                    placeholder
-                    ProgressView().controlSize(.small)
+            } else {
+                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.18))) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        placeholder
+                    case .empty:
+                        ZStack {
+                            placeholder
+                            ProgressView().controlSize(.small)
+                        }
+                    @unknown default:
+                        placeholder
+                    }
                 }
-            @unknown default:
-                placeholder
             }
         }
         .background(Color.secondary.opacity(0.14))
