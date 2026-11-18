@@ -429,50 +429,33 @@ struct ReaderView: View {
         return pagedPageLabel
     }
 
-    /// Page slider shown in the bottom band while the menu is open.
+    /// Page slider inside the control panel (Novella's `ReaderProgressSlider`).
     ///
-    /// Proportions follow Novella's `ReaderProgressSlider`: a 3pt track, a 12×18pt
-    /// thumb on a 24pt touch area, and a 40pt band.
-    @ViewBuilder
-    private func pageSlider(current label: String) -> some View {
-        VStack(spacing: 4) {
-            GeometryReader { proxy in
-                let width = max(proxy.size.width, 1)
-                let total = max(pagedPageCount - 1, 1)
-                let fraction = CGFloat(min(max(currentPageIndex, 0), total)) / CGFloat(total)
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(theme.text.opacity(0.15))
-                        .frame(height: 3)
-                    Capsule()
-                        .fill(theme.text.opacity(0.45))
-                        .frame(width: width * fraction, height: 3)
-                    Capsule()
-                        .fill(theme.text.opacity(0.75))
-                        .frame(width: 18, height: 12)
-                        .offset(x: max(0, width * fraction - 9))
-                }
-                .frame(height: 24)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let ratio = min(max(value.location.x / width, 0), 1)
-                            requestedPage = Int((ratio * CGFloat(total)).rounded())
-                        }
+    /// Uses the same accent treatment as the font-size / line-height sliders below
+    /// it so the panel reads as one set of controls.
+    private func pageSlider() -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                Text("\(currentPageIndex + 1)")
+                    .font(.caption2.monospacedDigit())
+                Slider(
+                    value: Binding(
+                        get: { Double(currentPageIndex) },
+                        set: { requestedPage = Int($0.rounded()) }
+                    ),
+                    in: 0...Double(max(pagedPageCount - 1, 1)),
+                    step: 1
                 )
+                .tint(AppTheme.accent)
+                Text("\(pagedPageCount)")
+                    .font(.caption2.monospacedDigit())
             }
-            .frame(height: 24)
-
-            Text(label)
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                .foregroundStyle(theme.text.opacity(Self.collapsedInfoOpacity))
+            .foregroundStyle(theme.text.opacity(0.6))
         }
-        .frame(height: 44)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 4)
     }
 
-    /// 0-based current page, derived from the `current / total` label.
+    /// 0-based current page, derived from the reported `current / total` label.
     private var currentPageIndex: Int {
         guard let first = pagedPageLabel?.split(separator: "/").first,
               let page = Int(first.trimmingCharacters(in: .whitespaces)) else { return 0 }
@@ -560,7 +543,7 @@ struct ReaderView: View {
             Spacer()
             VStack(spacing: 14) {
                 if layout == .horizontal, pagedPageCount > 1 {
-                    pageSlider(current: chapterPageLabel ?? "")
+                    pageSlider()
                 }
                 HStack(spacing: 14) {
                     Button {

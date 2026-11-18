@@ -82,6 +82,16 @@ struct PagedReadingView: View {
             .onChange(of: fontSize) { _, _ in rebuild(size: size) }
             .onChange(of: lineSpacing) { _, _ in rebuild(size: size) }
             .onChange(of: indent) { _, _ in rebuild(size: size) }
+            // Keep the reported label in sync as pages turn; without this the label
+            // stayed at its first value for the whole chapter.
+            .onChange(of: pageIndex) { _, _ in updatePageLabel() }
+            // Applies a page jump requested by the slider.
+            .onChange(of: requestedPage) { _, newValue in
+                guard let newValue, pages.indices.contains(newValue) else { return }
+                pageIndex = newValue
+                requestedPage = nil
+            }
+            .onChange(of: showChrome) { _, _ in updatePageLabel() }
             .onAppear { rebuild(size: size) }
         }
         .overlay {
