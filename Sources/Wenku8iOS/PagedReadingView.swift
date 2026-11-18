@@ -25,6 +25,8 @@ struct PagedReadingView: View {
     @Binding var pageCount: Int
     /// 0-based page requested from outside (the slider); reset after applying.
     @Binding var requestedPage: Int?
+    /// Set when the reader swipes past the final page of the final chapter.
+    @State private var reachedBookEnd = false
     var onLongPressImage: (URL) -> Void
 
     @State private var pageIndex = 0
@@ -53,17 +55,7 @@ struct PagedReadingView: View {
             )
 
             VStack(spacing: 0) {
-                TabView(selection: $pageIndex) {
-                    ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
-                        pageContent(page)
-                            .frame(width: size.width, height: size.height, alignment: .topLeading)
-                            .padding(.horizontal, Self.horizontalPadding)
-                            .padding(.top, topPadding)
-                            .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(height: topPadding + size.height)
+                horizontalPager(size: size, topPadding: topPadding)
 
                 // The page indicator is drawn by `ReaderView`'s collapsed band so it
                 // stays visible with or without the menu; keeping a copy here made
@@ -95,8 +87,10 @@ struct PagedReadingView: View {
             .onAppear { rebuild(size: size) }
         }
         .overlay {
-            if model.isLoading && model.content == nil {
-                ProgressView().tint(theme.text)
+            if model.isLoading {
+                // Shown for every chapter change, not just the first one: the old
+                // page must not linger while the next chapter is being fetched.
+                loadingOverlay
             } else if let error = model.error {
                 VStack(spacing: 12) {
                     Text((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
@@ -112,6 +106,56 @@ struct PagedReadingView: View {
                 .padding(24)
             }
         }
+        .overlay {
+            if reachedBookEnd {
+                bookEndNotice
+            }
+        }
+    }
+
+    /// Covers the previous page while the next chapter loads.
+    ///
+    /// Without it the old chapter stayed on screen until the new one arrived, which
+    /// looked like the swipe had done nothing.
+    private var loadingOverlay: some View {
+        ZStack {
+            theme.background.opacity(0.96)
+            VStack(spacing: 10) {
+                ProgressView().tint(theme.text)
+                Text(model.current?.title ?? "正在载入…")
+                    .font(.caption)
+                    .foregroundStyle(theme.text.opacity(0.55))
+                    .lineLimit(1)
+                    .padding(.horizontal, 32)
+            }
+        }
+        .transition(.opacity)
+    }
+
+    /// Shown when the reader swipes past the very last page of the book.
+    private var bookEndNotice: some View {
+        ZStack {
+            theme.background.opacity(0.97)
+            VStack(spacing: 14) {
+                Image(systemName: "checkmark.seal")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(theme.text.opacity(0.55))
+                Text("已经是最后一章了")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.text.opacity(0.85))
+                Text("全书已读完，感谢阅读")
+                    .font(.caption)
+                    .foregroundStyle(theme.text.opacity(0.5))
+                Button("返回") {
+                    reachedBookEnd = false
+                }
+                .prominentGlassButtonShape()
+                .tint(AppTheme.accent)
+                .padding(.top, 4)
+            }
+        }
+        .transition(.opacity)
+        .onTapGesture { reachedBookEnd = false }
     }
 
     /// Constant, so toggling the control panel never repaginates the chapter.
@@ -175,6 +219,57 @@ struct PagedReadingView: View {
         )
     }
 
+    /// Horizontal pager built on a `ScrollView` rather than a paged `TabView`.
+    ///
+    /// A paged `TabView` eats horizontal drags, so a swipe at the last page simply
+    /// bounced and the reader could not advance to the next chapter. With a
+    /// `ScrollView` the drag is ours to interpret: crossing a page boundary moves
+    /// the page, and dragging past either end steps to the neighbouring chapter.
+    @ViewBuilder
+    private func horizontalPager(size: CGSize, topPadding: CGFloat) -> some View {
+        ScrollViewReader { readerProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
+                        pageContent(page)
+                            .frame(width: size.width, height: size.height, alignment: .topLeading)
+                            .padding(.horizontal, Self.horizontalPadding)
+                            .padding(.top, topPadding)
+                            .id(index)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: Binding(
+                get: { pageIndex },
+                set: { if let value = $0 { pageIndex = value } }
+            ))
+            .frame(height: topPadding + size.height)
+            // Runs alongside the scroll view's own drag: `translation` tells us the
+            // intent even when the scroll view had nowhere to go, which is exactly
+            // the "swipe past the last page" case a paged TabView could not report.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onEnded { value in
+                        let dx = value.translation.width
+                        guard abs(dx) > 40 else { return }
+                        if dx < 0 {
+                            advance()
+                        } else {
+                            retreat()
+                        }
+                    }
+            )
+            .onChange(of: pageIndex) { _, newValue in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    readerProxy.scrollTo(newValue, anchor: .leading)
+                }
+                updatePageLabel()
+            }
+        }
+    }
+
     private var displayTitle: String {
         let fromRoute = model.current?.title ?? ""
         if !fromRoute.isEmpty { return fromRoute }
@@ -218,6 +313,10 @@ struct PagedReadingView: View {
         } else if model.canGoNext {
             pageIndex = 0
             Task { await model.goNext() }
+        } else {
+            // Last page of the last chapter: tell the reader the book is finished
+            // instead of swallowing the swipe.
+            reachedBookEnd = true
         }
     }
 
