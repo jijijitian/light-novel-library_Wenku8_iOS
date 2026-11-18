@@ -9,7 +9,9 @@ public enum SugoiParser {
         public var year: Int
         public var sections: [Section]
 
-        public var allBooks: [NovelSummary] { sections.flatMap(\.novels) }
+            /// Every real book, in order. Entries without a library page are left out: this
+        /// list feeds navigation, which needs a book id.
+        public var allBooks: [NovelSummary] { sections.flatMap(\.novels).filter { $0.id > 0 } }
     }
 
     public struct Section: Identifiable, Hashable, Sendable {
@@ -57,25 +59,55 @@ public enum SugoiParser {
         return Year(id: year, year: year, sections: sections)
     }
 
+    /// The book id in a `/book/123.htm` href, or nil when the link is not a book.
+    private static func bookID(in href: String) -> Int? {
+        guard let range = href.range(of: #"book/(\d+)\.htm"#, options: .regularExpression) else {
+            return nil
+        }
+        let digits = href[range].filter(\.isNumber)
+        return Int(digits)
+    }
+
+    /// A stable negative id for a ranking entry the library has no page for.
+    ///
+    /// Derived from the title rather than from `hashValue`, which differs between launches
+    /// and would break SwiftUI's identity for the row on every run.
+    private static func placeholderID(for title: String) -> Int? {
+        let sum = title.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        guard sum > 0 else { return nil }
+        return -(sum % 1_000_000 + 1)
+    }
+
     static func books(in html: String) -> [NovelSummary] {
         var novels: [NovelSummary] = []
         var seen = Set<Int>()
 
         // Modern pages (2012+) carry a title attribute on the cover anchor, which is
         // the most reliable source because the visible text may be abbreviated.
+        //
+        // The href is matched loosely on purpose. A ranking entry can be a book the
+        // library does not stock, and the site then links it to "#": a TOP10 of ten titles
+        // rendered as nine because the strict pattern dropped that entry. Those keep their
+        // title and are given a synthetic negative id so the row is still shown, while
+        // navigation — which needs a real book id — is skipped for them.
         if let titled = try? NSRegularExpression(
-            pattern: #"<a href="(?:[^"]*/)?book/(\d+)\.htm"[^>]*title="([^"]*)""#,
+            pattern: #"<a\s+href="([^"]*)"[^>]*title="([^"]*)""#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) {
             let range = NSRange(html.startIndex..<html.endIndex, in: html)
             for match in titled.matches(in: html, range: range) {
-                guard let idRange = Range(match.range(at: 1), in: html),
-                      let titleRange = Range(match.range(at: 2), in: html),
-                      let id = Int(html[idRange]),
-                      seen.insert(id).inserted else { continue }
+                guard let hrefRange = Range(match.range(at: 1), in: html),
+                      let titleRange = Range(match.range(at: 2), in: html) else { continue }
+                let href = String(html[hrefRange])
                 let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
                 guard !title.isEmpty else { continue }
-                novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+                if let id = bookID(in: href) {
+                    guard seen.insert(id).inserted else { continue }
+                    novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+                } else if let placeholder = placeholderID(for: title) {
+                    guard seen.insert(placeholder).inserted else { continue }
+                    novels.append(NovelSummary(id: placeholder, title: title, coverURL: nil))
+                }
             }
         }
 

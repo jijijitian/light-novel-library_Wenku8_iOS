@@ -16,12 +16,17 @@ final class SugoiParserTests: XCTestCase {
         XCTAssertEqual(year.sections.count, 2)
         XCTAssertTrue(year.sections[0].caption.contains("文库部门"))
         XCTAssertTrue(year.sections[1].caption.contains("单行本部门"))
-        // The page nominates ten books per section, but some entries link to "#"
-        // because the title was removed; only real book links survive.
-        XCTAssertEqual(year.sections[0].novels.count, 8)
+        // The page nominates ten books per section. An entry the library does not stock
+        // links to "#"; it is still shown, because dropping it made a TOP10 render as
+        // fewer rows, but it carries no book id to open.
+        XCTAssertEqual(year.sections[0].novels.count, 10)
         XCTAssertEqual(year.sections[0].novels.first?.id, 3988)
         XCTAssertEqual(year.sections[0].novels.first?.title, "玩乐关系")
-        XCTAssertTrue(year.sections.allSatisfy { $0.novels.allSatisfy { $0.id > 0 } })
+        // Every entry is either a real book or a titled placeholder.
+        XCTAssertTrue(year.sections.allSatisfy { $0.novels.allSatisfy { $0.id != 0 } })
+        XCTAssertTrue(year.sections[0].novels.contains { $0.id < 0 })
+        // Only real books are offered for navigation.
+        XCTAssertTrue(year.allBooks.allSatisfy { $0.id > 0 })
         XCTAssertEqual(Set(year.allBooks.map(\.id)).count, year.allBooks.count)
     }
 
@@ -30,6 +35,13 @@ final class SugoiParserTests: XCTestCase {
         XCTAssertFalse(year.allBooks.isEmpty)
         XCTAssertEqual(year.sections.first?.novels.first?.id, 3057)
         XCTAssertEqual(year.sections.first?.novels.first?.title, "败北女角太多了！(败犬女主太多了！)")
+
+        // 2025 lists a full ten per section, one of which ("白色帝国") is not stocked.
+        XCTAssertEqual(year.sections[0].novels.count, 10)
+        let placeholder = try XCTUnwrap(year.sections[0].novels.first { $0.id < 0 })
+        XCTAssertEqual(placeholder.title, "白色帝国")
+        XCTAssertNil(placeholder.coverURL, "a book without a page has no cover to load")
+        XCTAssertFalse(year.allBooks.contains { $0.title == "白色帝国" })
     }
 
     /// Pages before 2012 use uppercase tags with no title attribute, so the parser

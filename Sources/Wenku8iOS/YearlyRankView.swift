@@ -33,6 +33,10 @@ struct YearlyRankView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionHeader(title: section.caption, symbol: "trophy.fill")
                             NovelGrid(novels: section.novels) { novel in
+                                // An entry the library does not stock has no page to open;
+                                // it is shown so the ranking is complete, not so it can be
+                                // navigated.
+                                guard novel.id > 0 else { return }
                                 router.open(.novel(novel.id))
                             }
                         }
