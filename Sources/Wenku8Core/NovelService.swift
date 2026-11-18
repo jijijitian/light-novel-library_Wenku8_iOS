@@ -597,6 +597,17 @@ public struct NovelService: Sendable {
         // Persist whatever the login established before reporting success: without
         // this the session was gone by the next launch.
         SharedCookieStore.persistRelayCookies()
+
+        // A reply code alone is not proof: a login that answers "success" without
+        // issuing a cookie leaves every later call unauthenticated, which is exactly
+        // the bug being fixed. So the session is confirmed by asking for the account
+        // and checking the relay did not answer "not signed in".
+        if let info = try? await relay.sendText(RelayAction.userInfo()) {
+            let trimmed = info.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != "4" else { return false }
+            SharedCookieStore.persistRelayCookies()
+            return true
+        }
         return (RelayParser.resultCode(text) ?? 0) == 1
             || text.localizedCaseInsensitiveContains("ok")
     }

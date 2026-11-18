@@ -271,9 +271,28 @@ public enum RelayAction {
         "action=bookcase&do=del&aid=\(aid)"
     }
 
+    /// Builds the login request.
+    ///
+    /// The credentials are percent-encoded: a password containing `&`, `=`, `+` or a
+    /// space would otherwise split or corrupt the request string, and the relay would
+    /// answer with a failure that looks like wrong credentials.
     public static func login(username: String, password: String) -> String {
-        "action=login&username=\(username)&password=\(password)"
+        let user = username.addingPercentEncoding(
+            withAllowedCharacters: Self.relayAllowed
+        ) ?? username
+        let pass = password.addingPercentEncoding(
+            withAllowedCharacters: Self.relayAllowed
+        ) ?? password
+        return "action=login&username=\(user)&password=\(pass)"
     }
+
+    /// Everything except the characters that delimit or terminate the request string.
+    /// Deliberately narrow: `+` and `&` must be encoded, unlike the default set.
+    static let relayAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=?+ #%")
+        return allowed
+    }()
 
     public static func logout() -> String {
         "action=logout"
