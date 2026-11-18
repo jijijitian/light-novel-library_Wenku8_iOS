@@ -339,12 +339,10 @@ struct ShelfView: View {
         let entries = await OfflineStore.shared.entries()
         var states: [Int: CacheState] = [:]
         for entry in entries {
-            // A book with metadata only is not "partly downloaded" — nothing of it is on
-            // disk to read. Only a book with stored chapters has a cache state to report,
-            // and it is complete when every chapter is there.
-            guard !entry.storedChapterIDs.isEmpty else { continue }
-            guard !entry.chapterIDs.isEmpty else { continue }
-            states[entry.novelID] = entry.isComplete ? .complete : .partial
+            // The store decides whether a book has a download state at all: metadata alone
+            // is not one, so a book merely opened never reaches this dictionary.
+            guard let state = entry.downloadState else { continue }
+            states[entry.novelID] = state == .complete ? .complete : .partial
         }
         cacheStates = states
     }

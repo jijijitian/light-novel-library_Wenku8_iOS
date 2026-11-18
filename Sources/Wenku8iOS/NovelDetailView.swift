@@ -141,14 +141,17 @@ struct NovelDetailView: View {
                     Button {
                         downloadManager.download(novelID: novelID)
                     } label: {
+                        // "重新下载" only once chapters exist. A book with metadata only has
+                        // nothing to re-download, and offering it implied a download that
+                        // had never happened.
                         Label(
-                            offlineEntry == nil ? "下载到本机" : "重新下载",
+                            offlineEntry?.downloadState == nil ? "下载到本机" : "重新下载",
                             systemImage: "arrow.down.circle"
                         )
                     }
                     .disabled(downloadManager.isDownloading)
 
-                    if offlineEntry != nil {
+                    if offlineEntry?.downloadState != nil {
                         Button(role: .destructive) {
                             Task {
                                 await downloadManager.delete(novelID)
@@ -255,7 +258,9 @@ struct NovelDetailView: View {
             }
             .padding(16)
             .glassCard(cornerRadius: 22)
-        } else if let entry = offlineEntry {
+        } else if let entry = offlineEntry, entry.downloadState != nil {
+            // Only books with chapters on disk describe a download. A book opened once has
+            // metadata but nothing readable, and claiming "部分下载 0/0 章" was wrong.
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Label(entry.isComplete ? "已下载，可离线阅读" : "部分下载", systemImage: "checkmark.circle")

@@ -47,6 +47,30 @@ public actor OfflineStore {
         public var isComplete: Bool {
             !chapterIDs.isEmpty && storedChapterIDs.count >= chapterIDs.count
         }
+
+        /// Whether anything of this book is actually on disk to read.
+        ///
+        /// Metadata alone is not a download: a book opened once has its detail cached but
+        /// no chapters, and reporting that as "partly downloaded" told the reader their
+        /// book was half-fetched when nothing of it could be read offline.
+        public var hasDownloadedChapters: Bool {
+            !storedChapterIDs.isEmpty
+        }
+
+        /// Whether the shelf badge should report a state, and which.
+        ///
+        /// `nil` when there is nothing downloaded, so metadata-only books show no badge at
+        /// all instead of a misleading one.
+        public var downloadState: DownloadState? {
+            guard hasDownloadedChapters, !chapterIDs.isEmpty else { return nil }
+            return isComplete ? .complete : .partial
+        }
+    }
+
+    /// What a book's download is, if it has one.
+    public enum DownloadState: String, Codable, Sendable {
+        case partial
+        case complete
     }
 
     /// Progress emitted while a download runs.
