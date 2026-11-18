@@ -472,11 +472,81 @@ public struct NovelService: Sendable {
         // Confirm against the desktop header as well, since the cookie alone
         // would not catch a server-side session that failed to attach.
         let headerName = await desktopAccountName()
+
+        // The relay keeps a session of its own. It takes the same account as the
+        // website, so signing in here signs in there too; otherwise every relay
+        // bookshelf call answers "not signed in" and looks like an expired login.
+        if relayIsAvailable {
+            _ = await signInToRelay(username: name, password: password)
+        }
+
         return Session(userName: headerName ?? cookieName, isRemote: true)
+    }
+
+    /// Turns relay bookshelf ids into the same rows the desktop page produces.
+    ///
+    /// The relay listing carries ids (and sometimes a name), but the shelf view draws
+    /// covers, authors and the latest chapter; those come from each book's metadata.
+    /// Fetched concurrently, and a book whose metadata fails still appears with its id
+    /// and title rather than vanishing from the shelf.
+    private func enrich(_ entries: [RelayParser.RelayShelfEntry]) async -> [ShelfEntry] {
+        await withTaskGroup(of: ShelfEntry.self) { group in
+            for entry in entries {
+                group.addTask { [self] in
+                    let summary = await novelSummary(aid: entry.aid, fallbackTitle: entry.name)
+                    let chapter: ChapterLink? = {
+                        guard let cid = entry.latestChapterCID else { return nil }
+                        return ChapterLink(id: cid, title: entry.latestChapterName ?? "")
+                    }()
+                    return ShelfEntry(novel: summary, latestChapter: chapter)
+                }
+            }
+            var rows: [ShelfEntry] = []
+            for await row in group { rows.append(row) }
+            // The relay returns shelf order; sorting by title keeps the list stable
+            // regardless of which metadata request finished first.
+            return rows.sorted { $0.novel.title < $1.novel.title }
+        }
+    }
+
+    /// Minimal summary for a book, falling back to placeholders when metadata is absent.
+    private func novelSummary(aid: Int, fallbackTitle: String?) async -> NovelSummary {
+        if let detail = try? await detail(aid: aid) {
+            return NovelSummary(
+                id: aid,
+                title: detail.title,
+                author: detail.author,
+                coverURL: detail.coverURL
+            )
+        }
+        return NovelSummary(
+            id: aid,
+            title: fallbackTitle ?? "书籍 \(aid)",
+            author: nil,
+            coverURL: CoverURL.image(for: aid)
+        )
+    }
+
+    /// Signs the relay in with the same credentials, ignoring failure.
+    ///
+    /// A relay that rejects the login is not fatal: the desktop session still works,
+    /// and `bookshelf` calls fall back to it. Returns whether it succeeded, for callers
+    /// that want to report it.
+    @discardableResult
+    public func signInToRelay(username: String, password: String) async -> Bool {
+        guard relayIsAvailable else { return false }
+        guard let text = try? await relay.sendText(
+            RelayAction.login(username: username, password: password)
+        ) else { return false }
+        return (RelayParser.resultCode(text) ?? 0) == 1
+            || text.localizedCaseInsensitiveContains("ok")
     }
 
     public func signOut() {
         client.clearSessionCookies()
+        if relayIsAvailable {
+            Task { _ = try? await relay.sendText(RelayAction.logout()) }
+        }
     }
 
     public func currentUserName() async -> String? {
@@ -511,6 +581,17 @@ public struct NovelService: Sendable {
     public func remoteShelfPage(
         classID: Int? = nil
     ) async throws -> (entries: [ShelfEntry], reportedCount: Int?) {
+        // With the relay enabled the shelf comes from the relay's own session, which
+        // `signIn` establishes alongside the website's. Relay ids carry no group on
+        // that listing, so groups still come from the desktop page.
+        if relayIsAvailable, classID ?? 0 == 0,
+           let text = try? await relay.sendText(RelayAction.bookcaseList()) {
+            let entries = RelayParser.bookcaseEntries(text)
+            if !entries.isEmpty {
+                let shelf = await enrich(entries)
+                return (shelf, shelf.count)
+            }
+        }
         guard client.hasSession() else { throw Wenku8Error.needLogin }
         let path = classID.map { "/modules/article/bookcase.php?classid=\($0)" }
             ?? "/modules/article/bookcase.php"
@@ -526,27 +607,70 @@ public struct NovelService: Sendable {
     }
 
     @discardableResult
-    public func addToBookcase(aid: Int) async throws -> BookcaseMutationResult {
+    public func addToBookcase(aid: Int, classID: Int? = nil) async throws -> BookcaseMutationResult {
+        // The relay keeps its own session, which is not the one `signIn` establishes.
+        // A code 4 from it therefore means "the relay account is not signed in", not
+        // "this reader is signed out" — reporting that as an expired login was wrong.
+        // Fall through to the desktop page, which uses the session the reader actually
+        // established.
         if relayIsAvailable,
            let code = RelayParser.resultCode(try await relay.sendText(RelayAction.bookcaseAdd(aid: aid))) {
             switch code {
             case 1: return .succeeded
             case 5: return .alreadyPresent
-            case 4: throw Wenku8Error.needLogin
             case 6: throw Wenku8Error.login("书架已满，请先清理后再添加")
-            default: throw Wenku8Error.login(RelayParser.message(for: code))
+            case 4:
+                // Relay session missing: try the reader's own login below.
+                break
+            default:
+                break
             }
         }
-        let html = try await client.wap("/article/addbookcase.php?bid=\(aid)")
-        let outcome = AccountParser.mutationOutcome(html, novelID: aid)
-        switch outcome {
-        case .notSignedIn:
+        guard client.hasSession() else { throw Wenku8Error.needLogin }
+        let html = try await client.desktop("/modules/article/addbookcase.php?bid=\(aid)")
+        if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
             throw Wenku8Error.needLogin
-        case .failed(let message):
-            throw Wenku8Error.login(message)
-        default:
-            return outcome
         }
+
+        // `addbookcase.php` always appends to 默认书架; a chosen group is a second
+        // step. If that step fails the book stays on the default shelf, which is
+        // visible and recoverable rather than an error the reader cannot act on.
+        if let classID, classID != 0 {
+            _ = try? await moveInBookcase(aid: aid, toClassID: classID)
+        }
+        return .succeeded
+    }
+
+    /// Files an already-added book into a shelf group.
+    ///
+    /// The site has no "add to group N" call: `addbookcase.php` always appends to
+    /// 默认书架, and grouping is a separate operation on the shelf page's move form
+    /// (`bookcase.php` with `checkid[]` + `newclassid`). So adding to a group is two
+    /// steps, and a failure in the second leaves the book on the default shelf rather
+    /// than losing it.
+    @discardableResult
+    public func moveInBookcase(aid: Int, toClassID classID: Int) async throws -> Bool {
+        guard client.hasSession() else { throw Wenku8Error.needLogin }
+        let page = try await client.desktop("/modules/article/bookcase.php")
+        if AccountParser.isDesktopLoginPage(page) || AccountParser.isLoginGate(page) {
+            throw Wenku8Error.needLogin
+        }
+        // The book is identified on this form by its `bid`, which the shelf row carries
+        // in the `checkid[]` checkbox; the two are the same value.
+        guard let bid = DesktopParser.bookcaseBid(forAid: aid, in: page) else {
+            return false
+        }
+        let html = try await client.desktopPost(
+            "/modules/article/bookcase.php",
+            fields: [
+                "checkid[]": String(bid),
+                "newclassid": String(classID),
+            ]
+        )
+        if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
+            throw Wenku8Error.needLogin
+        }
+        return true
     }
 
     @discardableResult

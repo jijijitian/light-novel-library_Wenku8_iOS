@@ -67,21 +67,28 @@ struct NovelDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    if let detail = model.detail {
-                        let summary = NovelSummary(
-                            id: detail.id,
-                            title: detail.title,
-                            author: detail.author,
-                            coverURL: detail.coverURL
-                        )
-                        store.toggle(summary)
-                        if store.isSaved(detail.id) {
-                            Task {
-                                shelfMessage = await account.addToRemoteShelf(summary)
+                // Adding offers the site's shelf groups; the toolbar button toggles
+                // for a quick save, while this menu places the book deliberately.
+                Menu {
+                    if store.isSaved(novelID) {
+                        Button(role: .destructive) {
+                            removeFromShelf()
+                        } label: {
+                            Label("移出书架", systemImage: "bookmark.slash")
+                        }
+                    } else if account.isSignedIn {
+                        ForEach(account.shelfGroups) { group in
+                            Button {
+                                addToShelf(classID: group.classID)
+                            } label: {
+                                Label(group.title, systemImage: "books.vertical")
                             }
-                        } else {
-                            shelfMessage = "已从本地书架移除"
+                        }
+                    } else {
+                        Button {
+                            addToShelf(classID: nil)
+                        } label: {
+                            Label("加入本地书架", systemImage: "bookmark")
                         }
                     }
                 } label: {
@@ -359,6 +366,31 @@ struct NovelDetailView: View {
         }
         .padding(16)
         .glassCard(cornerRadius: 22)
+    }
+
+    /// Saves locally and, when signed in, on the site — into `classID` when given.
+    private func addToShelf(classID: Int?) {
+        guard let detail = model.detail else { return }
+        let summary = NovelSummary(
+            id: detail.id,
+            title: detail.title,
+            author: detail.author,
+            coverURL: detail.coverURL
+        )
+        store.add(summary)
+        guard account.isSignedIn else {
+            shelfMessage = "已加入本地书架"
+            return
+        }
+        Task { shelfMessage = await account.addToRemoteShelf(summary, classID: classID) }
+    }
+
+    private func removeFromShelf() {
+        guard let detail = model.detail else { return }
+        store.remove(detail.id)
+        shelfMessage = "已从本地书架移除"
+        guard account.isSignedIn else { return }
+        Task { shelfMessage = await account.removeFromRemoteShelf(detail.id) }
     }
 
     private func allChapters() -> [ChapterLink] {

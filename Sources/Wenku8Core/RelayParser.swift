@@ -469,4 +469,99 @@ public enum RelayParser {
         }
         return ""
     }
+
+    // MARK: - Bookshelf
+
+    /// One entry of the relay's bookshelf listing.
+    public struct RelayShelfEntry: Hashable, Sendable {
+        public var aid: Int
+        /// `YYYY-MM-DD`, present on the fuller listing only.
+        public var date: String?
+        public var name: String?
+        public var latestChapterCID: Int?
+        public var latestChapterName: String?
+
+        public init(
+            aid: Int,
+            date: String? = nil,
+            name: String? = nil,
+            latestChapterCID: Int? = nil,
+            latestChapterName: String? = nil
+        ) {
+            self.aid = aid
+            self.date = date
+            self.name = name
+            self.latestChapterCID = latestChapterCID
+            self.latestChapterName = latestChapterName
+        }
+    }
+
+    /// Reads the relay's bookshelf listing.
+    ///
+    /// Two shapes exist and both are real:
+    ///
+    /// ```xml
+    /// <metadata><book aid="3988" /></metadata>                       <!-- do=list -->
+    /// <metadata><book aid="3988" date="2026-08-23">…</book></metadata> <!-- action=bookcase -->
+    /// ```
+    ///
+    /// Attributes are read by name, never by position: a positional read of `aid` would
+    /// swallow the following `date` and silently produce zero entries. An entry whose
+    /// id is not a number is skipped rather than failing the whole listing — one broken
+    /// record must not cost the reader the rest of the shelf.
+    public static func bookcaseEntries(_ text: String) -> [RelayShelfEntry] {
+        var entries: [RelayShelfEntry] = []
+        for block in bookBlocks(text) {
+            guard let aidText = attribute("aid", in: block),
+                  let aid = Int(aidText) else { continue }
+            entries.append(RelayShelfEntry(
+                aid: aid,
+                date: attribute("date", in: block),
+                name: element("name", in: block),
+                latestChapterCID: attribute("cid", in: block).flatMap(Int.init),
+                latestChapterName: element("chapter", in: block)
+                    ?? element("section", in: block)
+            ))
+        }
+        return entries
+    }
+
+    /// Splits the listing into `<book …>…</book>` blocks, tolerating self-closing tags.
+    private static func bookBlocks(_ text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<book\b[^>]*/>|<book\b[^>]*>[\s\S]*?</book>"#,
+            options: [.caseInsensitive]
+        ) else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            Range(match.range, in: text).map { String(text[$0]) }
+        }
+    }
+
+    private static func attribute(_ name: String, in block: String) -> String? {
+        let pattern = "\\b" + NSRegularExpression.escapedPattern(for: name) + #"\s*=\s*"([^"]*)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(block.startIndex..<block.endIndex, in: block)
+        guard let match = regex.firstMatch(in: block, range: range),
+              match.numberOfRanges > 1,
+              let found = Range(match.range(at: 1), in: block) else { return nil }
+        return String(block[found])
+    }
+
+    private static func element(_ tag: String, in block: String) -> String? {
+        let pattern = "<" + NSRegularExpression.escapedPattern(for: tag)
+            + #"\b[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</"#
+            + NSRegularExpression.escapedPattern(for: tag) + ">"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(block.startIndex..<block.endIndex, in: block)
+        guard let match = regex.firstMatch(in: block, range: range),
+              match.numberOfRanges > 1,
+              let found = Range(match.range(at: 1), in: block) else { return nil }
+        let value = String(block[found]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
 }

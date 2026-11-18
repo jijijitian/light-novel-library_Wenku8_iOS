@@ -229,17 +229,23 @@ final class AccountStore: ObservableObject {
         await syncShelf()
     }
 
-    /// Adds the book to the site's shelf. Returns a user-facing status string.
-    func addToRemoteShelf(_ novel: NovelSummary) async -> String {
+    /// Adds the book to the site's shelf, optionally into a group.
+    ///
+    /// Returns a user-facing status string.
+    func addToRemoteShelf(_ novel: NovelSummary, classID: Int? = nil) async -> String {
         guard isSignedIn else { return "请先登录文库账号" }
         guard !pendingAdds.contains(novel.id) else { return "正在添加…" }
         pendingAdds.insert(novel.id)
         defer { pendingAdds.remove(novel.id) }
         do {
-            let result = try await service.addToBookcase(aid: novel.id)
-            await syncShelf()
+            let result = try await service.addToBookcase(aid: novel.id, classID: classID)
+            await syncWithLocalShelf([])
+            let groupName = classID.flatMap { id in
+                shelfGroups.first { $0.classID == id }?.title
+            }
             switch result {
-            case .succeeded: return "已加入文库云端书架"
+            case .succeeded:
+                return groupName.map { "已加入\($0)" } ?? "已加入文库云端书架"
             case .alreadyPresent: return "这本书已在云端书架中"
             case .shelfFull: return "云端书架已满"
             case .notPresent, .notSignedIn: return "请先登录文库账号"

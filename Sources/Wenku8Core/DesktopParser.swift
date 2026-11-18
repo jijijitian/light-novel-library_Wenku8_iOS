@@ -138,6 +138,22 @@ public enum DesktopParser {
         return Int(raw)
     }
 
+    /// The shelf's own id (`bid`) for a novel (`aid`).
+    ///
+    /// The shelf page identifies each row by `bid` in the `checkid[]` checkbox while
+    /// linking with `aid`; moving a book between groups needs the `bid`.
+    public static func bookcaseBid(forAid aid: Int, in html: String) -> Int? {
+        let pattern = #"name="checkid\[\]"\s+value="(\d+)"[^<]*<[^>]*>?[\s\S]{0,400}?readbookcase\.php\?aid=\#(aid)\b"#
+        if let raw = firstMatch(pattern, in: html), let bid = Int(raw) { return bid }
+        // Fall back to a row scan, which does not depend on the exact intervening markup.
+        for row in html.components(separatedBy: "<tr") {
+            guard row.contains("aid=\(aid)") || row.contains("aid=\(aid)&") else { continue }
+            guard let raw = firstMatch(#"name="checkid\[\]"\s+value="(\d+)""#, in: row) else { continue }
+            return Int(raw)
+        }
+        return nil
+    }
+
     /// Extracts the signed-in user's shelf from `/modules/article/bookcase.php`.
     ///
     /// The desktop shelf is a table whose rows look like
