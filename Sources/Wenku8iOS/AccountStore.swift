@@ -108,6 +108,47 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /// Two-way sync between the device shelf and the account's.
+    ///
+    /// The rule that matters (and the reason this is not just "download the server's
+    /// list"): a book the reader saved locally but which the account does not have is
+    /// **uploaded, never discarded**. Signing in, or adding a few books before
+    /// signing in, must not silently delete them.
+    ///
+    /// - Parameter localIDs: the device's shelf, read once by the caller.
+    func syncWithLocalShelf(_ localIDs: [Int]) async {
+        guard isSignedIn, !isSyncingShelf else { return }
+        isSyncingShelf = true
+        defer { isSyncingShelf = false }
+
+        if let groups = try? await service.remoteShelfGroups(), !groups.isEmpty {
+            shelfGroups = groups
+            if !groups.contains(where: { $0.classID == selectedShelfClass }) {
+                selectedShelfClass = groups.first?.classID ?? 0
+            }
+        }
+
+        let shelf = (try? await service.remoteShelf(classID: selectedShelfClass)) ?? []
+        remoteShelf = shelf
+        remoteNovels = shelf.map(\.novel)
+
+        let cloudIDs = shelf.map(\.novel.id)
+        let plan = ShelfSyncPlanner.plan(local: localIDs, cloud: cloudIDs)
+        guard !plan.toUploadRemotely.isEmpty else { return }
+
+        // Upload the local-only books one at a time; a failure on one must not stop
+        // the rest, and the book stays on the device regardless.
+        for aid in plan.toUploadRemotely {
+            _ = try? await service.addToBookcase(aid: aid)
+        }
+
+        // Re-read so the shelf reflects what the account now holds.
+        if let refreshed = try? await service.remoteShelf(classID: selectedShelfClass) {
+            remoteShelf = refreshed
+            remoteNovels = refreshed.map(\.novel)
+        }
+    }
+
     /// Switches the visible group and reloads it.
     func selectShelfGroup(_ classID: Int) async {
         guard classID != selectedShelfClass else { return }

@@ -13,7 +13,7 @@ struct ShelfView: View {
                     cloudShelfSection
                 }
 
-                if store.saved.isEmpty {
+                if store.saved.isEmpty && account.remoteShelf.isEmpty {
                     EmptyStateView(
                         symbol: "books.vertical",
                         title: "书架还是空的",
@@ -23,7 +23,7 @@ struct ShelfView: View {
                         router.tab = .home
                     }
                     .padding(.top, 30)
-                } else {
+                } else if !store.saved.isEmpty {
                     HStack(spacing: 10) {
                         TagChip(text: "\(store.saved.count) 本收藏", systemImage: "bookmark.fill")
                         Spacer()
@@ -78,8 +78,8 @@ struct ShelfView: View {
         .navigationTitle("我的书架")
         // Entering the page refreshes the cloud shelf, so the app and the website
         // agree on what is on it.
-        .task { await account.syncShelf() }
-        .refreshable { await account.syncShelf() }
+        .task { await syncNow() }
+        .refreshable { await syncNow() }
         .toolbar {
             if !store.saved.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -130,19 +130,16 @@ struct ShelfView: View {
                 }
             }
 
-            if account.shelfGroups.count > 1 {
-                Picker("书架分组", selection: Binding(
-                    get: { account.selectedShelfClass },
-                    set: { newValue in
-                        Task { await account.selectShelfGroup(newValue) }
-                    }
-                )) {
+            // Six Chinese labels do not fit a segmented control at phone width, and
+            // SwiftUI silently truncates each segment to an ellipsis. A scrollable
+            // chip row keeps every title readable instead.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                     ForEach(account.shelfGroups) { group in
-                        Text(group.count > 0 ? "\(group.title)（\(group.count)）" : group.title)
-                            .tag(group.classID)
+                        shelfGroupChip(group)
                     }
                 }
-                .pickerStyle(.segmented)
+                .padding(.vertical, 2)
             }
 
             if account.remoteShelf.isEmpty {
@@ -169,6 +166,29 @@ struct ShelfView: View {
         }
         .padding(14)
         .glassCard(cornerRadius: 22)
+    }
+
+    /// One group selector chip. The selected group is tinted; the rest stay quiet.
+    private func shelfGroupChip(_ group: DesktopParser.ShelfGroup) -> some View {
+        let isSelected = account.selectedShelfClass == group.classID
+        let label = group.count > 0 ? "\(group.title) \(group.count)" : group.title
+        return Button {
+            Task { await account.selectShelfGroup(group.classID) }
+        } label: {
+            Text(label)
+                .font(.caption.weight(isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .background(
+                    Capsule().fill(
+                        isSelected ? AppTheme.accent : Color.primary.opacity(0.07)
+                    )
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     /// One cloud-shelf row: cover, title, and the site's recorded latest chapter.
@@ -199,6 +219,11 @@ struct ShelfView: View {
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+    }
+
+    /// Two-way sync, passing the local shelf as a single snapshot.
+    private func syncNow() async {
+        await account.syncWithLocalShelf(store.saved.map(\.id))
     }
 
     private func relative(_ date: Date) -> String {

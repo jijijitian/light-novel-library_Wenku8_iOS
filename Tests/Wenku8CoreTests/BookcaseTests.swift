@@ -74,7 +74,8 @@ final class BookcaseTests: XCTestCase {
         </div>
         """
         let groups = DesktopParser.shelfGroups(html)
-        XCTAssertEqual(groups.count, 3)
+        // Six regardless of markup: groups the page omitted are filled in.
+        XCTAssertEqual(groups.count, 6)
         XCTAssertEqual(groups[0].classID, 0)
         XCTAssertEqual(groups[0].title, "默认书架")
         // Only the selected group reports a size; the others would be a guess.
@@ -84,7 +85,35 @@ final class BookcaseTests: XCTestCase {
         XCTAssertEqual(groups[2].classID, 2)
     }
 
-    func testShelfGroupsEmptyWhenPageHasNoSelector() {
-        XCTAssertTrue(DesktopParser.shelfGroups("<html><body>登录</body></html>").isEmpty)
+    func testShelfGroupsAlwaysOfferTheSixTheSiteProvides() {
+        // An unparseable page must not leave the picker empty: the site's six groups
+        // are fixed, and an empty picker rendered as an ellipsis in the UI.
+        let groups = DesktopParser.shelfGroups("<html><body>登录</body></html>")
+        XCTAssertEqual(groups.count, 6)
+        XCTAssertEqual(groups.map(\.classID), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(groups[0].title, "默认书架")
+        XCTAssertEqual(groups[5].title, "第5组书架")
+    }
+
+    func testMoveToShelfDropdownDoesNotLeakIntoNames() {
+        // The real page has a second dropdown that moves books between shelves, whose
+        // options read "移到默认书架". Scanning the whole document mixed the two lists
+        // and the group chips showed "移到默认书架" instead of "默认书架".
+        let html = """
+        <select name="classlist" onchange="javascript:document.location='bookcase.php?classid='+this.value;">
+        <option value="0" selected="selected">默认书架</option>
+        <option value="1">第1组书架</option>
+        </select>
+        <select name="newclassid" id="newclassid">
+        <option value="-1">移出书架</option>
+        <option value="0">移到默认书架</option>
+        <option value="1">移到第1组书架</option>
+        </select>
+        """
+        let groups = DesktopParser.shelfGroups(html)
+        XCTAssertEqual(groups.map(\.classID), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(groups[0].title, "默认书架")
+        XCTAssertEqual(groups[1].title, "第1组书架")
+        XCTAssertFalse(groups.contains { $0.title.hasPrefix("移到") })
     }
 }

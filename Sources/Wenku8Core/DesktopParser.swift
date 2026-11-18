@@ -105,6 +105,28 @@ public enum DesktopParser {
         }
     }
 
+    /// The groups every account has, whether or not a page could be parsed.
+    ///
+    /// The site always offers 默认书架 plus 第1…5组书架, so the app shows all six
+    /// rather than degrading to an empty picker (which rendered as an ellipsis) when
+    /// the selector could not be read.
+    public static let fixedShelfGroups: [ShelfGroup] = [0, 1, 2, 3, 4, 5].map { index in
+        ShelfGroup(
+            classID: index,
+            title: index == 0 ? "默认书架" : "第\(index)组书架",
+            count: 0
+        )
+    }
+
+    /// The `<select name="classlist">…</select>` block, or `nil` when absent.
+    static func classlistScope(_ html: String) -> String? {
+        guard let open = html.range(of: "name=\"classlist\"") else { return nil }
+        guard let close = html.range(of: "</select>", range: open.upperBound..<html.endIndex) else {
+            return nil
+        }
+        return String(html[open.lowerBound..<close.upperBound])
+    }
+
     /// Reads the group selector from the shelf page.
     ///
     /// ```html
@@ -117,6 +139,10 @@ public enum DesktopParser {
     /// （"已收藏 14 本，本组有 14 本"）, so only the selected group has a real count;
     /// the rest report 0 rather than a guess.
     public static func shelfGroups(_ html: String) -> [ShelfGroup] {
+        // Restrict to the `classlist` select. The page has a second dropdown that
+        // moves selected books between shelves, whose options read "移到默认书架" —
+        // scanning the whole document mixed the two lists together.
+        let scope = classlistScope(html) ?? html
         let pattern = #"<option value="(\d+)"[^>]*>([^<]{1,20})</option>"#
         guard let regex = try? NSRegularExpression(
             pattern: pattern,
@@ -127,13 +153,17 @@ public enum DesktopParser {
         let currentCount = currentGroupCount(html)
 
         var groups: [ShelfGroup] = []
-        let range = NSRange(html.startIndex..<html.endIndex, in: html)
-        for match in regex.matches(in: html, range: range) {
+        let range = NSRange(scope.startIndex..<scope.endIndex, in: scope)
+        for match in regex.matches(in: scope, range: range) {
             guard match.numberOfRanges >= 3,
-                  let idRange = Range(match.range(at: 1), in: html),
-                  let titleRange = Range(match.range(at: 2), in: html),
-                  let classID = Int(html[idRange]) else { continue }
-            let title = Markup.normalize(String(html[titleRange]))
+                  let idRange = Range(match.range(at: 1), in: scope),
+                  let titleRange = Range(match.range(at: 2), in: scope),
+                  let classID = Int(scope[idRange]) else { continue }
+            var title = Markup.normalize(String(scope[titleRange]))
+            // Defensive: a move-to-shelf label must never be read as a group name.
+            if title.hasPrefix("移到") {
+                title = String(title.dropFirst(2))
+            }
             let isCurrent = title == currentTitle
             groups.append(ShelfGroup(
                 classID: classID,
@@ -141,7 +171,16 @@ public enum DesktopParser {
                 count: isCurrent ? currentCount : 0
             ))
         }
-        return groups
+        // The site always offers 默认书架 plus 第1…5组书架, so the app should show all
+        // six even if the markup did not parse — an empty picker rendered as an
+        // ellipsis, which looked broken rather than "no data".
+        guard !groups.isEmpty else { return fixedShelfGroups }
+        var merged = groups
+        for canonical in fixedShelfGroups
+        where !merged.contains(where: { $0.classID == canonical.classID }) {
+            merged.append(canonical)
+        }
+        return merged.sorted { $0.classID < $1.classID }
     }
 
     /// Name of the group the page was rendered for, from its `selected` option.
