@@ -111,6 +111,16 @@ struct ReaderTheme: Equatable {
         background: Color(red: 0.93, green: 0.88, blue: 0.78),
         text: Color(red: 0.22, green: 0.18, blue: 0.12)
     )
+    /// 纸白 with the lights off: same warmth, dark enough not to glare.
+    static let paperDark = ReaderTheme(
+        background: Color(red: 0.13, green: 0.12, blue: 0.10),
+        text: Color(red: 0.80, green: 0.78, blue: 0.74)
+    )
+    /// 护眼 with the lights off: keeps the amber tint.
+    static let sepiaDark = ReaderTheme(
+        background: Color(red: 0.16, green: 0.14, blue: 0.10),
+        text: Color(red: 0.85, green: 0.80, blue: 0.70)
+    )
     static let night = ReaderTheme(
         background: Color(red: 0.07, green: 0.07, blue: 0.09),
         text: Color(red: 0.82, green: 0.82, blue: 0.85)
@@ -171,12 +181,38 @@ struct ReaderView: View {
     /// Matches Novella's collapsed info: 13pt medium at 45% of the text colour.
     static let collapsedInfoOpacity: Double = 0.45
 
+    /// App appearance, so the reader can follow a dark app even on a paper theme.
+    @Environment(\.colorScheme) private var colorScheme
+
     private var theme: ReaderTheme {
-        ReaderTheme.all.first { $0.name == themeName }?.theme ?? .paper
+        let base = ReaderTheme.all.first { $0.name == themeName }?.theme ?? .paper
+        // The paper and sepia palettes are fixed light surfaces. With the app in
+        // dark mode that reads as a bright rectangle over an otherwise dark UI, so
+        // they darken to their own night variants. Opting into 夜间 or 跟随系统
+        // keeps whatever the reader chose.
+        if colorScheme == .dark {
+            switch themeName {
+            case "纸白": return .paperDark
+            case "护眼": return .sepiaDark
+            default: return base
+            }
+        }
+        return base
     }
 
     private var layout: ReaderLayout {
         ReaderLayout(rawValue: layoutRaw) ?? .vertical
+    }
+
+    /// The swatch should show what the reader will actually see, so the dark
+    /// variants are previewed when the app is dark.
+    private func previewTheme(for item: (name: String, theme: ReaderTheme)) -> ReaderTheme {
+        guard colorScheme == .dark else { return item.theme }
+        switch item.name {
+        case "纸白": return .paperDark
+        case "护眼": return .sepiaDark
+        default: return item.theme
+        }
     }
 
     var body: some View {
@@ -614,7 +650,7 @@ struct ReaderView: View {
                             themeName = item.name
                         } label: {
                             Circle()
-                                .fill(item.theme.background)
+                                .fill(previewTheme(for: item).background)
                                 .overlay(Circle().strokeBorder(theme.text.opacity(0.22), lineWidth: 0.5))
                                 .overlay(
                                     Circle()

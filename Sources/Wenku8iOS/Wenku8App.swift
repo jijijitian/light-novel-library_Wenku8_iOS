@@ -8,6 +8,18 @@ struct Wenku8App: App {
     @StateObject private var account = AccountStore()
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
 
+    /// `WENKU8_APPEARANCE=light|dark|system` overrides the stored appearance so a
+    /// debug launch can check both modes without picking through the UI.
+    private var effectiveAppearanceRaw: String {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_APPEARANCE"],
+           AppAppearance(rawValue: raw) != nil {
+            return raw
+        }
+        #endif
+        return appearanceRaw
+    }
+
     init() {
         Self.configureRelay()
         Self.restoreDomain()
@@ -64,7 +76,7 @@ struct Wenku8App: App {
                 // Applies the app-wide appearance chosen in Settings; the reader's
                 // own palettes are unaffected.
                 .preferredColorScheme(
-                    (AppAppearance(rawValue: appearanceRaw) ?? .system).colorScheme
+                    (AppAppearance(rawValue: effectiveAppearanceRaw) ?? .system).colorScheme
                 )
                 .task {
                     #if DEBUG
