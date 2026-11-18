@@ -62,83 +62,92 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                // Five fixed slots, each owns its own placeholder. A section that is still
+                // loading shows its skeleton in place rather than shifting the page: the
+                // previous version wrapped the whole page in one "loading or loaded" branch,
+                // so nothing appeared until the first row arrived and everything else moved
+                // down when it did.
+                heroSlot
+                continueReading
+                ForEach(HomeSection.allCases) { section in
+                    sectionSlot(section)
+                }
+
                 if let error = model.error, model.rows.isEmpty {
                     ErrorStateView(error: error) {
                         Task { await model.reload() }
-                    }
-                } else if model.rows.isEmpty && model.isLoading {
-                    // Same shape as the loaded page — banner, then four sections of six
-                    // covers — so the layout does not jump when the data arrives.
-                    HomeSkeleton()
-                } else {
-                    if !heroNovels.isEmpty {
-                        // Each card already carries its own tap gesture, so there is no
-                        // outer one here: a second handler would open whichever novel
-                        // happened to be first instead of the card the user tapped.
-                        HeroBanner(novels: heroNovels, selection: $heroIndex) { novel in
-                            router.open(.novel(novel.id))
-                        }
-                    }
-
-                    continueReading
-
-                    ForEach(model.rows) { row in
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .firstTextBaseline) {
-                                SectionHeader(
-                                    title: row.section.title,
-                                    subtitle: row.section.subtitle,
-                                    symbol: row.section.symbol
-                                )
-                                Button {
-                                    router.open(.rankList(row.section.board))
-                                } label: {
-                                    Text("更多")
-                                        .font(.caption.weight(.medium))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.tint)
-                            }
-                            NovelGrid(novels: Array(row.items.prefix(6))) { novel in
-                                router.open(.novel(novel.id))
-                            }
-                        }
-                    }
-
-                    if model.rows.isEmpty {
-                        EmptyStateView(
-                            symbol: "books.vertical",
-                            title: "暂时没有内容",
-                            message: "文库首页可能需要登录才能显示榜单，试试下拉刷新。",
-                            actionTitle: "重新加载"
-                        ) {
-                            Task { await model.reload() }
-                        }
                     }
                 }
             }
             .padding(.horizontal, 18)
             .padding(.top, 8)
-            .padding(.bottom, 32)
+            .padding(.bottom, 30)
         }
         .background { AppBackground() }
         .navigationTitle("轻小说文库")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await model.reload() }
-                } label: {
-                    if model.isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .disabled(model.isLoading)
-            }
-        }
         .refreshable { await model.reload() }
         .task { await model.loadIfNeeded() }
+    }
+
+    /// The banner, or its placeholder while the first section is on its way.
+    @ViewBuilder
+    private var heroSlot: some View {
+        if !heroNovels.isEmpty {
+            HeroBanner(novels: heroNovels, selection: $heroIndex) { novel in
+                router.open(.novel(novel.id))
+            }
+        } else if model.isLoading {
+            RoundedRectangle(cornerRadius: 26)
+                .fill(.quaternary)
+                .frame(height: 200)
+                .redacted(reason: .placeholder)
+        }
+    }
+
+    /// One section: its heading, then its six covers or six placeholders.
+    private func sectionSlot(_ section: HomeSection) -> some View {
+        let row = model.rows.first { $0.section == section }
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionHeader(
+                    title: section.title,
+                    subtitle: section.subtitle,
+                    symbol: section.symbol
+                )
+                if row != nil {
+                    Button {
+                        router.open(.rankList(section.board))
+                    } label: {
+                        Text("更多")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+                }
+            }
+            if let row, !row.items.isEmpty {
+                NovelGrid(novels: Array(row.items.prefix(6))) { novel in
+                    router.open(.novel(novel.id))
+                }
+            } else if model.isLoading {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 14)],
+                    alignment: .leading,
+                    spacing: 16
+                ) {
+                    ForEach(0..<6, id: \.self) { _ in
+                        PlaceholderGridCell()
+                    }
+                }
+                .redacted(reason: .placeholder)
+                .accessibilityHidden(true)
+            } else {
+                // Settled with nothing to show: say so instead of pulsing forever.
+                Text("暂时没有内容")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     private var heroNovels: [NovelSummary] {
@@ -289,39 +298,5 @@ struct AppBackground: View {
                 .offset(x: 140, y: 300)
         }
         .ignoresSafeArea()
-    }
-}
-
-/// The home page's shape, drawn before its data exists.
-///
-/// The page is a banner followed by several sections of covers; showing a single spinner
-/// made the whole layout appear at once when the fetch returned. The skeleton reserves
-/// that layout so the content fills spaces that are already there.
-struct HomeSkeleton: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            RoundedRectangle(cornerRadius: 26)
-                .fill(.quaternary)
-                .frame(height: 200)
-
-            ForEach(0..<3, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 12) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.quaternary)
-                        .frame(width: 120, height: 14)
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 14)],
-                        alignment: .leading,
-                        spacing: 16
-                    ) {
-                        ForEach(0..<6, id: \.self) { _ in
-                            PlaceholderGridCell()
-                        }
-                    }
-                }
-            }
-        }
-        .redacted(reason: .placeholder)
-        .accessibilityHidden(true)
     }
 }
