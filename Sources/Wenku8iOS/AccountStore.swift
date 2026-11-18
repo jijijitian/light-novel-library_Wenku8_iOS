@@ -37,7 +37,10 @@ final class AccountStore: ObservableObject {
         self.service = service
         userName = defaults.string(forKey: nameKey)
         if userName != nil {
-            Task { await refreshUserName() }
+            // A remembered name is only a claim. Cold start settles it, so a session that
+            // expired while the app was closed is noticed now rather than at the first
+            // failed shelf call.
+            Task { await checkSessionOnLaunch() }
         }
     }
 
@@ -52,17 +55,6 @@ final class AccountStore: ObservableObject {
         _ = await signIn(username: user, password: pass)
     }
     #endif
-
-    /// Refreshes the cached display name; drops it when the session expired.
-    func refreshUserName() async {
-        let current = await service.accountName()
-        if let current {
-            setUserName(current)
-        } else if Wenku8Client.shared.hasSession() {
-            // A cookie exists but the header says 游客: the session went stale.
-            setUserName(nil)
-        }
-    }
 
     func signIn(username: String, password: String) async -> Bool {
         guard !isSigningIn else { return false }
@@ -86,6 +78,39 @@ final class AccountStore: ObservableObject {
         remoteNovels = []
         remoteShelf = []
         lastError = nil
+    }
+
+    /// True when a cold-start check found the remembered session gone.
+    ///
+    /// The root view drives a prompt from this; the app is already signed out by the time
+    /// it is set, so dismissing the prompt leaves a consistent state.
+    @Published private(set) var sessionExpiredNotice = false
+
+    func dismissSessionExpiredNotice() {
+        sessionExpiredNotice = false
+    }
+
+    /// Settles the remembered login once, at launch.
+    ///
+    /// Signing out is only ever the result of a definite answer: an unreachable site leaves
+    /// the state untouched, so opening the app without a network does not log the reader out.
+    func checkSessionOnLaunch() async {
+        let remembered = userName
+        switch await service.sessionState() {
+        case .signedIn(let name):
+            setUserName(name)
+            sessionExpiredNotice = false
+        case .signedOut:
+            let hadSession = remembered != nil || Wenku8Client.shared.hasSession()
+            service.signOut()
+            setUserName(nil)
+            remoteNovels = []
+            remoteShelf = []
+            sessionExpiredNotice = hadSession
+        case .unknown:
+            // Could not ask. Keep whatever was known rather than guess.
+            break
+        }
     }
 
     /// What a post-switch login check concluded.

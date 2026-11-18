@@ -722,6 +722,30 @@ public struct NovelService: Sendable {
     /// redirects anonymous visitors to the login form, and the latter serves the
     /// form itself, so neither reliably carries the header. Book pages render it
     /// for anonymous and signed-in visitors alike.
+    /// What the site says about the current session, distinguishing "signed out" from
+    /// "could not ask".
+    ///
+    /// `desktopAccountName` answers `nil` for both, which is fine when a caller only wants a
+    /// name but wrong when deciding whether to drop a remembered login: treating an offline
+    /// launch as a logout would sign the reader out on a train.
+    public enum SessionState: Sendable, Equatable {
+        case signedIn(String)
+        case signedOut
+        /// The site could not be reached, so nothing can be concluded.
+        case unknown
+    }
+
+    public func sessionState() async -> SessionState {
+        // A missing cookie is proof enough, and needs no network.
+        guard client.hasSession() || client.sessionUserName() != nil else { return .signedOut }
+        guard let html = try? await client.desktop("/book/1614.htm") else { return .unknown }
+        if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return .signedOut }
+        if let name = AccountParser.desktopAccountName(html) ?? client.sessionUserName() {
+            return .signedIn(name)
+        }
+        return .signedOut
+    }
+
     public func desktopAccountName(aid: Int = 1614) async -> String? {
         guard let html = try? await client.desktop("/book/\(aid).htm") else { return nil }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return nil }

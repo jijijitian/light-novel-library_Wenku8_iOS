@@ -3,6 +3,8 @@ import Wenku8Core
 
 struct RootView: View {
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var account: AccountStore
+    @State private var showLogin = false
 
     enum AppTab: Hashable, CaseIterable {
         case home
@@ -40,10 +42,29 @@ struct RootView: View {
         // the earlier attempt also had to fake navigation state to hide itself.
         //
         // The `Tab` builder needs iOS 18; iOS 17 keeps the classic tabItem API.
-        if #available(iOS 18.0, *) {
-            modernTabs
-        } else {
-            legacyTabs
+        Group {
+            if #available(iOS 18.0, *) {
+                modernTabs
+            } else {
+                legacyTabs
+            }
+        }
+        // A cold-start check found the session gone. The app is already signed out, so this
+        // only offers the way back in.
+        .alert("登录已失效", isPresented: Binding(
+            get: { account.sessionExpiredNotice },
+            set: { if !$0 { account.dismissSessionExpiredNotice() } }
+        )) {
+            Button("登录") {
+                account.dismissSessionExpiredNotice()
+                showLogin = true
+            }
+            Button("以后再说", role: .cancel) { account.dismissSessionExpiredNotice() }
+        } message: {
+            Text("上次的登录状态已过期，云端书架需要重新登录才能同步。本机已下载的内容不受影响。")
+        }
+        .sheet(isPresented: $showLogin) {
+            LoginView()
         }
     }
 
