@@ -79,40 +79,25 @@ public enum SugoiParser {
     }
 
     static func books(in html: String) -> [NovelSummary] {
-        var novels: [NovelSummary] = []
-        var seen = Set<Int>()
-
-        // Modern pages (2012+) carry a title attribute on the cover anchor, which is
-        // the most reliable source because the visible text may be abbreviated.
-        //
-        // The href is matched loosely on purpose. A ranking entry can be a book the
-        // library does not stock, and the site then links it to "#": a TOP10 of ten titles
-        // rendered as nine because the strict pattern dropped that entry. Those keep their
-        // title and are given a synthetic negative id so the row is still shown, while
-        // navigation — which needs a real book id — is skipped for them.
-        if let titled = try? NSRegularExpression(
-            pattern: #"<a\s+href="([^"]*)"[^>]*title="([^"]*)""#,
+        // Modern pages lay each ranking position out in a fixed-width cell, so counting
+        // cells gives the true number of positions. An entry the library does not stock is
+        // linked to "#"; some of those still carry a title, and some carry nothing at all.
+        // All of them are kept: dropping the empty ones made a TOP10 render as eight.
+        if let cells = try? NSRegularExpression(
+            pattern: #"<div[^>]*WIDTH:\s*19%[^>]*>(.*?)</div>"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) {
             let range = NSRange(html.startIndex..<html.endIndex, in: html)
-            for match in titled.matches(in: html, range: range) {
-                guard let hrefRange = Range(match.range(at: 1), in: html),
-                      let titleRange = Range(match.range(at: 2), in: html) else { continue }
-                let href = String(html[hrefRange])
-                let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
-                guard !title.isEmpty else { continue }
-                if let id = bookID(in: href) {
-                    guard seen.insert(id).inserted else { continue }
-                    novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
-                } else if let placeholder = placeholderID(for: title) {
-                    guard seen.insert(placeholder).inserted else { continue }
-                    novels.append(NovelSummary(id: placeholder, title: title, coverURL: nil))
-                }
+            let matches = cells.matches(in: html, range: range)
+            if !matches.isEmpty {
+                return books(inCells: matches, html: html)
             }
         }
 
-        // Older pages (2006-2011) are uppercase, unquoted in places, and have no
-        // title attribute, so fall back to the visible anchor text.
+        // Older pages (2006-2011) use uppercase tags with no title attribute and no cell
+        // layout, so the anchors are all there is to go on.
+        var novels: [NovelSummary] = []
+        var seen = Set<Int>()
         if let plain = try? NSRegularExpression(
             pattern: #"<a\s+href="(?:[^"]*/)?book/(\d+)\.htm"[^>]*>([^<]{1,200})</a>"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
@@ -128,7 +113,62 @@ public enum SugoiParser {
                 novels.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
             }
         }
-
         return novels
+    }
+
+    /// Reads one ranking position per cell, preserving the order and the count.
+    private static func books(
+        inCells matches: [NSTextCheckingResult],
+        html: String
+    ) -> [NovelSummary] {
+        var novels: [NovelSummary] = []
+        var seen = Set<Int>()
+        // Stable per page, so the ids of unnamed positions do not change between launches.
+        let pageTag = html.unicodeScalars.reduce(0) { $0 &+ Int($1.value) } % 1000
+
+        for (index, match) in matches.enumerated() {
+            guard let cellRange = Range(match.range(at: 1), in: html) else { continue }
+            let cell = String(html[cellRange])
+            let href = firstGroup(#"href="([^"]*)""#, in: cell)
+            let titleAttribute = firstGroup(#"title="([^"]*)""#, in: cell)
+            let anchorText = firstGroup(#">([^<]{1,200})</a>"#, in: cell)
+
+            let raw = [titleAttribute, anchorText]
+                .compactMap { $0 }
+                .first { !Markup.normalize(Markup.decodeEntities($0)).isEmpty } ?? ""
+            let title = Markup.normalize(Markup.decodeEntities(raw))
+
+            if let href, let id = bookID(in: href) {
+                guard seen.insert(id).inserted else { continue }
+                novels.append(NovelSummary(
+                    id: id,
+                    title: title,
+                    coverURL: CoverURL.image(for: id)
+                ))
+            } else if !title.isEmpty, let placeholder = placeholderID(for: title) {
+                guard seen.insert(placeholder).inserted else { continue }
+                novels.append(NovelSummary(id: placeholder, title: title, coverURL: nil))
+            } else {
+                // A position with no title, no text and no cover: the site itself has
+                // nothing to show there. The slot is still rendered so the ranking reads
+                // with the right number of places.
+                let placeholder = -(pageTag * 100 + index + 1)
+                guard seen.insert(placeholder).inserted else { continue }
+                novels.append(NovelSummary(id: placeholder, title: "未收录作品", coverURL: nil))
+            }
+        }
+        return novels
+    }
+
+    /// The first capture group of `pattern` in `text`, decoded.
+    private static func firstGroup(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let groupRange = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[groupRange])
     }
 }

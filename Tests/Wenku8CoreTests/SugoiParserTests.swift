@@ -36,8 +36,18 @@ final class SugoiParserTests: XCTestCase {
         XCTAssertEqual(year.sections.first?.novels.first?.id, 3057)
         XCTAssertEqual(year.sections.first?.novels.first?.title, "败北女角太多了！(败犬女主太多了！)")
 
-        // 2025 lists a full ten per section, one of which ("白色帝国") is not stocked.
+        // 2025 lists a full ten positions per section. 文库部门 has one unstocked title;
+        // 单行本部门 has two positions the site gives no information for at all.
         XCTAssertEqual(year.sections[0].novels.count, 10)
+        XCTAssertEqual(year.sections[1].novels.count, 10)
+        // Both are named only in the visible anchor text, with no title attribute and no
+        // book link; a parser reading only `<a ... title="...">` lost them.
+        let named = year.sections[1].novels.filter { $0.id < 0 }.map(\.title)
+        XCTAssertEqual(named.count, 2)
+        XCTAssertTrue(named.contains("反派千金进入了溺爱路线!?"))
+        XCTAssertTrue(named.contains("家里蹲vtuber想要传达"))
+        XCTAssertEqual(year.sections[1].novels[4].id, 4330)
+        XCTAssertEqual(year.sections[1].novels[4].title, "我爱的人，让我代替妹妹赴死")
         let placeholder = try XCTUnwrap(year.sections[0].novels.first { $0.id < 0 })
         XCTAssertEqual(placeholder.title, "白色帝国")
         XCTAssertNil(placeholder.coverURL, "a book without a page has no cover to load")
