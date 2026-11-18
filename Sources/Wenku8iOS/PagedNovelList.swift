@@ -51,10 +51,13 @@ final class PagedNovelListModel: ObservableObject {
     /// at the screen edge and growing only after a scroll.
     var placeholderCount: Int {
         guard hasMore, loadPage != nil else { return 0 }
-        // Fill out the current row first, then one more row: 12 per page, 3 per row.
-        let remainder = novels.count % 12
-        let toFillRow = remainder == 0 ? 0 : 12 - remainder
-        return max(toFillRow + 9, 9)
+        // Complete the row the last book is on, then add two rows. The old arithmetic
+        // assumed a page of twelve with three per row, which no source actually uses — the
+        // relay returns ten — so the fill never lined up with the grid.
+        let columns = 3
+        let remainder = novels.count % columns
+        let toFillRow = remainder == 0 ? 0 : columns - remainder
+        return toFillRow + columns * 2
     }
 
     /// Starts a fresh list: first screen and its successor are fetched up front.
@@ -130,25 +133,57 @@ struct PagedNovelGrid: View {
     // Same adaptive sizing as `NovelGrid`, so a paged list looks identical to a static one.
     private let columns = [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 14)]
 
+    /// One grid child, in one identity space.
+    ///
+    /// The grid used to hold two sibling `ForEach`es — novels keyed by book id, placeholders
+    /// keyed by their index. As pages arrived the placeholder range shrank while books were
+    /// inserted where those placeholders had been, and a recycled placeholder could be left
+    /// behind in the middle of loaded rows: a skeleton sitting between two real books, in a
+    /// grid where placeholders only ever belong at the end. A single list with a single set
+    /// of ids removes the ambiguity.
+    private enum Cell: Identifiable {
+        case novel(NovelSummary, index: Int)
+        case placeholder(Int)
+        case loading(Int)
+
+        var id: String {
+            switch self {
+            case .novel(let novel, _): return "novel-\(novel.id)"
+            case .placeholder(let index): return "placeholder-\(index)"
+            case .loading(let index): return "loading-\(index)"
+            }
+        }
+    }
+
+    private var cells: [Cell] {
+        if model.novels.isEmpty && model.isLoading {
+            return (0..<12).map { .loading($0) }
+        }
+        var result = model.novels.enumerated().map { Cell.novel($1, index: $0) }
+        result += (0..<model.placeholderCount).map { .placeholder($0) }
+        return result
+    }
+
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-            if model.novels.isEmpty && model.isLoading {
-                ForEach(0..<12, id: \.self) { _ in PlaceholderGridCell() }
-            }
-            ForEach(Array(model.novels.enumerated()), id: \.element.id) { index, novel in
-                Button {
-                    open(novel.id)
-                } label: {
-                    NovelGridCell(novel: novel)
+            ForEach(cells) { cell in
+                switch cell {
+                case .novel(let novel, let index):
+                    Button {
+                        open(novel.id)
+                    } label: {
+                        NovelGridCell(novel: novel)
+                    }
+                    .buttonStyle(.plain)
+                    .onAppear { model.loadMoreIfNeeded(currentIndex: index) }
+                case .placeholder:
+                    // Placeholder covers occupy the next rows from the start, so the list
+                    // has the shape of its continuation instead of ending at the data.
+                    PlaceholderGridCell()
+                        .onAppear { model.ensurePlaceholderTriggered() }
+                case .loading:
+                    PlaceholderGridCell()
                 }
-                .buttonStyle(.plain)
-                .onAppear { model.loadMoreIfNeeded(currentIndex: index) }
-            }
-            // Placeholder covers occupy the next rows from the start, so the list has the
-            // shape of its continuation instead of ending at the loaded data.
-            ForEach(0..<model.placeholderCount, id: \.self) { _ in
-                PlaceholderGridCell()
-                    .onAppear { model.ensurePlaceholderTriggered() }
             }
         }
         .overlay(alignment: .bottom) {
