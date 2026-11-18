@@ -275,7 +275,9 @@ public enum HomeSection: String, CaseIterable, Identifiable, Codable, Sendable {
         case .hot: return .dayvisit
         case .latest: return .lastupdate
         case .newcomer: return .postdate
-        case .weekly: return .goodnum
+        // "每周书单" is the weekly board; it was pointing at 总收藏榜, so opening it
+        // showed an all-time list under a weekly title.
+        case .weekly: return .weekvisit
         }
     }
 }
