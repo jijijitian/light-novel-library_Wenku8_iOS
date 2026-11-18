@@ -34,6 +34,8 @@ enum ReaderPreferences {
     static let fontSizeKey = "reader.fontSize"
     static let lineSpacingKey = "reader.lineSpacing"
     static let themeKey = "reader.theme"
+    /// Whether the faint title/page text is drawn while the menu is hidden.
+    static let collapsedInfoKey = "reader.collapsedInfo"
 
     /// Chinese typesetting convention: the first line of a paragraph is indented
     /// by exactly two full-width characters.
@@ -55,7 +57,7 @@ enum ReaderMetrics {
     static let bottomInsetKey = "reader.bottomInset"
 
     static let defaultTopInset: Double = 4
-    static let defaultBottomInset: Double = 40
+    static let defaultBottomInset: Double = 12
 
     /// Range offered in Settings. The floor is 0 (text flush to the safe area)
     /// and the ceiling is generous enough to clear the control panel entirely.

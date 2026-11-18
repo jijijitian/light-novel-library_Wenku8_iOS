@@ -19,6 +19,12 @@ struct PagedReadingView: View {
     var topInset: Double
     var bottomInset: Double
     @Binding var showChrome: Bool
+    /// Reports `current / total` upward so the collapsed band can display it.
+    @Binding var pageLabel: String?
+    /// Total pages in the current chapter, for the progress slider.
+    @Binding var pageCount: Int
+    /// 0-based page requested from outside (the slider); reset after applying.
+    @Binding var requestedPage: Int?
     var onLongPressImage: (URL) -> Void
 
     @State private var pageIndex = 0
@@ -37,7 +43,7 @@ struct PagedReadingView: View {
             // adding `safeAreaInsets.top` here would double-count it and push the
             // first line far down the page. Only our own padding is added.
             let topPadding = CGFloat(topInset) + Self.topPadding
-            let footerHeight: CGFloat = 26
+            let footerHeight: CGFloat = 0
             let size = CGSize(
                 width: proxy.size.width - Self.horizontalPadding * 2,
                 height: max(
@@ -59,17 +65,10 @@ struct PagedReadingView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .frame(height: topPadding + size.height)
 
-                // Footer sits below the page box instead of on top of the text.
-                HStack {
-                    Spacer()
-                    if pages.count > 1 {
-                        Text("\(pageIndex + 1)/\(pages.count)")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(theme.text.opacity(0.4))
-                    }
-                    Spacer()
-                }
-                .frame(height: footerHeight)
+                // The page indicator is drawn by `ReaderView`'s collapsed band so it
+                // stays visible with or without the menu; keeping a copy here made
+                // it appear twice.
+                Color.clear.frame(height: footerHeight)
 
                 Spacer(minLength: 0)
             }
@@ -190,6 +189,16 @@ struct PagedReadingView: View {
         )
         pages = built
         if pageIndex >= built.count { pageIndex = max(0, built.count - 1) }
+        updatePageLabel()
+    }
+
+    private func updatePageLabel() {
+        guard !pages.isEmpty else {
+            pageLabel = nil
+            return
+        }
+        pageLabel = "\(pageIndex + 1) / \(pages.count)"
+        pageCount = pages.count
     }
 
     /// One page forward; only at the end of the chapter does this load the next.

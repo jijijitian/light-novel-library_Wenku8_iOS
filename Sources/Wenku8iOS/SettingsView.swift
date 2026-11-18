@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
     @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
     @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
+    @AppStorage(ReaderPreferences.collapsedInfoKey) private var collapsedInfo = true
     @AppStorage(ReaderMetrics.topInsetKey) private var topInset = ReaderMetrics.defaultTopInset
     @AppStorage(ReaderMetrics.bottomInsetKey) private var bottomInset = ReaderMetrics.defaultBottomInset
 
@@ -82,6 +83,18 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Label("首行缩进", systemImage: "text.append")
                         Text("每段首行缩进两个字符")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(isOn: Binding(
+                    get: { collapsedInfo },
+                    set: { collapsedInfo = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("沉浸式标题", systemImage: "rectangle.topthird.inset.filled")
+                        Text("隐藏菜单时，在顶部显示浅色章节标题与页码")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
