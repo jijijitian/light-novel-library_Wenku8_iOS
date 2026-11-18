@@ -3,49 +3,37 @@ import Wenku8Core
 
 struct RankView: View {
     @EnvironmentObject private var router: AppRouter
-    @State private var selection: RankBoard = .dayvisit
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                RankBoardPicker(selection: $selection)
-                NavigationLink {
-                    RankListView(board: selection)
-                } label: {
-                    HStack {
-                        Image(systemName: selection.symbol)
-                        Text(selection.title).font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.footnote)
-                    }
-                    .padding(14)
-                    .glassCard(cornerRadius: 20)
-                }
-                .buttonStyle(.plain)
-
+                // One way in. The board selector used to sit above a second row that
+                // opened the *selected* board, and "全部榜单" listed every board again
+                // — so 日点击榜 appeared three times on screen. Selecting a board now
+                // opens it, and the grouped list is the single index of all boards.
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "全部榜单", subtitle: "点击进入完整排行", symbol: "chart.bar")
-                    ForEach(RankBoard.allCases) { board in
-                        NavigationLink {
-                            RankListView(board: board)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: board.symbol)
-                                    .font(.subheadline)
-                                    .frame(width: 26)
-                                    .foregroundStyle(.tint)
-                                Text(board.title).font(.subheadline)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.footnote)
-                                    .foregroundStyle(.tertiary)
+                    SectionHeader(
+                        title: "全部榜单",
+                        subtitle: "点击任意榜单查看完整排行",
+                        symbol: "chart.bar"
+                    )
+                    ForEach(Self.groupedBoards, id: \.title) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(group.title)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                            ForEach(group.boards) { board in
+                                NavigationLink {
+                                    RankListView(board: board)
+                                } label: {
+                                    boardRow(board)
+                                }
+                                .buttonStyle(.plain)
+                                if board != group.boards.last {
+                                    Divider().opacity(0.35)
+                                }
                             }
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        if board != RankBoard.allCases.last {
-                            Divider().opacity(0.35)
                         }
                     }
                 }
@@ -58,6 +46,36 @@ struct RankView: View {
         }
         .background { AppBackground() }
         .navigationTitle("排行榜")
+    }
+
+    private func boardRow(_ board: RankBoard) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: board.symbol)
+                .font(.subheadline)
+                .frame(width: 26)
+                .foregroundStyle(.tint)
+            Text(board.title).font(.subheadline)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+
+    /// Boards grouped by period, which is how the site presents them: a click board
+    /// and a recommendation board for each of day / week / month, plus the totals.
+    private static var groupedBoards: [(title: String, boards: [RankBoard])] {
+        [
+            ("日榜", [.dayvisit, .dayvote]),
+            ("周榜", [.weekvisit, .weekvote]),
+            ("月榜", [.monthvisit, .monthvote]),
+            ("总榜", [.allvisit, .allvote, .goodnum]),
+            ("更新与入库", [.lastupdate, .postdate]),
+            ("其他", [.size, .anime]),
+        ].filter { !$0.1.isEmpty }
     }
 }
 
