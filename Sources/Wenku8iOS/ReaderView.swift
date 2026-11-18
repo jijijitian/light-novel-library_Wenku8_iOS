@@ -389,15 +389,18 @@ struct ReaderView: View {
     private var collapsedInfo: some View {
         if collapsedInfoEnabled {
             VStack(spacing: 0) {
-                band {
-                    // Hidden while the menu is up: the top bar shows the same title
-                    // then, and two of them read as a duplicate.
-                    Text(displayTitle)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(theme.text.opacity(Self.collapsedInfoOpacity))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .opacity(showChrome ? 0 : 1)
+                // Paged mode only, and hidden while the menu is up: the scrolling
+                // reader already shows the chapter title as part of the prose, so a
+                // faint duplicate above it was just noise.
+                if layout == .horizontal {
+                    band {
+                        Text(displayTitle)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(theme.text.opacity(Self.collapsedInfoOpacity))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .opacity(showChrome ? 0 : 1)
+                    }
                 }
 
                 Spacer(minLength: 0)
