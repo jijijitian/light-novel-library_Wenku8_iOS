@@ -8,9 +8,13 @@ final class NovelDetailViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingVolumes = false
     @Published private(set) var error: Error?
+    /// Why the catalogue could not be loaded, shown on the page instead of being swallowed.
+    @Published private(set) var volumesError: Error?
 
     private let service: NovelService
     private var loaded = false
+    /// Identifies the current load, so a superseded one cannot write over its result.
+    private var generation = 0
 
     init(service: NovelService = NovelService()) {
         self.service = service
@@ -24,33 +28,69 @@ final class NovelDetailViewModel: ObservableObject {
     /// after that only an explicit pull-to-refresh reaches the network.
     func load(novelID: Int, force: Bool = false) async {
         guard force || !loaded else { return }
-        guard !isLoading else { return }
+        // A forced refresh supersedes a load already in flight instead of being dropped by
+        // it. It used to return here, so a pull while the first load was still running did
+        // nothing at all — the spinner turned and the page stayed empty.
+        if isLoading && !force { return }
+
+        generation &+= 1
+        let mine = generation
         isLoading = true
-        defer { isLoading = false }
+        defer { if generation == mine { isLoading = false } }
 
         if !force, let cached = await service.cachedDetail(aid: novelID) {
             // Book and catalogue both come from the cache: the catalogue is part of the
             // metadata now, so a book opened once is complete offline.
+            guard generation == mine else { return }
             detail = cached
-            volumes = await service.cachedVolumes(aid: novelID) ?? []
+            let stored = await service.cachedVolumes(aid: novelID) ?? []
+            if !stored.isEmpty {
+                volumes = stored
+                loaded = true
+                isLoadingVolumes = false
+                return
+            }
+            // The book is known but its catalogue was never stored — every shelf book
+            // cached before catalogues were saved. Show the book at once and fetch the
+            // catalogue behind it, instead of returning a page with no chapters and
+            // waiting for the reader to guess that a refresh would help.
             loaded = true
-            isLoadingVolumes = false
+            isLoadingVolumes = true
+            do {
+                let fetched = try await service.fetchVolumes(aid: novelID)
+                if generation == mine {
+                    volumes = fetched
+                    volumesError = nil
+                }
+            } catch {
+                if generation == mine { volumesError = error }
+            }
+            if generation == mine { isLoadingVolumes = false }
             return
         }
 
         async let detailTask = service.fetchDetail(aid: novelID)
         async let volumesTask = service.fetchVolumes(aid: novelID)
         do {
-            detail = try await detailTask
-            error = nil
-            loaded = true
+            let fetched = try await detailTask
+            if generation == mine {
+                detail = fetched
+                error = nil
+                loaded = true
+            }
         } catch {
-            if detail == nil { self.error = error }
+            if generation == mine, detail == nil { self.error = error }
         }
-        if let result = try? await volumesTask {
-            volumes = result
+        do {
+            let result = try await volumesTask
+            if generation == mine {
+                volumes = result
+                volumesError = nil
+            }
+        } catch {
+            if generation == mine { volumesError = error }
         }
-        isLoadingVolumes = false
+        if generation == mine { isLoadingVolumes = false }
     }
 
     /// A user-initiated refresh: re-reads the book from the service.
@@ -245,8 +285,32 @@ struct NovelDetailView: View {
             introCard(detail)
             if !model.volumes.isEmpty {
                 chaptersCard
-            } else if model.isLoading {
+            } else if model.isLoading || model.isLoadingVolumes {
                 LoadingRow(text: "正在载入目录…")
+            } else {
+                // Never leave the page silently without a catalogue: say so and offer the
+                // one action that fixes it.
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader(
+                        title: "章节目录",
+                        subtitle: "暂时无法载入",
+                        symbol: "list.bullet.rectangle"
+                    )
+                    if let reason = model.volumesError {
+                        Text(reason.localizedDescription)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        Task { await model.refresh(novelID: novelID) }
+                    } label: {
+                        Label("重新载入目录", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .secondaryGlassButtonShape()
+                }
+                .padding(16)
+                .glassCard(cornerRadius: 22)
             }
             if !detail.recommendations.isEmpty {
                 recommendations(detail.recommendations)

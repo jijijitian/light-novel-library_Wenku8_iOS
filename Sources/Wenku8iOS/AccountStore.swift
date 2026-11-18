@@ -205,13 +205,24 @@ final class AccountStore: ObservableObject {
             }
         }
 
+        // A shelf book needs its catalogue, not just its blurb: the detail page has
+        // nothing to list without it. Books cached before catalogues were stored are
+        // picked up here too, so an existing shelf repairs itself.
+        let entries = await OfflineStore.shared.entries()
+        var needsCatalogue: [Int] = []
+        for aid in shelfIDs {
+            guard let entry = entries.first(where: { $0.novelID == aid }) else {
+                needsCatalogue.append(aid)
+                continue
+            }
+            if entry.volumes?.isEmpty ?? true {
+                needsCatalogue.append(aid)
+            }
+        }
+
         // A handful per sync keeps the relay's throttle from being starved by this.
-        let missing = shelfIDs.subtracting(
-            Set(await OfflineStore.shared.entries().map(\.novelID))
-        )
-        for aid in missing.prefix(6) {
-            guard let detail = try? await service.detail(aid: aid) else { continue }
-            await OfflineStore.shared.cacheMetadata(detail)
+        for aid in needsCatalogue.prefix(4) {
+            await service.cacheDetailFully(aid: aid)
         }
     }
 
