@@ -61,4 +61,30 @@ final class BookcaseTests: XCTestCase {
         XCTAssertEqual(entries.first?.novel.id, 42)
         XCTAssertEqual(entries.first?.latestChapter?.id, 77)
     }
+
+    func testShelfGroupsAreParsedWithCurrentCount() {
+        let html = """
+        <div class="gridtop">
+        您的书架可收藏 300 本，已收藏 14 本，本组有 14 本。
+        <select name="classlist" onchange="javascript:document.location='bookcase.php?classid='+this.value;">
+        <option value="0" selected="selected">默认书架</option>
+        <option value="1">第1组书架</option>
+        <option value="2">第2组书架</option>
+        </select>
+        </div>
+        """
+        let groups = DesktopParser.shelfGroups(html)
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups[0].classID, 0)
+        XCTAssertEqual(groups[0].title, "默认书架")
+        // Only the selected group reports a size; the others would be a guess.
+        XCTAssertEqual(groups[0].count, 14)
+        XCTAssertEqual(groups[1].count, 0)
+        XCTAssertEqual(groups[1].title, "第1组书架")
+        XCTAssertEqual(groups[2].classID, 2)
+    }
+
+    func testShelfGroupsEmptyWhenPageHasNoSelector() {
+        XCTAssertTrue(DesktopParser.shelfGroups("<html><body>登录</body></html>").isEmpty)
+    }
 }

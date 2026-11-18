@@ -16,6 +16,11 @@ final class AccountStore: ObservableObject {
     /// recorded for each book.
     @Published private(set) var remoteShelf: [ShelfEntry] = []
     @Published private(set) var pendingAdds = Set<Int>()
+    /// The site's shelf groups (默认书架 + 第1…5组), so the app can present the same
+    /// organisation instead of flattening everything into one list.
+    @Published private(set) var shelfGroups: [DesktopParser.ShelfGroup] = []
+    /// Which group the shelf view is showing. `0` is 默认书架.
+    @Published var selectedShelfClass = 0
 
     private let service: NovelService
     private let defaults = UserDefaults.standard
@@ -79,14 +84,37 @@ final class AccountStore: ObservableObject {
     }
 
     /// Pulls the site's bookcase so the app can show it next to the local shelf.
+    ///
+    /// Reading the groups and the selected group's rows happens on every sync: the
+    /// group list carries per-group counts, and only the request we just made has an
+    /// accurate figure for the group it rendered.
     func syncShelf() async {
         guard isSignedIn, !isSyncingShelf else { return }
         isSyncingShelf = true
         defer { isSyncingShelf = false }
-        if let shelf = try? await service.remoteShelf() {
+
+        if let groups = try? await service.remoteShelfGroups(), !groups.isEmpty {
+            shelfGroups = groups
+            // Keep the selection valid: a group can disappear when the account has
+            // fewer shelves than before.
+            if !groups.contains(where: { $0.classID == selectedShelfClass }) {
+                selectedShelfClass = groups.first?.classID ?? 0
+            }
+        }
+
+        if let shelf = try? await service.remoteShelf(classID: selectedShelfClass) {
             remoteShelf = shelf
             remoteNovels = shelf.map(\.novel)
         }
+    }
+
+    /// Switches the visible group and reloads it.
+    func selectShelfGroup(_ classID: Int) async {
+        guard classID != selectedShelfClass else { return }
+        selectedShelfClass = classID
+        remoteShelf = []
+        remoteNovels = []
+        await syncShelf()
     }
 
     /// Adds the book to the site's shelf. Returns a user-facing status string.

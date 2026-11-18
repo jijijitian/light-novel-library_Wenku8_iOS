@@ -4,10 +4,15 @@ import Wenku8Core
 struct ShelfView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var store: LibraryStore
+    @EnvironmentObject private var account: AccountStore
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                if account.isSignedIn {
+                    cloudShelfSection
+                }
+
                 if store.saved.isEmpty {
                     EmptyStateView(
                         symbol: "books.vertical",
@@ -71,6 +76,10 @@ struct ShelfView: View {
         }
         .background { AppBackground() }
         .navigationTitle("我的书架")
+        // Entering the page refreshes the cloud shelf, so the app and the website
+        // agree on what is on it.
+        .task { await account.syncShelf() }
+        .refreshable { await account.syncShelf() }
         .toolbar {
             if !store.saved.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -78,6 +87,11 @@ struct ShelfView: View {
                         ForEach(store.saved) { novel in
                             Button(role: .destructive) {
                                 store.remove(novel.id)
+                                // Keep the website's shelf in step: the local list
+                                // is only a mirror once the account is signed in.
+                                if account.isSignedIn {
+                                    Task { _ = await account.removeFromRemoteShelf(novel.id) }
+                                }
                             } label: {
                                 Label(novel.title, systemImage: "minus.circle")
                             }
@@ -88,6 +102,103 @@ struct ShelfView: View {
                 }
             }
         }
+    }
+
+    /// The site's shelf, grouped the way the website groups it.
+    ///
+    /// 默认书架 (classid 0) plus up to five extra shelves. The picker only appears
+    /// when the account actually has more than one group, so a simple account is not
+    /// shown a control with a single option.
+    @ViewBuilder
+    private var cloudShelfSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                SectionHeader(title: "文库书架", symbol: "cloud")
+                Spacer()
+                if account.isSyncingShelf {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button {
+                        Task { await account.syncShelf() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.footnote)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("刷新文库书架")
+                }
+            }
+
+            if account.shelfGroups.count > 1 {
+                Picker("书架分组", selection: Binding(
+                    get: { account.selectedShelfClass },
+                    set: { newValue in
+                        Task { await account.selectShelfGroup(newValue) }
+                    }
+                )) {
+                    ForEach(account.shelfGroups) { group in
+                        Text(group.count > 0 ? "\(group.title)（\(group.count)）" : group.title)
+                            .tag(group.classID)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if account.remoteShelf.isEmpty {
+                Text(account.isSyncingShelf ? "正在同步…" : "这一组还没有书")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(account.remoteShelf) { entry in
+                        Button {
+                            router.open(.novel(entry.novel.id))
+                        } label: {
+                            cloudShelfRow(entry)
+                        }
+                        .buttonStyle(.plain)
+                        if entry.id != account.remoteShelf.last?.id {
+                            Divider().padding(.leading, 56)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .glassCard(cornerRadius: 22)
+    }
+
+    /// One cloud-shelf row: cover, title, and the site's recorded latest chapter.
+    private func cloudShelfRow(_ entry: ShelfEntry) -> some View {
+        HStack(spacing: 12) {
+            CoverCard(url: entry.novel.coverURL, title: entry.novel.title, width: 44, height: 62)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.novel.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if let author = entry.novel.author, !author.isEmpty {
+                    Text(author)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let chapter = entry.latestChapter {
+                    Text(chapter.title)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 
     private func relative(_ date: Date) -> String {

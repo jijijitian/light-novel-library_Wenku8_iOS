@@ -494,13 +494,31 @@ public struct NovelService: Sendable {
         try await remoteShelf().map(\.novel)
     }
 
+    /// The shelf groups the site offers, with the current group's size.
+    ///
+    /// Groups are the site's own feature: `classid=0` is 默认书架, 1…5 are the extra
+    /// shelves. Reading them means the app can present the same organisation instead
+    /// of flattening every book into one list.
+    public func remoteShelfGroups() async throws -> [DesktopParser.ShelfGroup] {
+        guard client.hasSession() else { throw Wenku8Error.needLogin }
+        let html = try await client.desktop("/modules/article/bookcase.php")
+        if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
+            throw Wenku8Error.needLogin
+        }
+        return DesktopParser.shelfGroups(html)
+    }
+
     /// The signed-in user's shelf straight from the desktop page.
     ///
     /// The desktop shelf links each row through `readbookcase.php?aid=…`, never
     /// `/book/<aid>.htm`, so the generic card extractor found nothing.
-    public func remoteShelf() async throws -> [ShelfEntry] {
+    ///
+    /// `classID` selects a group; `nil` reads the default shelf.
+    public func remoteShelf(classID: Int? = nil) async throws -> [ShelfEntry] {
         guard client.hasSession() else { throw Wenku8Error.needLogin }
-        let html = try await client.desktop("/modules/article/bookcase.php")
+        let path = classID.map { "/modules/article/bookcase.php?classid=\($0)" }
+            ?? "/modules/article/bookcase.php"
+        let html = try await client.desktop(path)
         if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
             throw Wenku8Error.needLogin
         }

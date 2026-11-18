@@ -86,6 +86,76 @@ public enum DesktopParser {
         return String(text[found])
     }
 
+    /// One of the site's shelf groups.
+    ///
+    /// The desktop shelf paginates by group: `bookcase.php?classid=<n>`, where 0 is
+    /// 默认书架 and 1…5 are 第1…5组书架. An account that never used groups has
+    /// everything in 0.
+    public struct ShelfGroup: Identifiable, Hashable, Sendable {
+        public var classID: Int
+        public var title: String
+        public var count: Int
+
+        public var id: Int { classID }
+
+        public init(classID: Int, title: String, count: Int) {
+            self.classID = classID
+            self.title = title
+            self.count = count
+        }
+    }
+
+    /// Reads the group selector from the shelf page.
+    ///
+    /// ```html
+    /// <select name="classlist" onchange="…bookcase.php?classid='+this.value;">
+    ///   <option value="0" selected="selected">默认书架</option>
+    ///   <option value="1">第1组书架</option>
+    /// ```
+    ///
+    /// The per-group counts come from the summary line
+    /// （"已收藏 14 本，本组有 14 本"）, so only the selected group has a real count;
+    /// the rest report 0 rather than a guess.
+    public static func shelfGroups(_ html: String) -> [ShelfGroup] {
+        let pattern = #"<option value="(\d+)"[^>]*>([^<]{1,20})</option>"#
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive]
+        ) else { return [] }
+
+        let currentTitle = currentGroupTitle(html)
+        let currentCount = currentGroupCount(html)
+
+        var groups: [ShelfGroup] = []
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        for match in regex.matches(in: html, range: range) {
+            guard match.numberOfRanges >= 3,
+                  let idRange = Range(match.range(at: 1), in: html),
+                  let titleRange = Range(match.range(at: 2), in: html),
+                  let classID = Int(html[idRange]) else { continue }
+            let title = Markup.normalize(String(html[titleRange]))
+            let isCurrent = title == currentTitle
+            groups.append(ShelfGroup(
+                classID: classID,
+                title: title,
+                count: isCurrent ? currentCount : 0
+            ))
+        }
+        return groups
+    }
+
+    /// Name of the group the page was rendered for, from its `selected` option.
+    static func currentGroupTitle(_ html: String) -> String? {
+        firstMatchGroups(#"<option value="\d+"\s+selected="selected">([^<]{1,20})</option>"#, in: html, count: 1)
+            .map { Markup.normalize($0[0]) }
+    }
+
+    /// The "本组有 N 本" figure from the shelf summary line.
+    static func currentGroupCount(_ html: String) -> Int {
+        guard let raw = firstMatch(#"本组有\s*(\d+)\s*本"#, in: html) else { return 0 }
+        return Int(raw) ?? 0
+    }
+
     /// Extracts the signed-in user's shelf from `/modules/article/bookcase.php`.
     ///
     /// The desktop shelf is a table whose rows look like
