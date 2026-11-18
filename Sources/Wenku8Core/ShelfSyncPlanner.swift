@@ -28,6 +28,49 @@ public enum ShelfSyncPlanner {
         }
     }
 
+    /// Novels on both sides whose recorded state has diverged.
+    ///
+    /// The counterpart of the Android project's `staleNovels`. Both sides carry the
+    /// same two facts — the site's last-update date and the latest chapter id — so a
+    /// mismatch means the device is showing something older than the account knows.
+    /// The chapter id is the more precise of the two (a book updated twice in one day
+    /// moves it while the date stands still), but both are compared: a book cached
+    /// before either was recorded reads as absent rather than as different.
+    ///
+    /// - Parameter local: what the device has recorded, keyed by novel id.
+    /// - Returns: ids to refresh, in the account's order.
+    public static func staleNovels(
+        cloud: [ShelfSnapshot],
+        local: [Int]
+    ) -> [Int] {
+        let onDevice = Set(local)
+        return cloud.compactMap { entry in
+            // Missing locally rather than stale; `plan` already schedules it.
+            guard onDevice.contains(entry.id) else { return nil }
+            guard let held = entry.localLatestChapterID else {
+                // No readable record: treat as stale, which also catches a cache file
+                // that is missing or truncated.
+                return entry.id
+            }
+            return held == entry.cloudLatestChapterID ? nil : entry.id
+        }
+    }
+
+    /// One book's state on both sides, for the staleness comparison.
+    public struct ShelfSnapshot: Equatable, Sendable {
+        public var id: Int
+        /// Chapter the device last recorded for this book, if it has one.
+        public var localLatestChapterID: Int?
+        /// Chapter the account reports as latest.
+        public var cloudLatestChapterID: Int?
+
+        public init(id: Int, localLatestChapterID: Int?, cloudLatestChapterID: Int?) {
+            self.id = id
+            self.localLatestChapterID = localLatestChapterID
+            self.cloudLatestChapterID = cloudLatestChapterID
+        }
+    }
+
     /// Plans a sync between the device's shelf and the account's.
     ///
     /// - Parameters:

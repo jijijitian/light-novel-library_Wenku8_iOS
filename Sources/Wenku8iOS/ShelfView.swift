@@ -253,6 +253,11 @@ struct ShelfView: View {
 
     /// Two-way sync, passing the local shelf as a single snapshot.
     private func syncNow() async {
+        // The recorded chapter per book lets the sync tell a stale row from a current
+        // one, so only books that actually moved are refetched.
+        account.localChapterIDs = Dictionary(
+            uniqueKeysWithValues: store.progress.map { ($0.key, $0.value.chapterID) }
+        )
         await account.syncWithLocalShelf(store.saved.map(\.id))
     }
 

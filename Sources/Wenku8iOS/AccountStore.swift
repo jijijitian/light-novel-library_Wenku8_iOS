@@ -188,6 +188,10 @@ final class AccountStore: ObservableObject {
     /// signing in, must not silently delete them.
     ///
     /// - Parameter localIDs: the device's shelf, read once by the caller.
+    /// Chapter the device has recorded for each book, used to tell a stale row from a
+    /// current one. Supplied by the caller, which owns the reading history.
+    var localChapterIDs: [Int: Int] = [:]
+
     func syncWithLocalShelf(_ localIDs: [Int]) async {
         guard isSignedIn, !isSyncingShelf else { return }
         isSyncingShelf = true
@@ -204,6 +208,25 @@ final class AccountStore: ObservableObject {
 
         let cloudIDs = shelf.map(\.novel.id)
         let plan = ShelfSyncPlanner.plan(local: localIDs, cloud: cloudIDs)
+
+        // Books on both sides whose recorded chapter has moved: the device is showing
+        // an older catalogue than the account knows about. Android calls this the stale
+        // set, and it is what makes a refresh cheap — only the changed books are
+        // refetched rather than the whole shelf.
+        let snapshots = shelf.map { entry in
+            ShelfSyncPlanner.ShelfSnapshot(
+                id: entry.novel.id,
+                localLatestChapterID: localChapterIDs[entry.novel.id],
+                cloudLatestChapterID: entry.latestChapter?.id
+            )
+        }
+        let stale = ShelfSyncPlanner.staleNovels(cloud: snapshots, local: localIDs)
+        if !stale.isEmpty {
+            for aid in stale {
+                _ = try? await service.volumes(aid: aid)
+            }
+        }
+
         guard !plan.toUploadRemotely.isEmpty else { return }
 
         // Upload the local-only books one at a time; a failure on one must not stop

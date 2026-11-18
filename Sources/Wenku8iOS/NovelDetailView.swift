@@ -396,12 +396,19 @@ struct NovelDetailView: View {
             shelfMessage = "已加入本地书架"
             return
         }
-        // Signed in: the account's shelf is the single list the app shows, so the book
-        // is added there only. Writing the local list as well made the same book appear
-        // twice — once in the cloud section and once in "N 本收藏".
+        // Signed in, the account's shelf is the single list the app shows, so the book
+        // is added there. If that fails the book is still stored locally, which is both
+        // what the reader expects ("I added it") and what lets the next sync upload it
+        // — dropping it would lose the book on a network blip.
         Task {
-            shelfMessage = await account.addToRemoteShelf(summary, classID: classID)
-            account.loadCachedShelf(classID: account.selectedShelfClass)
+            let message = await account.addToRemoteShelf(summary, classID: classID)
+            let onAccount = account.remoteShelf.contains { $0.novel.id == summary.id }
+            if onAccount {
+                account.loadCachedShelf(classID: account.selectedShelfClass)
+            } else {
+                store.add(summary)
+            }
+            shelfMessage = message
         }
     }
 

@@ -40,3 +40,55 @@ final class ShelfSyncPlannerTests: XCTestCase {
         XCTAssertEqual(plan.toDownloadLocally, [3, 1, 2])
     }
 }
+
+final class ShelfStaleTests: XCTestCase {
+    /// Both sides agree on the latest chapter: nothing to refetch.
+    func testMatchingChaptersAreNotStale() {
+        let cloud = [
+            ShelfSyncPlanner.ShelfSnapshot(
+                id: 1, localLatestChapterID: 100, cloudLatestChapterID: 100
+            ),
+        ]
+        XCTAssertTrue(ShelfSyncPlanner.staleNovels(cloud: cloud, local: [1]).isEmpty)
+    }
+
+    /// The account moved on: the device is showing an older catalogue.
+    func testMovedChapterIsStale() {
+        let cloud = [
+            ShelfSyncPlanner.ShelfSnapshot(
+                id: 1, localLatestChapterID: 100, cloudLatestChapterID: 101
+            ),
+        ]
+        XCTAssertEqual(ShelfSyncPlanner.staleNovels(cloud: cloud, local: [1]), [1])
+    }
+
+    /// No readable local record counts as stale rather than as "unchanged", which is
+    /// what catches a missing or truncated cache file.
+    func testMissingLocalRecordIsStale() {
+        let cloud = [
+            ShelfSyncPlanner.ShelfSnapshot(
+                id: 7, localLatestChapterID: nil, cloudLatestChapterID: 5
+            ),
+        ]
+        XCTAssertEqual(ShelfSyncPlanner.staleNovels(cloud: cloud, local: [7]), [7])
+    }
+
+    /// A book the device does not have is missing, not stale; `plan` covers it.
+    func testAbsentLocallyIsNotStale() {
+        let cloud = [
+            ShelfSyncPlanner.ShelfSnapshot(
+                id: 9, localLatestChapterID: nil, cloudLatestChapterID: 3
+            ),
+        ]
+        XCTAssertTrue(ShelfSyncPlanner.staleNovels(cloud: cloud, local: []).isEmpty)
+    }
+
+    /// Order follows the account's listing, so refreshes happen in the visible order.
+    func testOrderFollowsCloud() {
+        let cloud = [
+            ShelfSyncPlanner.ShelfSnapshot(id: 3, localLatestChapterID: 1, cloudLatestChapterID: 2),
+            ShelfSyncPlanner.ShelfSnapshot(id: 1, localLatestChapterID: 5, cloudLatestChapterID: 6),
+        ]
+        XCTAssertEqual(ShelfSyncPlanner.staleNovels(cloud: cloud, local: [3, 1]), [3, 1])
+    }
+}
