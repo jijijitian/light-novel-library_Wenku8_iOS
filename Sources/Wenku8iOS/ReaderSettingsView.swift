@@ -86,7 +86,7 @@ struct ReaderSettingsView: View {
                     describe(
                         "沉浸式标题",
                         symbol: "rectangle.topthird.inset.filled",
-                        detail: "左右翻页时，收起菜单后隐藏状态栏，并在顶部显示浅色章节标题、底部显示页码"
+                        detail: "收起菜单后隐藏状态栏与灵动岛"
                     )
                 }
                 slider(
