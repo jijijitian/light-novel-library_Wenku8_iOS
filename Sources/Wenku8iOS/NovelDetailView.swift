@@ -354,14 +354,31 @@ struct NovelDetailView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("部分下载")
+        } else if isInOfflineCache {
+            // The book has a download, so which volumes are still missing is a question
+            // worth answering on every volume.
+            Image(systemName: "circle")
+                .font(.caption)
+                .foregroundStyle(.quaternary)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("未下载")
         } else {
-            // Nothing stored and nothing in flight: this volume is not in the offline
-            // cache, so it has no state to report. The space is still reserved so the
-            // titles of downloaded and undownloaded volumes line up.
+            // Nothing of this book is downloaded: a column of empty circles would report
+            // "not downloaded" for every volume and say nothing. The width is reserved so
+            // titles stay aligned.
             Color.clear
                 .frame(width: 16, height: 16)
                 .accessibilityHidden(true)
         }
+    }
+
+    /// Whether any part of this book is downloaded.
+    ///
+    /// The volume markers are per *book*, not per volume: a book that is not in the offline
+    /// cache shows none, and one that is shows every volume's state including the empty
+    /// circles.
+    private var isInOfflineCache: Bool {
+        !cachedChapterIDs.isEmpty
     }
 
     /// Leading status for a chapter row.
@@ -379,12 +396,13 @@ struct NovelDetailView: View {
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("已下载")
         } else {
-            // Nothing stored and nothing in flight: this volume is not in the offline
-            // cache, so it has no state to report. The space is still reserved so the
-            // titles of downloaded and undownloaded volumes line up.
-            Color.clear
+            // Chapters always report: "this one is not stored" is the question the list
+            // answers row by row, whether or not the book has any download at all.
+            Image(systemName: "circle")
+                .font(.caption)
+                .foregroundStyle(.quaternary)
                 .frame(width: 16, height: 16)
-                .accessibilityHidden(true)
+                .accessibilityLabel("未下载")
         }
     }
 
