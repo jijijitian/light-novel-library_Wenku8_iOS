@@ -127,6 +127,16 @@ struct OfflineLibraryView: View {
             ForEach(stored) { volume in
                 volumeRow(entry: entry, volume: volume)
             }
+            .onDelete { offsets in
+                guard let index = offsets.first, stored.indices.contains(index) else { return }
+                let volume = stored[index]
+                let held = volume.chapters.filter { entry.storedChapterIDs.contains($0.id) }
+                pendingDeleteVolume = PendingVolume(
+                    novelID: entry.novelID,
+                    title: volume.title,
+                    chapterIDs: Set(held.map(\.id))
+                )
+            }
         } label: {
             bookHeader(entry, live: live)
         }
@@ -162,45 +172,8 @@ struct OfflineLibraryView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer(minLength: 0)
-            trailingControl(entry, live: live)
         }
         .padding(.vertical, 4)
-    }
-
-    /// Pause while downloading, resume when incomplete, a tick when everything is held.
-    @ViewBuilder
-    private func trailingControl(
-        _ entry: OfflineStore.Entry,
-        live: OfflineDownloadManager.Progress?
-    ) -> some View {
-        if live != nil || manager.startingNovelID == entry.novelID {
-            // Also while the first request is in flight, so the tap registers at once.
-            Button {
-                manager.cancel()
-                Task { await refresh() }
-            } label: {
-                Image(systemName: "pause.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.orange)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("暂停下载")
-        } else if !entry.isComplete {
-            Button {
-                manager.download(novelID: entry.novelID)
-            } label: {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(AppTheme.accent)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("继续下载")
-        } else {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.green)
-                .accessibilityLabel("已全部下载")
-        }
     }
 
     /// One volume, with its own delete affordance.
@@ -229,19 +202,7 @@ struct OfflineLibraryView: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel("下载这一卷")
             }
-            Button(role: .destructive) {
-                pendingDeleteVolume = PendingVolume(
-                    novelID: entry.novelID,
-                    title: volume.title,
-                    chapterIDs: Set(held.map(\.id))
-                )
-            } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(held.isEmpty ? Color.secondary : Color.red)
-            }
-            .buttonStyle(.borderless)
-            .disabled(held.isEmpty)
-            .accessibilityLabel("删除这一卷")
+
         }
         .padding(.leading, 52)
     }

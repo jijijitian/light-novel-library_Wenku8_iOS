@@ -330,6 +330,39 @@ struct NovelDetailView: View {
         return progress.currentChapterID
     }
 
+    /// Aggregate state of a volume: downloading if any chapter is in flight, complete when
+    /// every chapter is stored, empty when none is.
+    @ViewBuilder
+    private func volumeStatusIcon(_ volume: Volume) -> some View {
+        let ids = Set(volume.chapters.map(\.id))
+        let downloading = downloadingChapterID.map { ids.contains($0) } ?? false
+        let stored = volume.chapters.filter { cachedChapterIDs.contains($0.id) }.count
+        if downloading {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("正在下载")
+        } else if stored > 0 && stored == volume.chapters.count {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("已下载")
+        } else if stored > 0 {
+            Image(systemName: "circle.lefthalf.filled")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("部分下载")
+        } else {
+            Image(systemName: "circle")
+                .font(.caption)
+                .foregroundStyle(.quaternary)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("未下载")
+        }
+    }
+
     /// Leading status for a chapter row.
     @ViewBuilder
     private func chapterStatusIcon(_ chapterID: Int) -> some View {
@@ -403,8 +436,13 @@ struct NovelDetailView: View {
                     }
                     .padding(.top, 4)
                 } label: {
-                    Text(volume.title)
-                        .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 8) {
+                        // The volume carries its own state, so a collapsed volume still
+                        // shows whether it is being fetched, stored, or neither.
+                        volumeStatusIcon(volume)
+                        Text(volume.title)
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
                 .tint(.primary)
             }
