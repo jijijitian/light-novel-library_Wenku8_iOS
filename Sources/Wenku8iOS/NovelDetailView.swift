@@ -240,7 +240,6 @@ struct NovelDetailView: View {
         VStack(alignment: .leading, spacing: 20) {
             header(detail)
             introCard(detail)
-            downloadCard
             if !model.volumes.isEmpty {
                 chaptersCard
             } else if model.isLoading {
@@ -253,57 +252,6 @@ struct NovelDetailView: View {
         .padding(.horizontal, 18)
         .padding(.top, 8)
         .padding(.bottom, 30)
-    }
-
-    /// Download state for this book: progress, size, and the offline entry point.
-    @ViewBuilder
-    private var downloadCard: some View {
-        if let progress = downloadManager.progress, progress.novelID == novelID {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("正在下载", systemImage: "arrow.down.circle")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Button("取消") { downloadManager.cancel() }
-                        .font(.caption)
-                }
-                ProgressView(value: progress.fraction)
-                    .tint(AppTheme.accent)
-                Text("\(progress.completed)/\(progress.total)  ·  \(progress.currentChapterTitle)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .padding(16)
-            .glassCard(cornerRadius: 22)
-        } else if let entry = offlineEntry, entry.downloadState != nil {
-            // Only books with chapters on disk describe a download. A book opened once has
-            // metadata but nothing readable, and claiming "部分下载 0/0 章" was wrong.
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label(entry.isComplete ? "已下载，可离线阅读" : "部分下载", systemImage: "checkmark.circle")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text("\(entry.storedChapterIDs.count)/\(entry.chapterIDs.count) 章")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ProgressView(value: entry.progress)
-                    .tint(AppTheme.accent)
-                HStack {
-                    Text(formatBytes(entry.bytes))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if !entry.isComplete {
-                        Button("继续下载") { downloadManager.download(novelID: novelID) }
-                            .font(.caption)
-                    }
-                }
-            }
-            .padding(16)
-            .glassCard(cornerRadius: 22)
-        }
     }
 
     private func refreshOffline() async {
@@ -374,6 +322,37 @@ struct NovelDetailView: View {
         }
     }
 
+    /// Whether this chapter is the one being fetched right now.
+    private var downloadingChapterID: Int? {
+        guard let progress = downloadManager.progress, progress.novelID == novelID else {
+            return nil
+        }
+        return progress.currentChapterID
+    }
+
+    /// Leading status for a chapter row.
+    @ViewBuilder
+    private func chapterStatusIcon(_ chapterID: Int) -> some View {
+        if downloadingChapterID == chapterID {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("正在下载")
+        } else if cachedChapterIDs.contains(chapterID) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("已下载")
+        } else {
+            Image(systemName: "circle")
+                .font(.caption)
+                .foregroundStyle(.quaternary)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("未下载")
+        }
+    }
+
     private var chaptersCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -400,6 +379,11 @@ struct NovelDetailView: View {
                                 openChapter(volume: volume, index: index)
                             } label: {
                                 HStack(spacing: 8) {
+                                    // Status leads the row: a spinner while this chapter is
+                                    // being fetched, a download mark once it is on disk, and
+                                    // an empty circle when it is not. Reading position stays
+                                    // at the trailing edge so the two never compete.
+                                    chapterStatusIcon(chapter.id)
                                     Text(chapter.title)
                                         .font(.subheadline)
                                         .multilineTextAlignment(.leading)
@@ -409,15 +393,6 @@ struct NovelDetailView: View {
                                         Image(systemName: "bookmark.fill")
                                             .font(.caption2)
                                             .foregroundStyle(.tint)
-                                    }
-                                    // Green tick for a chapter held on this device. It sits
-                                    // at the trailing edge, inside the row's padding, so it
-                                    // never crosses the title.
-                                    if cachedChapterIDs.contains(chapter.id) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.caption)
-                                            .foregroundStyle(.green)
-                                            .accessibilityLabel("已缓存")
                                     }
                                 }
                                 .padding(.vertical, 7)

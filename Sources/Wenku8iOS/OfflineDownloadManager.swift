@@ -18,6 +18,8 @@ public final class OfflineDownloadManager: ObservableObject {
         public var novelTitle: String
         /// Chapter currently in flight, shown as the detail line.
         public var currentChapterTitle: String
+        /// Id of the chapter in flight, so the catalogue can mark that exact row.
+        public var currentChapterID: Int?
 
         public var fraction: Double {
             total > 0 ? Double(completed) / Double(total) : 0
@@ -38,7 +40,14 @@ public final class OfflineDownloadManager: ObservableObject {
         self.store = store
     }
 
-    public var isDownloading: Bool { progress != nil }
+    public var isDownloading: Bool { progress != nil || startingNovelID != nil }
+
+    /// Set the moment a download is requested, before the first request returns.
+    ///
+    /// The book's detail and catalogue are fetched before any chapter can be counted, and
+    /// without this the button flipped back to "继续下载" for that second and then to
+    /// "正在下载" again — it read as the tap having failed.
+    @Published public private(set) var startingNovelID: Int?
 
     public func isDownloading(_ aid: Int) -> Bool {
         progress?.novelID == aid
@@ -56,6 +65,8 @@ public final class OfflineDownloadManager: ObservableObject {
     public func download(novelID aid: Int, volumeIDs: Set<String>? = nil) {
         guard !isDownloading else { return }
         lastError = nil
+        // Published immediately so the UI switches on the tap, not on the first response.
+        startingNovelID = aid
         task?.cancel()
         task = Task { [weak self] in
             await self?.run(aid: aid, volumeIDs: volumeIDs)
@@ -66,6 +77,7 @@ public final class OfflineDownloadManager: ObservableObject {
         task?.cancel()
         task = nil
         progress = nil
+        startingNovelID = nil
     }
 
     private func run(aid: Int, volumeIDs: Set<String>?) async {
@@ -81,6 +93,7 @@ public final class OfflineDownloadManager: ObservableObject {
             guard !chapters.isEmpty else {
                 lastError = "这本书没有可下载的章节"
                 progress = nil
+                startingNovelID = nil
                 return
             }
 
@@ -99,17 +112,23 @@ public final class OfflineDownloadManager: ObservableObject {
             await store.saveManifest(entry)
 
             let missing = chapters.filter { !entry.storedChapterIDs.contains($0.id) }
+            // Progress describes what this download is fetching, not the whole catalogue:
+            // choosing three volumes of twelve used to show "0/187" and then sit at a
+            // fraction that never completed, because the denominator was every chapter.
+            startingNovelID = nil
             progress = Progress(
                 novelID: aid,
-                completed: entry.chapterIDs.count - missing.count,
-                total: entry.chapterIDs.count,
+                completed: chapters.count - missing.count,
+                total: chapters.count,
                 novelTitle: detail.title,
-                currentChapterTitle: missing.first?.title ?? ""
+                currentChapterTitle: missing.first?.title ?? "",
+                currentChapterID: missing.first?.id
             )
 
             for chapter in missing {
                 if Task.isCancelled { break }
                 progress?.currentChapterTitle = chapter.title
+                progress?.currentChapterID = chapter.id
                 do {
                     let content = try await service.chapter(aid: aid, cid: chapter.id)
                     await store.saveChapter(content, for: aid)
@@ -128,7 +147,8 @@ public final class OfflineDownloadManager: ObservableObject {
                     lastError = (error as? LocalizedError)?.errorDescription
                         ?? error.localizedDescription
                 }
-                progress?.completed = entry.storedChapterIDs.count
+                // Counted against this download's own chapters for the same reason.
+                progress?.completed = chapters.filter { entry.storedChapterIDs.contains($0.id) }.count
             }
 
             entry.bytes = await store.usedBytes(for: aid)
@@ -138,6 +158,7 @@ public final class OfflineDownloadManager: ObservableObject {
         } catch {
             lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             progress = nil
+            startingNovelID = nil
         }
     }
 

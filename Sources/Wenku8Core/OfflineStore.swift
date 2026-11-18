@@ -217,6 +217,27 @@ public actor OfflineStore {
         return name
     }
 
+    /// Removes some chapters of a book, leaving the rest and its metadata intact.
+    ///
+    /// Deleting a volume should free its space without taking the whole book: the reader
+    /// is managing storage, not throwing the book away.
+    @discardableResult
+    public func deleteChapters(_ chapterIDs: Set<Int>, for aid: Int) -> Int {
+        guard var entry = entry(for: aid) else { return 0 }
+        var removed = 0
+        for cid in chapterIDs where entry.storedChapterIDs.contains(cid) {
+            if (try? fileManager.removeItem(at: chapterURL(for: aid, cid: cid))) != nil {
+                removed += 1
+            }
+            entry.storedChapterIDs.remove(cid)
+        }
+        guard removed > 0 else { return 0 }
+        entry.updatedAt = Date()
+        entry.bytes = usedBytes(for: aid)
+        saveManifest(entry)
+        return removed
+    }
+
     public func delete(_ aid: Int) {
         try? fileManager.removeItem(at: directory(for: aid))
     }

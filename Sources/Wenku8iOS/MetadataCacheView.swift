@@ -14,6 +14,8 @@ struct MetadataCacheView: View {
     @State private var pendingDelete: OfflineStore.Entry?
     /// Set when the reader asks to drop the whole "其他缓存" group.
     @State private var pendingClearAll = false
+    /// Cover files stored on this device, keyed by book.
+    @State private var localCovers: [Int: URL] = [:]
 
     /// Three kinds, in the order they matter to the reader.
     ///
@@ -138,8 +140,11 @@ struct MetadataCacheView: View {
             router.open(.novel(entry.novelID))
         } label: {
             HStack(spacing: 12) {
+                // The stored file, not the remote URL: this screen is about what is held
+                // offline, and loading the thumbnail over the network showed a picture the
+                // app did not actually have.
                 CoverCard(
-                    url: entry.detail?.coverURL,
+                    url: localCovers[entry.novelID] ?? entry.detail?.coverURL,
                     title: entry.title,
                     width: 40,
                     height: 56
@@ -208,6 +213,13 @@ struct MetadataCacheView: View {
         // Downloads appear here too: their metadata is part of the same cache, and hiding
         // them made the counts disagree with Settings.
         entries = await OfflineStore.shared.entries().filter { $0.detail != nil }
+        var covers: [Int: URL] = [:]
+        for entry in entries {
+            if let url = await OfflineStore.shared.coverURL(for: entry.novelID) {
+                covers[entry.novelID] = url
+            }
+        }
+        localCovers = covers
     }
 
     private func formatBytes(_ bytes: Int64) -> String {

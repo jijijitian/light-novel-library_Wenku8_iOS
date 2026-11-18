@@ -73,6 +73,19 @@ struct SettingsView: View {
                     }
                 }
 
+                // A download outlives the page that started it, so its progress belongs
+                // here rather than on the book.
+                NavigationLink {
+                    ActiveDownloadsView()
+                } label: {
+                    LabeledContent {
+                        Text(downloadSummary)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("正在下载", systemImage: "arrow.down.circle")
+                    }
+                }
+
                 // Metadata is cached separately from downloads, so it gets its own row:
                 // a reader can tell what the app holds offline even with nothing
                 // downloaded. It opens the list, because a bare count is not actionable.
@@ -231,6 +244,12 @@ struct SettingsView: View {
     private var metadataSummary: String {
         guard metadataCount > 0 else { return "未缓存" }
         return "\(metadataCount) 本 · \(metadataBytes)"
+    }
+
+    /// Current download state, shown on the row that opens it.
+    private var downloadSummary: String {
+        guard let progress = OfflineDownloadManager.shared.progress else { return "无任务" }
+        return "\(progress.completed)/\(progress.total) 章"
     }
 
     private var offlineSummary: String {
