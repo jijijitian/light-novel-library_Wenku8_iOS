@@ -32,9 +32,14 @@ Icon Composer 文档（`.icon` 包）：一个矢量字形压在一块渐变底�
 ```bash
 swiftc -O tools/make-glyph-svg.swift -o /tmp/make-glyph-svg
 /tmp/make-glyph-svg HiraginoSans-W6 0.615 "Support/AppIcon.icon/Assets/軽.svg"
-# 生成器输出的是黑色轮廓，需要白色——玻璃层会用这个颜色
-sed -i '' 's|fill-rule="evenodd"|fill="#FFFFFF" fill-rule="evenodd"|' "Support/AppIcon.icon/Assets/軽.svg"
+# 生成器输出的是黑色轮廓；把 fill 换成渐变（或纯色），玻璃层会用这个颜色
+# 渐变定义见现有 軽.svg 里的 <defs><linearGradient id="glyph">
 ```
+
+## 字形是渐变的
+
+字形填充用的是 SVG 的 `linearGradient`（白 → `#DCE6FF`，自上而下），不是纯白。
+`actool` 会原样渲染这个渐变，玻璃层再叠一层厚度。
 
 `icon.json` 里两个字段值得保留的：
 
