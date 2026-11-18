@@ -36,10 +36,18 @@ swiftc -O tools/make-glyph-svg.swift -o /tmp/make-glyph-svg
 # 渐变定义见现有 軽.svg 里的 <defs><linearGradient id="glyph">
 ```
 
-## 字形是渐变的
+## 字形的「渐变」是玻璃折射，不是画上去的
 
-字形填充用的是 SVG 的 `linearGradient`（白 → `#DCE6FF`，自上而下），不是纯白。
-`actool` 会原样渲染这个渐变，玻璃层再叠一层厚度。
+浅色模式下字越往下越蓝、深色模式下越往下越黑——这是 `translucency` 打开后，字形层的
+玻璃折射了它下面的底色。所以 SVG 的填充是**纯白**，渐变交给材质：
+
+```json
+"translucency": { "enabled": true, "value": 0.5 }
+```
+
+实测渲染（浅色，300px）：顶部 `(241,245,255)` → 底部 `(206,219,254)`。
+
+若把这个值关掉，字会变成实心白、发「平」，折射效果就没有了。
 
 `icon.json` 里两个字段值得保留的：
 

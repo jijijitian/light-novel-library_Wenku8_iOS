@@ -24,7 +24,7 @@
         "opacity": 0.5
       },
       "translucency": {
-        "enabled": false,
+        "enabled": true,
         "value": 0.5
       }
     }
