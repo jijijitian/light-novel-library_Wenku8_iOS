@@ -6,6 +6,9 @@ final class SearchViewModel: ObservableObject {
     @Published var keyword = ""
     @Published var field: SearchQuery.Field = .title
     @Published private(set) var results: [NovelSummary] = []
+    /// Paged results. Search can return hundreds of books; the old single fetch only ever
+    /// showed the first page.
+    let pages = PagedNovelListModel()
     @Published private(set) var isSearching = false
     @Published private(set) var error: Error?
     @Published private(set) var hasSearched = false
@@ -38,15 +41,14 @@ final class SearchViewModel: ObservableObject {
         isSearching = true
         error = nil
         defer { isSearching = false }
-        do {
-            results = try await service.search(query)
-            hasSearched = true
-        } catch is CancellationError {
-            // user typed again
-        } catch {
-            self.error = error
-            hasSearched = true
+        await pages.start { page in
+            try await self.service.searchPage(query, page: page)
         }
+        results = pages.novels
+        if pages.novels.isEmpty, let failure = pages.error {
+            self.error = failure
+        }
+        hasSearched = true
     }
 
     func clear() {
@@ -80,11 +82,11 @@ struct SearchView: View {
                 } else if !model.results.isEmpty {
                     SectionHeader(
                         title: "搜索结果",
-                        subtitle: "共 \(model.results.count) 本",
+                        subtitle: "共 \(model.pages.novels.count) 本",
                         symbol: "sparkle.magnifyingglass"
                     )
-                    NovelList(novels: model.results) { novel in
-                        router.open(.novel(novel.id))
+                    PagedNovelList(model: model.pages) { novelID in
+                        router.open(.novel(novelID))
                     }
                     .padding(12)
                     .glassCard(cornerRadius: 22)

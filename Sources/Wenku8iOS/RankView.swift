@@ -129,64 +129,26 @@ struct RankBoardPicker: View {
     }
 }
 
-@MainActor
-final class RankListViewModel: ObservableObject {
-    @Published private(set) var novels: [NovelSummary] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var error: Error?
-
-    private let service: NovelService
-    private var loadedBoard: RankBoard?
-
-    init(service: NovelService = NovelService()) {
-        self.service = service
-    }
-
-    /// Loads one board.
-    ///
-    /// A board that cannot be served reports that; it is no longer silently replaced by
-    /// a yearly list under the wrong title, which made "日点击榜" show 2025's board. The
-    /// yearly boards have their own screen.
-    func load(board: RankBoard, force: Bool = false) async {
-        guard force || loadedBoard != board else { return }
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            novels = try await service.rank(board, page: 1)
-            error = novels.isEmpty ? Wenku8Error.unavailable("这个榜单暂时没有数据") : nil
-            loadedBoard = board
-        } catch {
-            novels = []
-            self.error = error
-        }
-    }
-
-    var isEmpty: Bool { novels.isEmpty }
-}
-
 struct RankListView: View {
     var board: RankBoard
     @EnvironmentObject private var router: AppRouter
-    @StateObject private var model = RankListViewModel()
+    @StateObject private var model = PagedNovelListModel()
     @State private var showWeb = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if model.isLoading && model.isEmpty {
+                if model.novels.isEmpty && model.isLoading {
                     LoadingRow()
-                } else if let error = model.error, model.isEmpty {
+                } else if let error = model.error, model.novels.isEmpty {
                     VStack(spacing: 12) {
-                        ErrorStateView(error: error) {
-                            Task { await model.load(board: board, force: true) }
-                        }
+                        ErrorStateView(error: error) { Task { await reload() } }
                         Button("在网页版查看") { showWeb = true }
                             .secondaryGlassButtonShape()
                     }
                 } else {
-                    NovelGrid(novels: model.novels) { novel in
-                        router.open(.novel(novel.id))
+                    PagedNovelGrid(model: model) { novelID in
+                        router.open(.novel(novelID))
                     }
                 }
             }
@@ -197,10 +159,16 @@ struct RankListView: View {
         .background { AppBackground() }
         .navigationTitle(board.title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.load(board: board, force: true) }
-        .task { await model.load(board: board) }
+        .refreshable { await reload() }
+        .task { await reload() }
         .sheet(isPresented: $showWeb) {
             WebSheet(url: URL(string: "https://www.wenku8.net/wap/article/toplist.php?sort=\(board.rawValue)"))
+        }
+    }
+
+    private func reload() async {
+        await model.start { page in
+            try await NovelService().rankPage(board, page: page)
         }
     }
 
@@ -212,19 +180,19 @@ struct LibraryListView: View {
     var title: String
 
     @EnvironmentObject private var router: AppRouter
-    @StateObject private var model = LibraryListViewModel()
+    @StateObject private var model = PagedNovelListModel()
 
     var body: some View {
         ScrollView {
-            if model.isLoading && model.novels.isEmpty {
+            if model.novels.isEmpty && model.isLoading {
                 LoadingRow()
             } else if let error = model.error, model.novels.isEmpty {
                 ErrorStateView(error: error) {
-                    Task { await model.load(category: categoryID, force: true) }
+                    Task { await reload() }
                 }
             } else {
-                NovelGrid(novels: model.novels) { novel in
-                    router.open(.novel(novel.id))
+                PagedNovelGrid(model: model) { novelID in
+                    router.open(.novel(novelID))
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 8)
@@ -233,35 +201,14 @@ struct LibraryListView: View {
         .background { AppBackground() }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.load(category: categoryID, force: true) }
-        .task { await model.load(category: categoryID) }
-    }
-}
-
-@MainActor
-final class LibraryListViewModel: ObservableObject {
-    @Published private(set) var novels: [NovelSummary] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var error: Error?
-
-    private let service: NovelService
-    private var loaded = false
-
-    init(service: NovelService = NovelService()) {
-        self.service = service
+        .refreshable { await reload() }
+        .task { await reload() }
     }
 
-    func load(category: Int, force: Bool = false) async {
-        guard force || !loaded else { return }
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            novels = try await service.library(category, page: 1)
-            error = nil
-            loaded = true
-        } catch {
-            self.error = error
+    private func reload() async {
+        await model.start { page in
+            try await NovelService().libraryPage(categoryID, page: page)
         }
     }
 }
+

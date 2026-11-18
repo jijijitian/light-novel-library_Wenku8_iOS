@@ -198,6 +198,23 @@ public enum RelayParser {
 
     // MARK: - Books
 
+    /// Total pages in a paginated listing.
+    ///
+    /// The service states it up front — `<page num='426'/>` — which is what lets the UI
+    /// say "正在载入列表 4/426" and know when to stop asking.
+    public static func totalPages(_ xml: String) -> Int? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<page\s+num=['"](\d+)['"]"#,
+            options: [.caseInsensitive]
+        ) else { return nil }
+        let range = NSRange(xml.startIndex..<xml.endIndex, in: xml)
+        guard let match = regex.firstMatch(in: xml, range: range),
+              match.numberOfRanges > 1,
+              let found = Range(match.range(at: 1), in: xml),
+              let value = Int(xml[found]), value > 0 else { return nil }
+        return value
+    }
+
     public static func summaries(_ xml: String) -> [NovelSummary] {
         var results: [NovelSummary] = []
         for item in items(xml) {

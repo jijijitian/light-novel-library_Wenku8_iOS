@@ -65,6 +65,70 @@ public struct NovelService: Sendable {
         return items.isEmpty ? nil : items
     }
 
+    /// One page of a relay listing, with the total the service reports.
+    private func relayNovelListPage(sort: String, page: Int) async -> NovelListPage? {
+        guard relayIsAvailable else { return nil }
+        guard let data = try? await relay.send(RelayAction.novelList(sort: sort, page: page)) else {
+            return nil
+        }
+        let text = TextDecoding.decode(data)
+        let items = RelayParser.summaries(text).uniquedByID()
+        guard !items.isEmpty else { return nil }
+        return NovelListPage(novels: items, totalPages: RelayParser.totalPages(text))
+    }
+
+    /// A ranking board, one page at a time.
+    ///
+    /// Boards run to hundreds of pages (the day-visit board reports 426), so a screen
+    /// that fetched only page 1 showed a fraction of the list with no way to reach the
+    /// rest.
+    public func rankPage(_ board: RankBoard, page: Int) async throws -> NovelListPage {
+        if relayIsAvailable {
+            if let result = await relayNovelListPage(sort: board.rawValue, page: page),
+               !result.novels.isEmpty {
+                return result
+            }
+            throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
+        }
+        let novels = try await rank(board, page: page)
+        return NovelListPage(novels: novels, totalPages: nil)
+    }
+
+    /// A library category, one page at a time.
+    public func libraryPage(_ category: Int, page: Int) async throws -> NovelListPage {
+        let sort = category == 0 ? "all" : "\(category)"
+        if relayIsAvailable {
+            if let result = await relayNovelListPage(sort: sort, page: page),
+               !result.novels.isEmpty {
+                return result
+            }
+            throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
+        }
+        let novels = try await library(category, page: page)
+        return NovelListPage(novels: novels, totalPages: nil)
+    }
+
+    /// A search result, one page at a time.
+    public func searchPage(_ query: SearchQuery, page: Int) async throws -> NovelListPage {
+        let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return NovelListPage(novels: [], totalPages: nil) }
+        if relayIsAvailable {
+            guard let data = try? await relay.send(
+                RelayAction.search(type: query.field.parameter, key: keyword)
+            ) else {
+                throw Wenku8Error.unavailable("中转服务暂时无法搜索，请稍后再试")
+            }
+            let text = TextDecoding.decode(data)
+            let items = RelayParser.summaries(text).uniquedByID()
+            guard !items.isEmpty else {
+                throw Wenku8Error.unavailable("没有找到匹配的书")
+            }
+            return NovelListPage(novels: items, totalPages: RelayParser.totalPages(text))
+        }
+        let novels = try await search(query)
+        return NovelListPage(novels: novels, totalPages: nil)
+    }
+
     // MARK: - Home
 
     /// The home screen's rows.

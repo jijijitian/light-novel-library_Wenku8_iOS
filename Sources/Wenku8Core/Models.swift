@@ -14,6 +14,28 @@ public struct NovelSummary: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+/// One page of a listing, with the total the service reports.
+///
+/// The lists are paginated — 426 pages of ranking, for instance — so a screen that only
+/// ever asks for page 1 shows a fraction of what exists. Carrying the total lets the UI
+/// say how far it has got and stop at the end instead of requesting page 427 forever.
+public struct NovelListPage: Sendable {
+    public var novels: [NovelSummary]
+    /// Total pages, when the source states it; `nil` means "unknown, try another page".
+    public var totalPages: Int?
+
+    public init(novels: [NovelSummary], totalPages: Int?) {
+        self.novels = novels
+        self.totalPages = totalPages
+    }
+
+    /// Whether a page after `page` could exist.
+    public func hasMore(after page: Int) -> Bool {
+        guard let totalPages else { return !novels.isEmpty }
+        return page < totalPages && !novels.isEmpty
+    }
+}
+
 public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
     public var id: Int
     public var title: String
