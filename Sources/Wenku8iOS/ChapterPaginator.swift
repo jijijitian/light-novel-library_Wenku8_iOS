@@ -58,13 +58,19 @@ enum ChapterPaginator {
             case .paragraph(let text):
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
-                pendingText.append(trimmed)
+                // The indent is part of the string, matching how the vertical
+                // reader renders it. Using `firstLineHeadIndent` here measured the
+                // text with an indent the SwiftUI renderer never applied, so pages
+                // were paginated for text that did not match what was drawn — the
+                // indent simply looked missing in paged mode.
+                let display = indent > 0 ? "\u{3000}\u{3000}" + trimmed : trimmed
+                pendingText.append(display)
                 paraStarts.append(buffer.length)
                 buffer.append(attributedParagraph(
-                    trimmed,
+                    display,
                     fontSize: fontSize,
                     lineSpacing: lineSpacing,
-                    indent: indent,
+                    indent: 0,
                     textColor: textColor
                 ))
                 buffer.append(NSAttributedString(

@@ -17,6 +17,8 @@ struct SettingsView: View {
     @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
     @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
     @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
+    @AppStorage(ReaderMetrics.topInsetKey) private var topInset = ReaderMetrics.defaultTopInset
+    @AppStorage(ReaderMetrics.bottomInsetKey) private var bottomInset = ReaderMetrics.defaultBottomInset
 
     var body: some View {
         Form {
@@ -83,6 +85,26 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                // Kept as sliders rather than steppers so the effect is visible
+                // immediately while dragging in the reader.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("顶部留白", systemImage: "arrow.up.to.line")
+                        Spacer()
+                        Text("\(Int(topInset)) pt").foregroundStyle(.secondary)
+                    }
+                    Slider(value: $topInset, in: ReaderMetrics.insetRange, step: 2)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("底部留白", systemImage: "arrow.down.to.line")
+                        Spacer()
+                        Text("\(Int(bottomInset)) pt").foregroundStyle(.secondary)
+                    }
+                    Slider(value: $bottomInset, in: ReaderMetrics.insetRange, step: 2)
                 }
             }
 

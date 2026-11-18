@@ -15,6 +15,9 @@ struct PagedReadingView: View {
     var fontSize: Double
     var lineSpacing: Double
     var indent: CGFloat
+    /// User-tunable breathing room, shared with the vertical mode.
+    var topInset: Double
+    var bottomInset: Double
     @Binding var showChrome: Bool
     var onLongPressImage: (URL) -> Void
 
@@ -24,19 +27,20 @@ struct PagedReadingView: View {
 
     /// Kept in one place so the paginator and the view agree on the text width.
     private static let horizontalPadding: CGFloat = 20
+    private static let topPadding: CGFloat = 12
 
     var body: some View {
         GeometryReader { proxy in
-            // The prose area excludes the navigation bar, the page footer and the
-            // floating control bar. The same rect is what the paginator measures
-            // against, so the last line of a page never falls under the footer.
-            let topInset = proxy.safeAreaInsets.top + Self.horizontalPadding
+            // `proxy` is already inset by the navigation bar and the status bar, so
+            // adding `safeAreaInsets.top` here would double-count it and push the
+            // first line far down the page. Only our own padding is added.
+            let topPadding = CGFloat(topInset) + Self.topPadding
             let footerHeight: CGFloat = 26
             let size = CGSize(
                 width: proxy.size.width - Self.horizontalPadding * 2,
                 height: max(
                     80,
-                    proxy.size.height - topInset - footerHeight - bottomInset
+                    proxy.size.height - topPadding - footerHeight - resolvedBottomInset
                 )
             )
 
@@ -46,12 +50,12 @@ struct PagedReadingView: View {
                         pageContent(page)
                             .frame(width: size.width, height: size.height, alignment: .topLeading)
                             .padding(.horizontal, Self.horizontalPadding)
-                            .padding(.top, topInset)
+                            .padding(.top, topPadding)
                             .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(height: topInset + size.height)
+                .frame(height: topPadding + size.height)
 
                 // Footer sits below the page box instead of on top of the text.
                 HStack {
@@ -100,7 +104,7 @@ struct PagedReadingView: View {
     }
 
     /// Constant, so toggling the control panel never repaginates the chapter.
-    private var bottomInset: CGFloat { ReaderMetrics.bottomInset }
+    private var resolvedBottomInset: CGFloat { CGFloat(bottomInset) }
 
     @ViewBuilder
     private func pageContent(_ page: ChapterPaginator.Page) -> some View {

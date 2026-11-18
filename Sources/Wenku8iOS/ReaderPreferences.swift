@@ -44,12 +44,24 @@ enum ReaderPreferences {
 
 /// Layout constants shared by the reader's two modes.
 enum ReaderMetrics {
-    /// Room reserved below the prose. It is deliberately independent of whether
-    /// the control panel is visible: the panel floats on top of the text, so
-    /// toggling it must not move a single line.
-    static let bottomInset: CGFloat = 40
+    // MARK: - Breathing room around the prose
+    //
+    // Both values are user-tunable from Settings. The defaults were chosen by
+    // looking at real pages on a 6.3" phone: 8pt above keeps the first line from
+    // crowding the navigation bar, and 40pt below leaves the floating control
+    // panel from covering the last visible line.
 
-    /// Opacity of that floating panel, kept light so the text stays readable
-    /// underneath it.
+    static let topInsetKey = "reader.topInset"
+    static let bottomInsetKey = "reader.bottomInset"
+
+    static let defaultTopInset: Double = 8
+    static let defaultBottomInset: Double = 40
+
+    /// Range offered in Settings. The floor is 0 (text flush to the safe area)
+    /// and the ceiling is generous enough to clear the control panel entirely.
+    static let insetRange: ClosedRange<Double> = 0...80
+
+    /// Opacity of the floating control panel, kept light so the text stays
+    /// readable underneath it.
     static let chromeOpacity: Double = 0.82
 }

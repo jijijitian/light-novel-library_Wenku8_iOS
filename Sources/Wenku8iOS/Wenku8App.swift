@@ -10,6 +10,24 @@ struct Wenku8App: App {
     init() {
         Self.configureRelay()
         Self.restoreDomain()
+        Self.applyReaderOverrides()
+    }
+
+    /// Debug-only: forces reader settings from the environment so a launch can
+    /// exercise a specific layout without hand-driving Settings. Writing the
+    /// preference through `UserDefaults` is not reliable while the app runs
+    /// (cfprefsd owns the file), so the override is applied in-process instead.
+    private static func applyReaderOverrides() {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if let layout = env["WENKU8_READER_LAYOUT"],
+           ReaderLayout(rawValue: layout) != nil {
+            UserDefaults.standard.set(layout, forKey: ReaderPreferences.layoutKey)
+        }
+        if let indent = env["WENKU8_READER_INDENT"] {
+            UserDefaults.standard.set(indent == "1", forKey: ReaderPreferences.indentKey)
+        }
+        #endif
     }
 
     /// Applies the mirror chosen in Settings before any request goes out.

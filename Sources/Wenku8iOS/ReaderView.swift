@@ -145,6 +145,8 @@ struct ReaderView: View {
     @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
     @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
     @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
+    @AppStorage(ReaderMetrics.topInsetKey) private var topInset = ReaderMetrics.defaultTopInset
+    @AppStorage(ReaderMetrics.bottomInsetKey) private var bottomInset = ReaderMetrics.defaultBottomInset
 
     init(novelID: Int, chapters: [ChapterLink], startIndex: Int) {
         self.novelID = novelID
@@ -154,6 +156,11 @@ struct ReaderView: View {
             wrappedValue: ReaderViewModel(novelID: novelID, chapters: chapters, startIndex: startIndex)
         )
     }
+
+    /// Height reserved for the custom top bar so prose never runs under it.
+    /// The bar is an overlay (it must not touch the safe area, or the text would
+    /// reflow when it appears), so the reader reserves this itself.
+    static let topBarHeight: CGFloat = 56
 
     private var theme: ReaderTheme {
         ReaderTheme.all.first { $0.name == themeName }?.theme ?? .paper
@@ -177,48 +184,33 @@ struct ReaderView: View {
                     fontSize: fontSize,
                     lineSpacing: lineSpacing,
                     indent: indentFirstLine ? ReaderPreferences.indent(for: fontSize) : 0,
+                    topInset: topInset + Double(Self.topBarHeight),
+                    bottomInset: bottomInset,
                     showChrome: $showChrome,
                     onLongPressImage: { zoomedImage = ZoomedImage(url: $0) }
                 )
             }
 
             if showChrome {
+                topChrome
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 chrome
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .navigationBarBackButtonHidden(true)
-        // The navigation bar stays visible on purpose. Toggling it with the control
-        // panel changed the top safe area, which shifted and resized the prose on
-        // every tap — the "text gets shorter" bug. Only the panel itself (which
-        // floats over the content) reacts to `showChrome` now.
-        .toolbar(.visible, for: .navigationBar)
+        // The navigation bar is hidden for good, and the reader draws its own top
+        // bar inside the ZStack so it can fade with the control panel.
+        //
+        // Toggling the *system* bar with `showChrome` was not an option: showing or
+        // hiding it changes the top safe area, which reflowed the prose on every
+        // tap. A custom overlay affects no layout at all, so the text stays put
+        // while the bar still appears and disappears together with the panel.
+        .toolbar(.hidden, for: .navigationBar)
         // Reading is a full-screen mode: the tab bar must not sit under the text,
         // otherwise it steals vertical space and clashes with the reader's own
         // glass control bar.
         .toolbar(.hidden, for: .tabBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    saveProgress()
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-            }
-            ToolbarItem(placement: .principal) {
-                Text(displayTitle)
-                    .font(.footnote.weight(.medium))
-                    .lineLimit(1)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showCatalog = true
-                } label: {
-                    Image(systemName: "list.bullet")
-                }
-            }
-        }
         .task {
             await model.load()
             recordProgress()
@@ -252,10 +244,11 @@ struct ReaderView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.top, 24)
-            // The control panel floats *over* the prose: the bottom inset is
-            // constant so showing or hiding it never reflows the text.
-            .padding(.bottom, ReaderMetrics.bottomInset)
+            // Both insets are user-tunable and constant regardless of whether the
+            // control panel is showing: it floats *over* the prose, so toggling it
+            // never reflows a line.
+            .padding(.top, Self.topBarHeight + topInset)
+            .padding(.bottom, bottomInset)
         }
         .scrollIndicators(.hidden)
         .onTapGesture {
@@ -309,15 +302,18 @@ struct ReaderView: View {
         ForEach(Array(content.blocks.enumerated()), id: \.offset) { _, block in
             switch block {
             case .paragraph(let text):
-                Text(text)
+                // `.padding(.leading:)` would shift the whole paragraph, including
+                // wrapped lines. SwiftUI's `Text` has no first-line indent, so the
+                // indent is two full-width spaces prefixed to the string — the
+                // wrapped lines then start flush, which is what Chinese typesetting
+                // expects.
+                Text(indentFirstLine ? "\u{3000}\u{3000}" + text : text)
                     .font(.system(size: fontSize))
                     .lineSpacing(lineSpacing)
                     .foregroundStyle(theme.text)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    // Chinese typesetting indents the first line by two
-                    // full-width characters rather than using a tab stop.
-                    .padding(.leading, indentFirstLine ? ReaderPreferences.indent(for: fontSize) : 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             case .image(let url):
                 // Tapping an illustration must keep doing whatever it did before
                 // (nothing beyond the page tap that toggles the chrome); zooming
@@ -360,6 +356,82 @@ struct ReaderView: View {
         .padding(.top, 26)
     }
 
+    /// Top bar of the reader: back, chapter title, catalogue.
+    ///
+    /// Drawn here rather than in the navigation bar so it can appear and vanish
+    /// with the control panel without touching the top safe area (see the note in
+    /// `body`).
+    /// Top bar of the reader: back, chapter title, catalogue.
+    ///
+    /// Drawn here rather than in the navigation bar so it can appear and vanish
+    /// with the control panel without touching the top safe area (see the note in
+    /// `body`). Each element is a Liquid Glass capsule, matching the floating panel
+    /// at the bottom — no opaque bar, so the page keeps showing through and the two
+    /// ends of the screen read as the same surface.
+    private var topChrome: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                glassIconButton("chevron.left", label: "返回") {
+                    saveProgress()
+                    dismiss()
+                }
+
+                Spacer(minLength: 0)
+
+                Text(displayTitle)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(theme.text.opacity(0.92))
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background { Color.clear.glassCapsule() }
+
+                Spacer(minLength: 0)
+
+                glassIconButton("list.bullet", label: "目录") {
+                    showCatalog = true
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 10)
+            // A soft gradient scrim behind the capsules. It fades into the page so
+            // the bar does not read as an opaque slab, but still keeps the prose
+            // from colliding with the buttons.
+            .background {
+                LinearGradient(
+                    colors: [theme.background, theme.background.opacity(0.0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea(edges: .top)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// A single glass capsule holding one icon, sized to match the panel buttons.
+    private func glassIconButton(
+        _ systemName: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(theme.text)
+                .frame(width: 40, height: 40)
+                // The glass goes on a background layer rather than on the Button
+                // itself: `glassEffect` on a Button replaces its rendering, which
+                // made the icon (and the whole bar) disappear.
+                .background { Color.clear.glassCapsule(interactive: true) }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
     private var chrome: some View {
         VStack {
             Spacer()
@@ -379,10 +451,10 @@ struct ReaderView: View {
                     } label: {
                         VStack(spacing: 1) {
                             Text("目录")
-                                .font(.caption.weight(.semibold))
+                                .font(.system(size: 12, weight: .semibold))
                             Text("\(model.index + 1)/\(model.chapters.count)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.text.opacity(0.6))
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
@@ -396,7 +468,7 @@ struct ReaderView: View {
                             .frame(width: 40, height: 40)
                     }
                     .prominentGlassButtonShape()
-                    .tint(AppTheme.accent)
+                    .tint(theme.text)
                     .disabled(!model.canGoNext)
                 }
 
@@ -412,35 +484,31 @@ struct ReaderView: View {
                         Slider(value: $lineSpacing, in: 2...16, step: 1)
                     }
                 }
-                .foregroundStyle(.secondary)
+                // Theme-derived rather than `.secondary`: the panel sits on the
+                // reader's own background, and the system colour stayed dark in
+                // night mode and washed out in the paper theme.
+                .foregroundStyle(theme.text.opacity(0.75))
 
                 HStack(spacing: 8) {
-                    // Layout and indentation are the two newest switches, so they
-                    // sit with the other inline controls for quick access.
-                    Button {
+                    // Compact toggle chips rather than bordered buttons: the
+                    // previous style drew a second rounded rectangle inside the
+                    // glass capsule, which looked like a rendering glitch when
+                    // selected.
+                    readerChip(
+                        systemImage: layout.systemImage,
+                        isOn: false
+                    ) {
                         layoutRaw = (layout == .vertical
                             ? ReaderLayout.horizontal
                             : ReaderLayout.vertical).rawValue
-                    } label: {
-                        Label(layout.title, systemImage: layout.systemImage)
-                            .font(.caption)
-                            .labelStyle(.iconOnly)
-                            .frame(width: 30, height: 26)
                     }
-                    .secondaryGlassButtonShape(capsule: false)
 
-                    Button {
+                    readerChip(
+                        systemImage: "text.append",
+                        isOn: indentFirstLine
+                    ) {
                         indentFirstLine.toggle()
-                    } label: {
-                        Image(systemName: "text.append")
-                            .font(.caption)
-                            .frame(width: 30, height: 26)
                     }
-                    .secondaryGlassButtonShape(capsule: false)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(indentFirstLine ? AppTheme.accent : .clear, lineWidth: 2)
-                    )
 
                     Spacer()
 
@@ -450,7 +518,7 @@ struct ReaderView: View {
                         } label: {
                             Circle()
                                 .fill(item.theme.background)
-                                .overlay(Circle().strokeBorder(.white.opacity(0.5), lineWidth: 0.5))
+                                .overlay(Circle().strokeBorder(theme.text.opacity(0.22), lineWidth: 0.5))
                                 .overlay(
                                     Circle()
                                         .strokeBorder(
@@ -466,13 +534,42 @@ struct ReaderView: View {
             }
             .padding(16)
             .glassCard(cornerRadius: 26)
-            // Light enough that the prose stays legible through the panel, which
-            // is now an overlay rather than something the layout makes room for.
-            .opacity(ReaderMetrics.chromeOpacity)
+            // No extra `.opacity` here: the glass material already lets the page
+            // show through, and fading the whole panel made its own controls look
+            // washed out — worst on the selected chips.
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
         .allowsHitTesting(true)
+    }
+
+    /// Compact toggle chip used inside the control panel.
+    ///
+    /// Selection is conveyed by the text/icon colour and a filled capsule rather
+    /// than an extra stroke, so it matches the accent treatment used elsewhere.
+    /// Compact icon-only toggle used inside the control panel.
+    ///
+    /// Colour comes from the reader theme rather than the accent: the panel sits
+    /// on the reader's own background, and blue text there clashed with the rest of
+    /// the bar. Selection is shown by a filled capsule and a stronger tint.
+    private func readerChip(
+        systemImage: String,
+        isOn: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isOn ? theme.text : theme.text.opacity(0.55))
+                .frame(width: 34, height: 28)
+                .background {
+                    Capsule().fill(
+                        isOn ? theme.text.opacity(0.16) : theme.text.opacity(0.06)
+                    )
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func recordProgress() {
