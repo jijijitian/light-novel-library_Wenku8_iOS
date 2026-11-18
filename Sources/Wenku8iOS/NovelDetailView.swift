@@ -43,6 +43,9 @@ final class NovelDetailViewModel: ObservableObject {
             // metadata now, so a book opened once is complete offline.
             guard generation == mine else { return }
             detail = cached
+            // A cached book whose cover was never stored still points at the remote image;
+            // store it in the background so the next visit is fully offline.
+            Task { await service.ensureCachedCover(aid: novelID) }
             let stored = await service.cachedVolumes(aid: novelID) ?? []
             if !stored.isEmpty {
                 volumes = stored

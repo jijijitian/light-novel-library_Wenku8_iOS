@@ -215,13 +215,15 @@ final class AccountStore: ObservableObject {
                 needsCatalogue.append(aid)
                 continue
             }
-            if entry.volumes?.isEmpty ?? true {
+            // A book is only complete when it has a catalogue and a cover on disk; a
+            // missing cover means the page downloads it on every visit.
+            if (entry.volumes?.isEmpty ?? true) || entry.coverFile == nil {
                 needsCatalogue.append(aid)
             }
         }
 
         // A handful per sync keeps the relay's throttle from being starved by this.
-        for aid in needsCatalogue.prefix(4) {
+        for aid in needsCatalogue.prefix(8) {
             await service.cacheDetailFully(aid: aid)
         }
     }

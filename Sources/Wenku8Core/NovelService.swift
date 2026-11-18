@@ -422,14 +422,44 @@ public struct NovelService: Sendable {
         return data
     }
 
+    /// Caches a book's cover if it is missing, leaving everything else alone.
+    ///
+    /// A book cached before covers were stored shows a remote image every time it is
+    /// opened — visible, but never held. This fills that gap once.
+    public func ensureCachedCover(aid: Int) async {
+        guard await offline.coverURL(for: aid) == nil else { return }
+        let detail = await offline.entry(for: aid)?.detail
+        guard let cover = detail?.coverURL, let data = try? await fetchImage(cover) else { return }
+        let file = await offline.saveCover(data, for: aid, remote: cover)
+        await offline.attachCover(file, for: aid)
+    }
+
+    /// Caches a book's metadata, cover and catalogue, fetching only what is missing.
+    ///
+    /// Each piece is skipped when it is already stored: the relay is a volunteer service
+    /// paced at one request every 1.2s, so re-fetching a record that is already on disk
+    /// would starve every other request for no gain.
     public func cacheDetailFully(aid: Int) async {
-        guard let detail = try? await onlineDetail(aid: aid) else { return }
-        var coverFile: String?
-        if let cover = detail.coverURL, let data = try? await fetchImage(cover) {
+        let stored = await offline.entry(for: aid)
+
+        let detail: NovelDetail
+        if let existing = stored?.detail {
+            detail = existing
+        } else if let fetched = try? await onlineDetail(aid: aid) {
+            detail = fetched
+        } else {
+            return
+        }
+
+        var coverFile = stored?.coverFile
+        if coverFile == nil, let cover = detail.coverURL,
+           let data = try? await fetchImage(cover) {
             coverFile = await offline.saveCover(data, for: aid, remote: cover)
         }
         await offline.cacheMetadata(detail, coverFile: coverFile)
-        if let volumes = try? await onlineVolumes(aid: aid) {
+
+        if await offline.cachedVolumes(for: aid) == nil,
+           let volumes = try? await onlineVolumes(aid: aid) {
             await offline.cacheVolumes(volumes, for: aid)
         }
     }
