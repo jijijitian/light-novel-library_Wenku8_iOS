@@ -1,6 +1,17 @@
 import SwiftUI
 import UIKit
 
+/// One-shot instruction to move to a page, identified so it is applied exactly once.
+struct PagerJump: Equatable {
+    let id: UUID
+    let index: Int
+    let animated: Bool
+    /// True when the request comes from the page slider. Paging is suspended for
+    /// those moves so UIKit does not emit its own per-boundary selection feedback.
+    var fromSlider: Bool = false
+}
+
+
 /// Native horizontal pager backed by `UIScrollView`.
 ///
 /// SwiftUI's `.offset` animation only produces as many frames as the state system
@@ -26,9 +37,14 @@ struct NativePager<Page: View>: UIViewRepresentable {
     var onBoundary: (PagerBoundary) -> Void
     /// Taps are routed here with the x position inside the pager.
     var onTap: (CGFloat, CGFloat) -> Void
-    /// Whether the next programmatic index change should slide (a slider jump) or
-    /// snap (a tap, or a fresh chapter).
-    var animateNextMove: Bool = false
+    /// An explicit page request coming from outside the pager (the slider). `nil`
+    /// means "wherever the reader has scrolled to". Chapter loads are handled by the
+    /// content rebuild below, so they do not need this.
+    var jumpRequest: PagerJump?
+    /// Bumped by the caller whenever the rendered text changes for a reason other
+    /// than geometry (font size, line spacing, indentation). The hosted row is keyed
+    /// on it so those updates actually redraw.
+    var contentRevision: Int = 0
     var pageContent: (Int) -> Page
 
     enum PagerBoundary {
@@ -42,10 +58,17 @@ struct NativePager<Page: View>: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIScrollView {
         let scrollView = UIScrollView()
+        // Paging is toggled off while the page slider drives the offset: every
+        // programmatic snap at a page boundary makes the system fire its own
+        // "page settled" feedback, and a slider drag crosses that boundary many
+        // times per second — which the user feels as the phone vibrating.
         scrollView.isPagingEnabled = true
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
-        scrollView.bounces = false
+        // Bouncing must stay on: the boundary check below reads an overscrolled
+        // `contentOffset`, which cannot happen with bouncing disabled.
+        scrollView.bounces = true
+        scrollView.alwaysBounceHorizontal = true
         scrollView.decelerationRate = .fast
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.backgroundColor = .clear
@@ -71,6 +94,10 @@ struct NativePager<Page: View>: UIViewRepresentable {
         )
         tap.delegate = context.coordinator
         scrollView.addGestureRecognizer(tap)
+        // Without this the scroll view never calls back, so the page index stayed at
+        // 0 (the label always read "1/N") and the edge callbacks that step to the
+        // neighbouring chapter never ran.
+        scrollView.delegate = context.coordinator
 
         context.coordinator.scrollView = scrollView
         context.coordinator.applyIndex(pageIndex, animated: false)
@@ -82,7 +109,12 @@ struct NativePager<Page: View>: UIViewRepresentable {
         coordinator.parent = self
 
         let expectedWidth = pageWidth * CGFloat(max(pageCount, 1))
-        let key = Self.contentKey(pages: pageCount, width: expectedWidth, height: pageHeight)
+        let key = Self.contentKey(
+            pages: pageCount,
+            width: expectedWidth,
+            height: pageHeight,
+            revision: contentRevision
+        )
         let needsRebuild = coordinator.contentKey != key
         if needsRebuild {
             coordinator.contentKey = key
@@ -99,19 +131,36 @@ struct NativePager<Page: View>: UIViewRepresentable {
             return
         }
 
-        // Only correct the offset when the index disagrees with where the scroll
-        // view actually is. Writing it unconditionally fought the user's drag and
-        // made the page jitter — most visibly on two-page chapters, where a
-        // sub-pixel mismatch is a whole page.
-        let current = coordinator.currentPage(scrollView)
-        guard current != pageIndex else { return }
-        coordinator.move(to: pageIndex, animated: animateNextMove)
+        // Never reposition the scroll view from here. `updateUIView` runs on any
+        // SwiftUI invalidation — showing the menu, changing the theme — and writing
+        // the offset then snapped the reader back to the page the model happened to
+        // believe it was on. The scroll view is the source of truth for where the
+        // reader is; explicit jumps (slider, chapter load) go through `move`/`snap`
+        // from the code paths that actually intend them.
+        // A slider jump is the one case where the pager must move itself.
+        if let jump = jumpRequest, coordinator.lastAppliedJump != jump.id {
+            coordinator.lastAppliedJump = jump.id
+            coordinator.setPagingSuspended(jump.fromSlider)
+            coordinator.move(to: jump.index, animated: jump.animated)
+            if jump.fromSlider {
+                // Restore paging once the slider settles, so normal swiping keeps
+                // its snap-and-feedback behaviour.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak coordinator] in
+                    coordinator?.setPagingSuspended(false)
+                }
+            }
+        }
     }
 
     /// Cache key for the hosted row: content must be rebuilt when the number of
     /// pages changes, not only when the geometry does.
-    static func contentKey(pages: Int, width: CGFloat, height: CGFloat) -> String {
-        "\(pages)|\(Int(width))|\(Int(height))"
+    static func contentKey(
+        pages: Int,
+        width: CGFloat,
+        height: CGFloat,
+        revision: Int
+    ) -> String {
+        "\(pages)|\(Int(width))|\(Int(height))|\(revision)"
     }
 
     private func pageRow() -> some View {
@@ -131,6 +180,9 @@ struct NativePager<Page: View>: UIViewRepresentable {
         var host: UIHostingController<AnyView>?
         /// Identifies the currently hosted content so it is rebuilt on real changes.
         var contentKey: String?
+        /// Id of the last `jumpRequest` applied, so repeated `updateUIView` calls do
+        /// not re-apply the same jump.
+        var lastAppliedJump: UUID?
         /// Set while we move the scroll view ourselves, so the delegate does not
         /// report our own motion as a user turn.
         private var isProgrammatic = false
@@ -170,19 +222,41 @@ struct NativePager<Page: View>: UIViewRepresentable {
             }
         }
 
+        /// Suspends `.paging` while the slider drives the offset.
+        ///
+        /// `isPagingEnabled` makes UIKit emit its own selection feedback whenever
+        /// the content settles on a page boundary. A slider drag crosses those
+        /// boundaries continuously, so the feedback fired in a burst — the physical
+        /// vibration. Paging is restored as soon as the drag finishes.
+        func setPagingSuspended(_ suspended: Bool) {
+            guard let scrollView else { return }
+            scrollView.isPagingEnabled = !suspended
+        }
+
         /// Jumps immediately — used when the pages themselves were just replaced.
         func snap(to index: Int) {
             guard let scrollView, parent.pageWidth > 0 else { return }
             isProgrammatic = true
             scrollView.setContentOffset(offset(for: index), animated: false)
             lastReportedIndex = index
-            isProgrammatic = false
+            // `setContentOffset` notifies the delegate synchronously in some cases,
+            // so the flag is cleared on the next run loop — otherwise `didScroll`
+            // would treat our own jump as a user turn and write back an index that
+            // may already be stale.
+            DispatchQueue.main.async { [weak self] in
+                self?.isProgrammatic = false
+            }
         }
 
         /// Slides to a page over a fixed duration.
         func move(to index: Int, animated: Bool) {
             guard let scrollView, parent.pageWidth > 0 else { return }
             let target = offset(for: index)
+            // A new move must supersede any move still in flight. Without this the
+            // previous animation's completion fires late and clears
+            // `isProgrammatic` while the newer one is still running, which lets the
+            // delegate treat our own scroll as a user turn.
+            scrollView.layer.removeAllAnimations()
             if animated {
                 isProgrammatic = true
                 UIView.animate(
@@ -218,16 +292,18 @@ struct NativePager<Page: View>: UIViewRepresentable {
             }
         }
 
-        /// A drag that ends past either edge steps to the neighbouring chapter.
+        /// A drag released at either edge steps to the neighbouring chapter.
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate: Bool) {
             guard !isProgrammatic else { return }
-            let offsetX = scrollView.contentOffset.x
-            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
-            // Overscroll past the edge: `contentOffset` goes negative before the
-            // first page and past `maxOffset` after the last one.
-            if offsetX < -12 {
+            let page = currentPage(scrollView)
+            let atFirst = page == 0
+            let atLast = page == max(parent.pageCount - 1, 0)
+            let pull = scrollView.contentOffset.x - CGFloat(page) * parent.pageWidth
+            // A drag that moved the content backwards at the first page, or forwards
+            // at the last one, is a request for the neighbouring chapter.
+            if atFirst && pull < -24 {
                 parent.onBoundary(.before)
-            } else if offsetX > maxOffset + 12 {
+            } else if atLast && pull > 24 {
                 parent.onBoundary(.after)
             }
         }

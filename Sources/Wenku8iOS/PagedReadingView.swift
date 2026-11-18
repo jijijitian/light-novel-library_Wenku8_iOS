@@ -14,6 +14,7 @@ struct PagedReadingView: View {
     var theme: ReaderTheme
     var fontSize: Double
     var lineSpacing: Double
+    var paragraphSpacing: Double
     var indent: CGFloat
     /// User-tunable breathing room, shared with the vertical mode.
     var topInset: Double
@@ -33,8 +34,11 @@ struct PagedReadingView: View {
     @State private var landOnLastPage = false
     var onLongPressImage: (URL) -> Void
 
-    /// Passed to the native pager so a slider jump slides instead of snapping.
-    @State private var pagerAnimatesNextMove = false
+    /// One-shot instruction for the native pager (slider jumps only).
+    @State private var jumpRequest: PagerJump?
+    /// Bumped whenever the rendered text changes without changing the page count
+    /// (font size, line spacing, indent), so the hosted row redraws.
+    @State private var contentRevision = 0
     @State private var pageIndex = 0
     @State private var pages: [ChapterPaginator.Page] = []
     @State private var measuredSize: CGSize = .zero
@@ -89,17 +93,36 @@ struct PagedReadingView: View {
                 landOnLastPage = false
                 updatePageLabel()
             }
-            .onChange(of: fontSize) { _, _ in rebuild(size: size) }
-            .onChange(of: lineSpacing) { _, _ in rebuild(size: size) }
-            .onChange(of: indent) { _, _ in rebuild(size: size) }
+            .onChange(of: fontSize) { _, _ in
+                rebuild(size: size)
+                contentRevision += 1
+            }
+            .onChange(of: lineSpacing) { _, _ in
+                rebuild(size: size)
+                contentRevision += 1
+            }
+            .onChange(of: paragraphSpacing) { _, _ in
+                rebuild(size: size)
+                contentRevision += 1
+            }
+            .onChange(of: theme) { _, _ in
+                // Colours changed but the pagination did not: bump the revision so
+                // the hosted row redraws with the new text colour.
+                contentRevision += 1
+            }
+            .onChange(of: indent) { _, _ in
+                rebuild(size: size)
+                contentRevision += 1
+            }
             // Keep the reported label in sync as pages turn; without this the label
             // stayed at its first value for the whole chapter.
             .onChange(of: pageIndex) { _, _ in updatePageLabel() }
             // Applies a page jump requested by the slider.
             .onChange(of: requestedPage) { _, newValue in
                 guard let newValue, pages.indices.contains(newValue) else { return }
-                // Slider jumps glide; taps and chapter loads snap.
-                pagerAnimatesNextMove = true
+                // Slider jumps glide. `fromSlider` suspends paging for the duration
+                // so UIKit does not add its own per-boundary feedback on top.
+                jumpRequest = PagerJump(id: UUID(), index: newValue, animated: true, fromSlider: true)
                 pageIndex = newValue
                 requestedPage = nil
             }
@@ -198,7 +221,7 @@ struct PagedReadingView: View {
 
     @ViewBuilder
     private func pageContent(_ page: ChapterPaginator.Page) -> some View {
-        VStack(alignment: .leading, spacing: ChapterPaginator.paragraphSpacing) {
+        VStack(alignment: .leading, spacing: paragraphSpacing) {
             ForEach(Array(page.blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .paragraph(let text):
@@ -246,7 +269,8 @@ struct PagedReadingView: View {
             onTap: { x, width in
                 handleTap(at: CGPoint(x: x, y: 0), width: width)
             },
-            animateNextMove: pagerAnimatesNextMove
+            jumpRequest: jumpRequest,
+            contentRevision: contentRevision
         ) { index in
             // `@ViewBuilder` inside the closure is not inferred across the
             // representable boundary, so the branch is spelled out as one type.
@@ -286,6 +310,7 @@ struct PagedReadingView: View {
             lineSpacing: lineSpacing,
             indent: indent,
             textColor: UIColor(theme.text),
+            paragraphSpacing: paragraphSpacing,
             title: displayTitle,
             titleFont: Self.titleFont
         )
@@ -353,7 +378,12 @@ struct PagedReadingView: View {
     /// One page forward; only at the end of the chapter does this load the next.
     private func advance() {
         if pageIndex + 1 < pages.count {
-            pageIndex += 1
+            let target = pageIndex + 1
+            // The scroll view owns the offset now, so the index alone is not enough:
+            // a jump request is what actually moves the page. Taps snap (no
+            // animation), which is why `animated: false`.
+            jumpRequest = PagerJump(id: UUID(), index: target, animated: false)
+            pageIndex = target
             updatePageLabel()
         } else if model.canGoNext {
             landOnLastPage = false
@@ -365,7 +395,9 @@ struct PagedReadingView: View {
 
     private func retreat() {
         if pageIndex > 0 {
-            pageIndex -= 1
+            let target = pageIndex - 1
+            jumpRequest = PagerJump(id: UUID(), index: target, animated: false)
+            pageIndex = target
             updatePageLabel()
         } else if model.canGoPrevious {
             landOnLastPage = true

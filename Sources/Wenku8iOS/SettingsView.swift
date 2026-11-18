@@ -14,7 +14,8 @@ struct SettingsView: View {
     @State private var offlineBytes: Int64 = 0
     private let relayStore = RelayCredentialStore.shared
     @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
-    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
+    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = ReaderPreferences.defaultLineSpacing
+    @AppStorage(ReaderPreferences.paragraphSpacingKey) private var paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
     @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
     @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
     @AppStorage(ReaderPreferences.collapsedInfoKey) private var collapsedInfo = true
@@ -48,7 +49,7 @@ struct SettingsView: View {
                         Spacer()
                         Text("\(Int(fontSize)) pt").foregroundStyle(.secondary)
                     }
-                    Slider(value: $fontSize, in: 14...28, step: 1)
+                    Slider(value: $fontSize, in: ReaderPreferences.fontSizeRange, step: 1)
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -56,8 +57,33 @@ struct SettingsView: View {
                         Spacer()
                         Text("\(Int(lineSpacing))").foregroundStyle(.secondary)
                     }
-                    Slider(value: $lineSpacing, in: 2...16, step: 1)
+                    Slider(value: $lineSpacing, in: ReaderPreferences.lineSpacingRange, step: 1)
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("段间距", systemImage: "text.justify.leading")
+                        Spacer()
+                        Text("\(Int(paragraphSpacing))").foregroundStyle(.secondary)
+                    }
+                    Slider(
+                        value: $paragraphSpacing,
+                        in: ReaderPreferences.paragraphSpacingRange,
+                        step: 1
+                    )
+                }
+
+                Button {
+                    fontSize = ReaderPreferences.defaultFontSize
+                    lineSpacing = ReaderPreferences.defaultLineSpacing
+                    paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
+                } label: {
+                    Label("恢复默认字号与间距", systemImage: "arrow.counterclockwise")
+                }
+                .disabled(
+                    fontSize == ReaderPreferences.defaultFontSize
+                        && lineSpacing == ReaderPreferences.defaultLineSpacing
+                        && paragraphSpacing == ReaderPreferences.defaultParagraphSpacing
+                )
 
                 // A segmented Picker bound to @AppStorage does not reliably
                 // re-read the stored value inside a Form on iOS 26+, so the

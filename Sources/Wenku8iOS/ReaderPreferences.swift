@@ -33,6 +33,19 @@ enum ReaderPreferences {
     static let indentKey = "reader.indentFirstLine"
     static let fontSizeKey = "reader.fontSize"
     static let lineSpacingKey = "reader.lineSpacing"
+    static let paragraphSpacingKey = "reader.paragraphSpacing"
+
+    // MARK: - Defaults
+    //
+    // Kept here so Settings can offer "restore defaults" without duplicating the
+    // numbers in three places.
+    static let defaultFontSize: Double = 18
+    static let defaultLineSpacing: Double = 8
+    static let defaultParagraphSpacing: Double = 18
+
+    static let fontSizeRange: ClosedRange<Double> = 14...28
+    static let lineSpacingRange: ClosedRange<Double> = 2...16
+    static let paragraphSpacingRange: ClosedRange<Double> = 4...40
     static let themeKey = "reader.theme"
     /// Whether the faint title/page text is drawn while the menu is hidden.
     static let collapsedInfoKey = "reader.collapsedInfo"

@@ -146,7 +146,8 @@ struct ReaderView: View {
 
     @AppStorage(ReaderPreferences.themeKey) private var themeName = "纸白"
     @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
-    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = 8.0
+    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = ReaderPreferences.defaultLineSpacing
+    @AppStorage(ReaderPreferences.paragraphSpacingKey) private var paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
     @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
     @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
     @AppStorage(ReaderPreferences.collapsedInfoKey) private var collapsedInfoEnabled = true
@@ -191,6 +192,7 @@ struct ReaderView: View {
                     theme: theme,
                     fontSize: fontSize,
                     lineSpacing: lineSpacing,
+                    paragraphSpacing: paragraphSpacing,
                     indent: indentFirstLine ? ReaderPreferences.indent(for: fontSize) : 0,
                     topInset: topInset + Double(Self.topBarHeight),
                     bottomInset: bottomInset,
@@ -246,7 +248,7 @@ struct ReaderView: View {
     @ViewBuilder
     private var verticalContent: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: ChapterPaginator.paragraphSpacing) {
+            VStack(alignment: .leading, spacing: paragraphSpacing) {
                 chapterTitle
 
                 if let content = model.content {
@@ -581,16 +583,28 @@ struct ReaderView: View {
                     .disabled(!model.canGoNext)
                 }
 
+                // Paragraph spacing moved to Settings along with page-turn mode and
+                // first-line indent: it re-paginates the chapter, so changing it
+                // mid-read loses the position. Font size and line spacing stay here
+                // because the reader tunes those while reading.
                 HStack(spacing: 12) {
                     HStack(spacing: 8) {
                         Image(systemName: "textformat.size")
                             .font(.caption)
-                        Slider(value: $fontSize, in: 14...28, step: 1)
+                        Slider(
+                            value: $fontSize,
+                            in: ReaderPreferences.fontSizeRange,
+                            step: 1
+                        )
                     }
                     HStack(spacing: 8) {
                         Image(systemName: "text.alignleft")
                             .font(.caption)
-                        Slider(value: $lineSpacing, in: 2...16, step: 1)
+                        Slider(
+                            value: $lineSpacing,
+                            in: ReaderPreferences.lineSpacingRange,
+                            step: 1
+                        )
                     }
                 }
                 // Theme-derived rather than `.secondary`: the panel sits on the
@@ -598,10 +612,9 @@ struct ReaderView: View {
                 // night mode and washed out in the paper theme.
                 .foregroundStyle(theme.text.opacity(0.75))
 
+                // Theme swatches now occupy the row the paragraph-spacing control
+                // used to sit in.
                 HStack(spacing: 8) {
-                    // Page-turn mode and first-line indent live in Settings rather
-                    // than here: changing either re-paginates the chapter, which
-                    // loses the reading position and breaks the immersive flow.
                     Spacer()
 
                     ForEach(ReaderTheme.all, id: \.name) { item in

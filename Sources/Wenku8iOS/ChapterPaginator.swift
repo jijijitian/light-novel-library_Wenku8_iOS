@@ -14,7 +14,9 @@ enum ChapterPaginator {
     /// `VStack` that renders the page, so the two can never drift apart (a mismatch
     /// made CoreText fit one line more than SwiftUI could draw, clipping the last
     /// line of every page).
-    static let paragraphSpacing: CGFloat = 18
+    /// Default gap between paragraphs. The live value comes from
+    /// `ReaderPreferences.paragraphSpacingKey` and is passed through `attributes`.
+    static let defaultParagraphSpacing: CGFloat = 18
 
     /// One page of content.
     struct Page: Identifiable {
@@ -29,6 +31,7 @@ enum ChapterPaginator {
         lineSpacing: CGFloat,
         indent: CGFloat,
         textColor: UIColor,
+        paragraphSpacing: CGFloat = defaultParagraphSpacing,
         /// Chapter title, laid out on the first page with `titleFont` and the same
         /// first-line indent as the prose.
         title: String = "",
@@ -54,8 +57,9 @@ enum ChapterPaginator {
                 attributes: attributes(
                     fontSize: fontSize,
                     lineSpacing: lineSpacing,
-                    indent: 0,
+                    indent: indent,
                     textColor: textColor,
+                    paragraphSpacing: paragraphSpacing,
                     fontOverride: titleFont
                 )
             ))
@@ -83,7 +87,8 @@ enum ChapterPaginator {
                 fontSize: fontSize,
                 lineSpacing: lineSpacing,
                 indent: indent,
-                textColor: textColor
+                textColor: textColor,
+                paragraphSpacing: paragraphSpacing
             ))
             pendingText = []
             paraStarts = []
@@ -107,8 +112,9 @@ enum ChapterPaginator {
                     display,
                     fontSize: fontSize,
                     lineSpacing: lineSpacing,
-                    indent: 0,
-                    textColor: textColor
+                    indent: indent,
+                    textColor: textColor,
+                    paragraphSpacing: paragraphSpacing
                 ))
                 buffer.append(NSAttributedString(
                     string: "\n",
@@ -116,7 +122,8 @@ enum ChapterPaginator {
                         fontSize: fontSize,
                         lineSpacing: lineSpacing,
                         indent: 0,
-                        textColor: textColor
+                        textColor: textColor,
+                        paragraphSpacing: paragraphSpacing
                     )
                 ))
             case .image(let url):
@@ -141,7 +148,8 @@ enum ChapterPaginator {
         fontSize: CGFloat,
         lineSpacing: CGFloat,
         indent: CGFloat,
-        textColor: UIColor
+        textColor: UIColor,
+        paragraphSpacing: CGFloat
     ) -> [[ChapterContent.Block]] {
         let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
         let path = CGPath(
@@ -192,12 +200,13 @@ enum ChapterPaginator {
         lineSpacing: CGFloat,
         indent: CGFloat,
         textColor: UIColor,
+        paragraphSpacing: CGFloat = defaultParagraphSpacing,
         fontOverride: UIFont? = nil
     ) -> [NSAttributedString.Key: Any] {
         let style = NSMutableParagraphStyle()
         style.firstLineHeadIndent = indent
         style.lineSpacing = lineSpacing
-        style.paragraphSpacing = Self.paragraphSpacing
+        style.paragraphSpacing = paragraphSpacing
         style.lineBreakMode = .byWordWrapping
         return [
             .font: fontOverride ?? UIFont.systemFont(ofSize: fontSize),
@@ -211,7 +220,8 @@ enum ChapterPaginator {
         fontSize: CGFloat,
         lineSpacing: CGFloat,
         indent: CGFloat,
-        textColor: UIColor
+        textColor: UIColor,
+        paragraphSpacing: CGFloat
     ) -> NSAttributedString {
         NSAttributedString(
             string: text,
@@ -219,7 +229,8 @@ enum ChapterPaginator {
                 fontSize: fontSize,
                 lineSpacing: lineSpacing,
                 indent: indent,
-                textColor: textColor
+                textColor: textColor,
+                paragraphSpacing: paragraphSpacing
             )
         )
     }
