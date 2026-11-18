@@ -33,6 +33,14 @@ final class HomeViewModel: ObservableObject {
     /// The in-flight load is cancelled first, because letting two run would halve the
     /// throttle slots between them and make both slower; the reader asked for a refresh,
     /// so their request wins.
+    /// Minimum time the refresh indicator stays up.
+    ///
+    /// A refresh over a warm connection can finish in a few hundred milliseconds, and the
+    /// indicator retracted before the reader could see it — indistinguishable from the
+    /// gesture being ignored. The wait is a floor, not a delay: a slow refresh is not
+    /// extended by it.
+    private static let minimumRefreshDuration: Duration = .milliseconds(900)
+
     func refresh() async {
         loadTask?.cancel()
         loadTask = nil
@@ -40,7 +48,15 @@ final class HomeViewModel: ObservableObject {
         // safe to admit the replacement.
         generation &+= 1
         isFetching = false
+
+        // Keep the indicator visible for a perceptible minimum, whether the fetch was fast
+        // or failed.
+        let started = ContinuousClock.now
         await reload()
+        let elapsed = ContinuousClock.now - started
+        if elapsed < Self.minimumRefreshDuration {
+            try? await Task.sleep(for: Self.minimumRefreshDuration - elapsed)
+        }
     }
 
     /// Starts the first load detached from the view's lifetime.
