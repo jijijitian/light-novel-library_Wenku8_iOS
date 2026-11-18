@@ -191,6 +191,11 @@ public final class RelayClient: @unchecked Sendable {
         do {
             (data, response) = try await session.data(for: urlRequest)
         } catch {
+            #if DEBUG
+            // The relay fails once in a while at launch, and without this the only
+            // symptom was a section silently missing from the home page.
+            print("[relay] \(request.prefix(40)) failed: \(error)")
+            #endif
             throw RelayError.http(Wenku8Client.describe(error))
         }
 

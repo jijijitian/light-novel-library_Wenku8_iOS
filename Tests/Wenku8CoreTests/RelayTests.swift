@@ -352,4 +352,11 @@ final class RelayRankLiveTests: XCTestCase {
         // Every row must carry an id and a title; an empty card is unopenable.
         XCTAssertTrue(items.allSatisfy { $0.id > 0 && !$0.title.isEmpty })
     }
+
+    func testLiveDayVisitFixtureParses() throws {
+        let xml = try fixture("relay-dayvisit-live.xml")
+        let items = RelayParser.summaries(xml)
+        XCTAssertEqual(items.count, 10, "dayvisit listing must parse into ten rows")
+        XCTAssertEqual(items.first?.id, 3057)
+    }
 }

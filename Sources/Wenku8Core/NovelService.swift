@@ -170,14 +170,23 @@ public struct NovelService: Sendable {
     ) async -> [HomeRow] {
         if relayIsAvailable {
             var rows: [HomeRow] = []
-            for section in HomeSection.allCases {
+            // 最近更新 goes first by design. It is the page's second section but the first
+            // request, so the cold-start cost of the very first relay call — DNS, TLS and
+            // the throttle's initial slot — is paid by a section the banner does not
+            // depend on. When 今日热榜 went first it could lose that race and take the banner
+            // down with it, which looked like "热榜 empty, everything else fine".
+            for section in [HomeSection.latest, .hot, .newcomer, .weekly] {
                 let items = await homeSectionItems(section)
                 guard !items.isEmpty else { continue }
                 let row = HomeRow(section: section, items: items)
                 rows.append(row)
                 await onRow(row)
             }
-            return rows
+            // Handed back in page order regardless of fetch order, so the caller's final
+            // assignment (if it ever uses it) matches what is on screen.
+            return HomeSection.allCases.compactMap { section in
+                rows.first { $0.section == section }
+            }
         }
         // The website path parses one page, so it is all-or-nothing by nature.
         let rows = (try? await homeRows()) ?? []
@@ -186,14 +195,28 @@ public struct NovelService: Sendable {
     }
 
     /// One section's books, retried once.
+    ///
+    /// A cancelled request is not retried and not reported as "no data": the task that
+    /// owned it went away (the view was rebuilt), so the work is simply moot. Retrying a
+    /// cancellation previously spent a second throttled slot and could knock out the
+    /// sections queued behind it.
     private func homeSectionItems(_ section: HomeSection) async -> [NovelSummary] {
         let sort = section.board.rawValue
-        if let items = await relayNovelList(sort: sort, page: 1), !items.isEmpty {
-            return items
+        // Three attempts with a growing pause. The first request of a session carries the
+        // cold-start cost (DNS, TLS), and it failed often enough to leave 今日热榜 — and the
+        // banner built from it — empty until a manual refresh. Extra attempts are cheap
+        // next to a missing section, and a section that is genuinely unavailable still
+        // gives up after the third.
+        for attempt in 0..<3 {
+            if Task.isCancelled { return [] }
+            if let page = await relayNovelListPage(sort: sort, page: 1), !page.novels.isEmpty {
+                return page.novels
+            }
+            if attempt < 2 {
+                try? await Task.sleep(nanoseconds: UInt64(400_000 * (attempt + 1)))
+            }
         }
-        // A single retry: the relay occasionally answers too slowly under load, and one
-        // lost section is visible to the reader as a missing row.
-        return await relayNovelList(sort: sort, page: 1) ?? []
+        return []
     }
 
     private func fallbackHomeRows() async throws -> [HomeRow] {

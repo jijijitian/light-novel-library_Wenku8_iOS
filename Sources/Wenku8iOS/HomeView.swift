@@ -9,6 +9,10 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var isLoading = true
     /// Guards against overlapping fetches, separately from the display flag.
     private var isFetching = false
+    /// The load started by `startLoadingIfNeeded`, so a refresh can supersede it.
+    private var loadTask: Task<Void, Never>?
+    /// Monotonic counter identifying the current load.
+    private var generation = 0
     @Published private(set) var error: Error?
     @Published private(set) var lastUpdated: Date?
 
@@ -24,16 +28,50 @@ final class HomeViewModel: ObservableObject {
         await reload()
     }
 
+    /// A user-initiated refresh: always performs a fetch, even if one is in flight.
+    ///
+    /// The in-flight load is cancelled first, because letting two run would halve the
+    /// throttle slots between them and make both slower; the reader asked for a refresh,
+    /// so their request wins.
+    func refresh() async {
+        loadTask?.cancel()
+        loadTask = nil
+        // Bump first, so the superseded load cannot clear the new one's state; then it is
+        // safe to admit the replacement.
+        generation &+= 1
+        isFetching = false
+        await reload()
+    }
+
+    /// Starts the first load detached from the view's lifetime.
+    func startLoadingIfNeeded() {
+        guard !hasLoaded, !isFetching else { return }
+        loadTask = Task { await reload() }
+    }
+
+    /// Reloads the page.
+    ///
+    /// Existing rows are kept while the refresh runs. Clearing them first made a
+    /// pull-to-refresh blank the whole page and then wait for the network — the content
+    /// the reader was looking at vanished instead of being replaced. Each section is
+    /// swapped as its new copy arrives; a section whose refresh fails keeps what it had.
     func reload() async {
         // No re-entry guard on `isLoading`: it starts true so the skeleton is drawn from
         // the first frame, and guarding on it would mean the initial load never ran.
         guard !isFetching else { return }
         isFetching = true
-        isLoading = true
-        rows = []
+        // Every load carries a generation. A cancelled load's `defer` runs after its
+        // replacement has already started, so without this it would clear the new load's
+        // flags and leave the page thinking it is idle.
+        generation &+= 1
+        let mine = generation
+        isLoading = rows.isEmpty
         defer {
-            isLoading = false
-            isFetching = false
+            // Only the newest load may clear the flags.
+            if generation == mine {
+                isLoading = false
+                isFetching = false
+            }
         }
 
         // Rows are appended as each section arrives, top-down, so the top of the page is
@@ -47,11 +85,17 @@ final class HomeViewModel: ObservableObject {
         _ = await service.homeRowsStreaming { [weak self] row in
             guard let self else { return }
             await MainActor.run {
-                if !self.rows.contains(where: { $0.section == row.section }) {
+                // Replace the existing row for this section, or append it. Replacing
+                // keeps the page in its canonical order as sections come back.
+                if let index = self.rows.firstIndex(where: { $0.section == row.section }) {
+                    self.rows[index] = row
+                } else {
                     self.rows.append(row)
                 }
             }
         }
+        // Only an empty page is an error; a refresh that kept earlier rows is a partial
+        // success and must not replace the page with an error view.
         error = rows.isEmpty ? Wenku8Error.unavailable("首页内容暂时无法载入") : nil
         lastUpdated = Date()
         hasLoaded = true
@@ -90,8 +134,15 @@ struct HomeView: View {
         }
         .background { AppBackground() }
         .navigationTitle("轻小说文库")
-        .refreshable { await model.reload() }
-        .task { await model.loadIfNeeded() }
+        // A pull-to-refresh must always run. The previous version could be swallowed by
+        // the re-entry guard while an earlier load was still retrying, so the indicator
+        // appeared and immediately retracted with nothing having happened.
+        .refreshable { await model.refresh() }
+        // Not `.task`: it is cancelled when the view is rebuilt, which happens when the
+        // tab changes or the parent re-renders. The load owns the first section, so
+        // cancelling it left 今日热榜 — and the banner built from it — permanently empty
+        // until a manual refresh.
+        .onAppear { model.startLoadingIfNeeded() }
     }
 
     /// The banner, or its placeholder while the first section is on its way.
