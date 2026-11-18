@@ -79,8 +79,11 @@ struct ShelfView: View {
         // Entering the page refreshes the cloud shelf, so the app and the website
         // agree on what is on it.
         .task {
+            // Paint from cache first, then refresh in the background. Awaiting the
+            // network before showing anything made every visit to this tab look like a
+            // reload, even when the contents were already on disk.
             account.restoreCachedShelf()
-            await syncNow()
+            await syncInBackground()
         }
         .refreshable { await syncNow() }
         .toolbar {
@@ -122,7 +125,8 @@ struct ShelfView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Button {
-                        Task { await account.syncShelf() }
+                        // Full two-way sync, so the local shelf is uploaded too.
+                        Task { await syncNow() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                             .font(.footnote)
@@ -228,6 +232,15 @@ struct ShelfView: View {
     /// Two-way sync, passing the local shelf as a single snapshot.
     private func syncNow() async {
         await account.syncWithLocalShelf(store.saved.map(\.id))
+    }
+
+    /// Refreshes without clearing what is already on screen.
+    ///
+    /// `syncWithLocalShelf` only replaces rows when the fetch succeeds, so cached
+    /// contents stay visible while the refresh runs rather than flashing to a
+    /// placeholder and back.
+    private func syncInBackground() async {
+        await syncNow()
     }
 
     private func relative(_ date: Date) -> String {

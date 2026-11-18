@@ -108,6 +108,7 @@ final class AccountStore: ObservableObject {
     ) {
         remoteShelf = page.entries
         remoteNovels = page.entries.map(\.novel)
+        isShowingCachedShelf = false
         if let reported = page.reportedCount {
             shelfGroupCounts[classID] = reported
         } else {
@@ -149,6 +150,10 @@ final class AccountStore: ObservableObject {
 
     private var countsKey: String { "wenku8.shelfCounts" }
 
+    /// True when the group currently shown came from the cache and has not been
+    /// replaced by a fresh fetch yet.
+    @Published private(set) var isShowingCachedShelf = false
+
     /// Loads a cached group. Returns false when nothing was cached.
     @discardableResult
     func loadCachedShelf(classID: Int) -> Bool {
@@ -158,6 +163,7 @@ final class AccountStore: ObservableObject {
         }
         remoteShelf = entries
         remoteNovels = entries.map(\.novel)
+        isShowingCachedShelf = true
         return true
     }
 
