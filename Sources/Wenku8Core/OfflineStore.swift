@@ -135,6 +135,17 @@ public actor OfflineStore {
 
     // MARK: - Reading
 
+    /// Books that are actually downloaded, meaning something of them can be read offline.
+    ///
+    /// `entries()` returns every manifest, which includes books that were merely opened:
+    /// their metadata is cached but no chapter is. Those belong on the metadata screen, not
+    /// on a list of downloads, and showing them there implied a download that never
+    /// happened.
+    public func downloadedEntries() -> [Entry] {
+        entries().filter(\.hasDownloadedChapters)
+    }
+
+    /// Every manifest, downloaded or metadata only.
     public func entries() -> [Entry] {
         guard let dirs = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
             return []

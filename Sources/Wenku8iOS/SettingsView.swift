@@ -69,7 +69,7 @@ struct SettingsView: View {
                         Text(offlineSummary)
                             .foregroundStyle(.secondary)
                     } label: {
-                        Label("已下载小说", systemImage: "arrow.down.circle")
+                        Label("离线缓存", systemImage: "arrow.down.circle")
                     }
                 }
 
@@ -238,11 +238,15 @@ struct SettingsView: View {
     }
 
     private func refreshOffline() async {
-        let entries = await OfflineStore.shared.entries()
-        offlineCount = entries.count
-        offlineBytes = await OfflineStore.shared.totalBytes()
+        // Two separate tallies: what can be read offline, and what is only described.
+        let downloaded = await OfflineStore.shared.downloadedEntries()
+        offlineCount = downloaded.count
+        // Only the downloaded books' own bytes, so this figure does not silently include
+        // the metadata cache reported on the row below.
+        offlineBytes = downloaded.reduce(0) { $0 + $1.bytes }
 
-        let metadataOnly = entries.filter { $0.chapterIDs.isEmpty && $0.detail != nil }
+        let all = await OfflineStore.shared.entries()
+        let metadataOnly = all.filter { $0.detail != nil && !$0.hasDownloadedChapters }
         metadataCount = metadataOnly.count
         metadataBytes = formatBytes(metadataOnly.reduce(0) { $0 + $1.bytes })
     }

@@ -136,7 +136,9 @@ struct OfflineLibraryView: View {
     }
 
     private func refresh() async {
-        entries = await OfflineStore.shared.entries()
+        // Downloads only. A book that was opened once has cached metadata but no chapters,
+        // and listing it here claimed a download that never happened.
+        entries = await OfflineStore.shared.downloadedEntries()
         totalBytes = await OfflineStore.shared.totalBytes()
     }
 
