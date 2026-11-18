@@ -36,8 +36,6 @@ struct PagedReadingView: View {
     /// True while the reader itself is moving the scroll view, so its position
     /// reports are not treated as user turns.
     @State private var isProgrammaticScroll = false
-    /// Page width, used to map a tap to its third of the screen.
-    @State private var measuredWidth: CGFloat = 0
     var onLongPressImage: (URL) -> Void
 
     @State private var pageIndex = 0
@@ -56,7 +54,6 @@ struct PagedReadingView: View {
             // adding `safeAreaInsets.top` here would double-count it and push the
             // first line far down the page. Only our own padding is added.
             let topPadding = CGFloat(topInset) + Self.topPadding
-            let _ = { measuredWidth = proxy.size.width }()
             let footerHeight: CGFloat = 0
             let size = CGSize(
                 width: proxy.size.width - Self.horizontalPadding * 2,
@@ -227,15 +224,21 @@ struct PagedReadingView: View {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
-        // Novella's tap zones: the outer 30% on each side turns the page, the
-        // middle 40% toggles the menu. A `SpatialTapGesture` is needed because the
-        // action has to know *where* the tap landed.
-        .gesture(
-            SpatialTapGesture()
-                .onEnded { value in
-                    handleTap(at: value.location, width: measuredWidth)
-                }
-        )
+        // The tap layer needs the page's real width to know which third was hit.
+        // It is read here rather than stored in `@State` from `body` (which mutated
+        // state during layout and made the gesture unreliable).
+        .overlay {
+            GeometryReader { geo in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                handleTap(at: value.location, width: geo.size.width)
+                            }
+                    )
+            }
+        }
     }
 
     /// Routes a tap to a page turn or the menu, following Novella's proportions.
@@ -254,6 +257,49 @@ struct PagedReadingView: View {
         }
     }
 
+    /// Applies `.onScrollPhaseChange` on iOS 18+ and does nothing earlier.
+    ///
+    /// The property only exists from iOS 18, but the deployment target is 17. On 17
+    /// the chapter boundary is still reachable through the drag gesture fallback.
+    private struct ScrollSettleObserver: ViewModifier {
+        var onSettle: () -> Void
+
+        func body(content: Content) -> some View {
+            if #available(iOS 18.0, *) {
+                content.onScrollPhaseChange { oldPhase, newPhase in
+                    guard newPhase == .idle,
+                          oldPhase == .decelerating || oldPhase == .interacting else { return }
+                    onSettle()
+                }
+            } else {
+                content
+            }
+        }
+    }
+
+    /// Read-only view of the scroll position. Reporting back into it while the
+    /// finger is down made the pager fight itself.
+    private var pageScrollID: Binding<Int?> {
+        Binding(
+            get: { pageIndex },
+            set: { newValue in
+                guard let newValue, !isProgrammaticScroll else { return }
+                // A settle at a neighbouring index is a normal turn.
+                if newValue != pageIndex {
+                    pageIndex = newValue
+                }
+            }
+        )
+    }
+
+    /// Called once the scroll settles.
+    ///
+    /// Only keeps the reported page label in sync; chapter boundaries are handled by
+    /// `advance`/`retreat`, which the drag gesture and the tap zones both call.
+    private func handleScrollSettled(size: CGSize, topPadding: CGFloat) {
+        updatePageLabel()
+    }
+
     /// Horizontal pager built on a `ScrollView` rather than a paged `TabView`.
     ///
     /// A paged `TabView` eats horizontal drags, so a swipe at the last page simply
@@ -267,63 +313,59 @@ struct PagedReadingView: View {
                 LazyHStack(spacing: 0) {
                     ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
                         pageContent(page)
-                            .frame(width: size.width, height: size.height, alignment: .topLeading)
+                            // Padding first, then a fixed frame of the pager's
+                            // full width: the padding must live *inside* the page,
+                            // otherwise each page is wider than the pager and
+                            // `.paging` snaps to the wrong offset.
                             .padding(.horizontal, Self.horizontalPadding)
                             .padding(.top, topPadding)
+                            .frame(width: size.width + Self.horizontalPadding * 2,
+                                   height: topPadding + size.height,
+                                   alignment: .topLeading)
                             .id(index)
                     }
                 }
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.paging)
-            // One source of truth: the scroll view reports where it settled, but
-            // nothing writes back into it while it is moving. Previously
-            // `scrollPosition` and `onChange(of: pageIndex)` pushed each other,
-            // which at two pages produced a tight feedback loop (and a haptic
-            // burst from the slider).
-            .scrollPosition(id: Binding(
-                get: { pageIndex },
-                set: { newValue in
-                    guard let newValue, newValue != pageIndex,
-                          !isProgrammaticScroll else { return }
-                    pageIndex = newValue
-                }
-            ))
+            // Scroll position is *read*, never written back while the user drags:
+            // a two-way binding here fought the scroll view and made paging
+            // stutter. `.onScrollPhaseChange` gives us both the settled page and a
+            // chance to react when the finger leaves at either end.
+            .scrollPosition(id: pageScrollID)
             .frame(height: topPadding + size.height)
-            // Runs alongside the scroll view's own drag: `translation` tells us the
-            // intent even when the scroll view had nowhere to go, which is exactly
-            // the "swipe past the last page" case a paged TabView could not report.
+            // Boundary intent only: the scroll view owns the drag itself, so this
+            // does not move anything. It reports a swipe that had nowhere to go,
+            // which is how the reader reaches the neighbouring chapter.
             .simultaneousGesture(
-                DragGesture(minimumDistance: 20)
+                DragGesture(minimumDistance: 30)
                     .onEnded { value in
+                        guard !isProgrammaticScroll else { return }
                         let dx = value.translation.width
-                        guard abs(dx) > 40 else { return }
-                        if dx < 0 {
-                            advance()
-                        } else {
-                            retreat()
-                        }
+                        guard abs(dx) > 50 else { return }
+                        if dx < 0 { advance() } else { retreat() }
                     }
             )
+            .modifier(ScrollSettleObserver {
+                handleScrollSettled(size: size, topPadding: topPadding)
+            })
             .onChange(of: pageIndex) { _, newValue in
-                // Animate only for a real page turn. After a chapter load the
-                // content was just replaced, and animating the jump produced a
-                // second, bogus page-turn once loading finished.
-                isProgrammaticScroll = true
+                // Only the reader itself moves the scroll view here (slider jump,
+                // chapter change). Turns driven by the user are already in place.
+                guard isProgrammaticScroll else {
+                    updatePageLabel()
+                    return
+                }
                 if suppressScrollAnimation {
                     readerProxy.scrollTo(newValue, anchor: .leading)
-                    // Consume it so the next genuine page turn animates again.
-                    DispatchQueue.main.async {
-                        suppressScrollAnimation = false
-                        isProgrammaticScroll = false
-                    }
                 } else {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         readerProxy.scrollTo(newValue, anchor: .leading)
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        isProgrammaticScroll = false
-                    }
+                }
+                DispatchQueue.main.async {
+                    isProgrammaticScroll = false
+                    suppressScrollAnimation = false
                 }
                 updatePageLabel()
             }
