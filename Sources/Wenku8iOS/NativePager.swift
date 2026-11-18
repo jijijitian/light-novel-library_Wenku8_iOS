@@ -250,9 +250,15 @@ struct NativePager<Page: View>: UIViewRepresentable {
         // MARK: Tap
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let view = gesture.view else { return }
-            let x = gesture.location(in: view).x
-            parent.onTap(x, view.bounds.width)
+            guard let scrollView = gesture.view as? UIScrollView else { return }
+            // `location(in: scrollView)` is in *content* coordinates and therefore
+            // includes `contentOffset`. From page two on that offset is a whole page
+            // wide, which pushed every tap into the "next page" third — the reason
+            // only page one behaved. Subtracting it yields the position inside the
+            // visible frame.
+            let inContent = gesture.location(in: scrollView)
+            let x = inContent.x - scrollView.contentOffset.x
+            parent.onTap(x, scrollView.bounds.width)
         }
 
         /// The tap must not fire once the finger has started a drag, or a swipe
