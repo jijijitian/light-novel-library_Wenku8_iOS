@@ -3,9 +3,12 @@ import Wenku8Core
 
 /// Mirror choice and the optional relay service.
 struct DataSourceSettingsView: View {
+    @EnvironmentObject private var account: AccountStore
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
-    @State private var message: String?
+    @State private var relayMessage: String?
+    /// Outcome of the login check that follows a data source change.
+    @State private var sessionMessage: String?
 
     private let relayStore = RelayCredentialStore.shared
 
@@ -17,6 +20,9 @@ struct DataSourceSettingsView: View {
                     set: { newValue in
                         domainRaw = newValue
                         Wenku8Client.shared.use(domain: SiteDomain(rawValue: newValue) ?? .net)
+                        // The session lives in domain-scoped cookies, so the new domain
+                        // starts out signed out. Check once and repair if possible.
+                        verifySession()
                     }
                 )) {
                     ForEach(SiteDomain.allCases) { domain in
@@ -37,8 +43,8 @@ struct DataSourceSettingsView: View {
                 }
                 .onChange(of: relayEnabled) { _, _ in applyRelaySettings() }
 
-                if let message {
-                    Text(message)
+                if let relayMessage {
+                    Text(relayMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -55,6 +61,17 @@ struct DataSourceSettingsView: View {
                 """)
                 .font(.footnote)
             }
+            if let sessionMessage {
+                Section {
+                    Label(sessionMessage, systemImage: "person.crop.circle.badge.checkmark")
+                        .font(.footnote)
+                } header: {
+                    Text("登录状态")
+                } footer: {
+                    Text("切换域名或开关中转服务后，应用会检查一次登录是否仍然有效；失效时会用本次运行中登录过的账号密码自动重登。密码只在内存中保留，退出应用即清除。")
+                        .font(.footnote)
+                }
+            }
         }
         .navigationTitle("数据来源")
         .navigationBarTitleDisplayMode(.inline)
@@ -68,9 +85,19 @@ struct DataSourceSettingsView: View {
         )
         if relayEnabled {
             Task { await RelayClient.shared.setMinimumInterval(relayStore.minimumInterval) }
-            message = "中转服务已启用"
+            relayMessage = "中转服务已启用"
         } else {
-            message = "已关闭中转服务，将使用网页版数据"
+            relayMessage = "已关闭中转服务，将使用网页版数据"
+        }
+        // The relay authenticates separately from the website, so turning it on has to
+        // sign in there too, and turning it off can leave a relay-only session behind.
+        verifySession()
+    }
+
+    /// Re-checks the login after the data source changed and reports what happened.
+    private func verifySession() {
+        Task {
+            sessionMessage = await account.verifySessionAfterSourceChange()
         }
     }
 }

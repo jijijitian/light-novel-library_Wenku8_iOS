@@ -29,6 +29,14 @@ final class AccountStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private let nameKey = "wenku8.accountName"
 
+    /// The credentials used to sign in during this run, kept in memory only.
+    ///
+    /// Cookies are per-domain and the relay keeps a session of its own, so changing the
+    /// data source can leave the app with a remembered name and no working session. These
+    /// exist so that switch can be repaired without asking the reader to type it all again.
+    /// They are never written to disk: quitting the app forgets them.
+    private var sessionCredentials: (user: String, password: String)?
+
     var isSignedIn: Bool { userName != nil }
 
     init(service: NovelService = NovelService()) {
@@ -64,11 +72,13 @@ final class AccountStore: ObservableObject {
 
     func signIn(username: String, password: String) async -> Bool {
         guard !isSigningIn else { return false }
+        let name = username
         isSigningIn = true
         lastError = nil
         defer { isSigningIn = false }
         do {
             let session = try await service.signIn(username: username, password: password)
+            sessionCredentials = (name, password)
             setUserName(session.userName)
             await syncShelf()
             return true
@@ -79,11 +89,52 @@ final class AccountStore: ObservableObject {
     }
 
     func signOut() {
+        sessionCredentials = nil
         service.signOut()
         setUserName(nil)
         remoteNovels = []
         remoteShelf = []
         lastError = nil
+    }
+
+    /// Re-checks the login after the data source changed, and repairs it if it can.
+    ///
+    /// Switching the site domain or turning the relay on or off changes where requests go:
+    /// the website session lives in cookies tied to one domain, and the relay authenticates
+    /// separately. Either change can therefore strand the app holding a name with no session
+    /// behind it, which shows up later as every shelf call failing.
+    ///
+    /// The check runs once, immediately after the switch, and re-signs with the credentials
+    /// used earlier in this session when the session turns out to be gone.
+    ///
+    /// - Returns: a short status to show in Settings, or `nil` when nobody was signed in.
+    @discardableResult
+    func verifySessionAfterSourceChange() async -> String? {
+        guard userName != nil || sessionCredentials != nil else { return nil }
+
+        // `accountName()` reads the header the site renders, so it is the same check a
+        // reload would make.
+        if let current = await service.accountName() {
+            setUserName(current)
+            return "登录状态正常（\(current)）"
+        }
+
+        guard let credentials = sessionCredentials else {
+            // Signed in before but nothing to retry with: drop the stale name rather than
+            // leave the app claiming a session it does not have.
+            setUserName(nil)
+            remoteNovels = []
+            remoteShelf = []
+            return "切换数据源后登录已失效，请重新登录"
+        }
+
+        if await signIn(username: credentials.user, password: credentials.password) {
+            return "已用原账号自动登录新的数据源"
+        }
+        setUserName(nil)
+        remoteNovels = []
+        remoteShelf = []
+        return lastError ?? "重新登录失败，请手动登录"
     }
 
     /// Pulls the site's bookcase so the app can show it next to the local shelf.
