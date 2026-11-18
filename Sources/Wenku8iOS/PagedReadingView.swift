@@ -253,14 +253,13 @@ struct PagedReadingView: View {
                         }
                     }
             )
-            // Only a leftward swipe leaves this screen. It matches the page-turn
-            // direction used by the pager, where swiping left advances, and here it
-            // steps back to the last page. A rightward swipe has no meaning past the
-            // end of the book, so it is ignored.
+            // Only a rightward swipe leaves this screen, stepping back to the last
+            // page. A leftward swipe is ignored: past the end of the book there is
+            // nothing further to advance to.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 30)
                     .onEnded { value in
-                        guard value.translation.width < -40 else { return }
+                        guard value.translation.width > 40 else { return }
                         reachedBookEnd = false
                     }
             )
