@@ -544,9 +544,6 @@ struct ReaderView: View {
         VStack {
             Spacer()
             VStack(spacing: 14) {
-                if layout == .horizontal, pagedPageCount > 1 {
-                    pageSlider()
-                }
                 HStack(spacing: 14) {
                     Button {
                         Task { await model.goPrevious() }
@@ -583,10 +580,13 @@ struct ReaderView: View {
                     .disabled(!model.canGoNext)
                 }
 
-                // Paragraph spacing moved to Settings along with page-turn mode and
-                // first-line indent: it re-paginates the chapter, so changing it
-                // mid-read loses the position. Font size and line spacing stay here
-                // because the reader tunes those while reading.
+                // Only the font size lives in the panel. Line spacing and paragraph
+                // spacing both re-paginate the chapter, so they belong in Settings
+                // where changing them is a deliberate action rather than a stray
+                // touch while reading.
+                //
+                // The size slider keeps the width it had when it shared the row with
+                // the line-spacing slider, and the theme swatches sit beside it.
                 HStack(spacing: 12) {
                     HStack(spacing: 8) {
                         Image(systemName: "textformat.size")
@@ -597,25 +597,7 @@ struct ReaderView: View {
                             step: 1
                         )
                     }
-                    HStack(spacing: 8) {
-                        Image(systemName: "text.alignleft")
-                            .font(.caption)
-                        Slider(
-                            value: $lineSpacing,
-                            in: ReaderPreferences.lineSpacingRange,
-                            step: 1
-                        )
-                    }
-                }
-                // Theme-derived rather than `.secondary`: the panel sits on the
-                // reader's own background, and the system colour stayed dark in
-                // night mode and washed out in the paper theme.
-                .foregroundStyle(theme.text.opacity(0.75))
-
-                // Theme swatches now occupy the row the paragraph-spacing control
-                // used to sit in.
-                HStack(spacing: 8) {
-                    Spacer()
+                    .frame(maxWidth: .infinity)
 
                     ForEach(ReaderTheme.all, id: \.name) { item in
                         Button {
@@ -635,6 +617,17 @@ struct ReaderView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+                // Theme-derived rather than `.secondary`: the panel sits on the
+                // reader's own background, and the system colour stayed dark in
+                // night mode and washed out in the paper theme.
+                .foregroundStyle(theme.text.opacity(0.75))
+
+                // Page slider sits last: it is the least-touched control, and
+                // keeping it at the bottom leaves the reading controls near the
+                // thumb.
+                if layout == .horizontal, pagedPageCount > 1 {
+                    pageSlider()
                 }
             }
             .padding(16)
