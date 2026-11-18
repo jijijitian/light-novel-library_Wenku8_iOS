@@ -46,12 +46,19 @@ public final class OfflineDownloadManager: ObservableObject {
 
     /// Downloads a whole book. Already-stored chapters are skipped, so calling
     /// this again resumes rather than restarting.
-    public func download(novelID aid: Int) {
+    /// Downloads a book, optionally only some of its volumes.
+    ///
+    /// The Android app offers this as a multi-select of volumes, and it is the difference
+    /// between "this book is 200 chapters" and "I want the first three volumes": a long
+    /// series is otherwise an all-or-nothing download.
+    ///
+    /// - Parameter volumeIDs: volumes to fetch; `nil` means every volume.
+    public func download(novelID aid: Int, volumeIDs: Set<String>? = nil) {
         guard !isDownloading else { return }
         lastError = nil
         task?.cancel()
         task = Task { [weak self] in
-            await self?.run(aid: aid)
+            await self?.run(aid: aid, volumeIDs: volumeIDs)
         }
     }
 
@@ -61,11 +68,16 @@ public final class OfflineDownloadManager: ObservableObject {
         progress = nil
     }
 
-    private func run(aid: Int) async {
+    private func run(aid: Int, volumeIDs: Set<String>?) async {
         do {
             let detail = try await service.detail(aid: aid)
-            let volumes = try await service.volumes(aid: aid)
-            let chapters = volumes.flatMap(\.chapters)
+            let allVolumes = try await service.volumes(aid: aid)
+            // A selected subset only limits what is fetched; the manifest keeps the whole
+            // catalogue so the reader can still see the rest.
+            let selected = volumeIDs.map { ids in
+                allVolumes.filter { ids.contains($0.id) }
+            } ?? allVolumes
+            let chapters = selected.flatMap(\.chapters)
             guard !chapters.isEmpty else {
                 lastError = "这本书没有可下载的章节"
                 progress = nil
@@ -79,7 +91,11 @@ public final class OfflineDownloadManager: ObservableObject {
                 coverFileName = await store.saveCover(data, for: aid, remote: cover)
             }
 
-            var entry = await store.makeEntry(detail: detail, volumes: volumes, coverFile: coverFileName)
+            var entry = await store.makeEntry(
+                detail: detail,
+                volumes: allVolumes,
+                coverFile: coverFileName
+            )
             await store.saveManifest(entry)
 
             let missing = chapters.filter { !entry.storedChapterIDs.contains($0.id) }

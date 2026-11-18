@@ -84,6 +84,7 @@ struct NovelDetailView: View {
     @State private var webItem: WebSheetItem?
     @StateObject private var downloadManager = OfflineDownloadManager.shared
     @State private var offlineEntry: OfflineStore.Entry?
+    @State private var showVolumePicker = false
 
     var body: some View {
         ScrollView {
@@ -99,6 +100,16 @@ struct NovelDetailView: View {
         }
         .background { AppBackground() }
         .navigationTitle(model.detail?.title ?? "小说信息")
+        .sheet(isPresented: $showVolumePicker) {
+            VolumePickerSheet(
+                title: model.detail?.title ?? "选择分卷",
+                volumes: model.volumes,
+                onConfirm: { ids in
+                    downloadManager.download(novelID: novelID, volumeIDs: ids)
+                },
+                storedChapterIDs: offlineEntry?.storedChapterIDs ?? []
+            )
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -146,6 +157,17 @@ struct NovelDetailView: View {
                         )
                     }
                     .disabled(downloadManager.isDownloading)
+
+                    // The Android app offers a per-volume choice; without it a long series
+                    // is all-or-nothing.
+                    if !model.volumes.isEmpty {
+                        Button {
+                            showVolumePicker = true
+                        } label: {
+                            Label("选择分卷下载", systemImage: "list.bullet.indent")
+                        }
+                        .disabled(downloadManager.isDownloading)
+                    }
 
                     if offlineEntry?.downloadState != nil {
                         Button(role: .destructive) {
