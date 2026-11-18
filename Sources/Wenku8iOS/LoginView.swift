@@ -35,7 +35,14 @@ struct LoginView: View {
                             isSecure: false
                         )
                         .focused($focus, equals: .username)
-                        .textContentType(.username)
+                        // Deliberately no `.textContentType(.username)`: marking this
+                        // as a credential field makes iOS offer AutoFill and swap in
+                        // the password keyboard, which suppresses third-party input
+                        // methods — the account field then cannot be typed into with
+                        // a Chinese IME. The keyboard type is left at the default for
+                        // the same reason: `.asciiCapable` would pin it to English.
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                         .submitLabel(.next)
                         .onSubmit { focus = .password }
 
