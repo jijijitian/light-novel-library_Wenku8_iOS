@@ -735,22 +735,37 @@ public struct NovelService: Sendable {
         case unknown
     }
 
+    /// The relay keeps a session of its own, and answers `4` for "not signed in".
+    public func relaySessionState() async -> SessionState {
+        guard relayIsAvailable else { return .unknown }
+        guard let info = try? await relay.sendText(RelayAction.userInfo()) else { return .unknown }
+        let trimmed = info.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "4" { return .signedOut }
+        return .signedIn(RelayParser.userName(trimmed) ?? "")
+    }
+
     public func sessionState() async -> SessionState {
-        // A missing cookie is proof enough, and needs no network.
-        guard client.hasSession() || client.sessionUserName() != nil else { return .signedOut }
+        // With the relay on, everything the app reads comes from it, so its session is the
+        // one that decides whether the reader is signed in — the website's cookie can be
+        // perfectly valid while every relay call answers "not signed in".
+        if relayIsAvailable, case .signedOut = await relaySessionState() {
+            return .signedOut
+        }
         guard let html = try? await client.desktop("/book/1614.htm") else { return .unknown }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return .signedOut }
-        if let name = AccountParser.desktopAccountName(html) ?? client.sessionUserName() {
-            return .signedIn(name)
-        }
+        // Only the header counts. A cookie in the store proves nothing: it can name an
+        // account the server has already forgotten.
+        if let name = AccountParser.desktopAccountName(html) { return .signedIn(name) }
         return .signedOut
     }
 
     public func desktopAccountName(aid: Int = 1614) async -> String? {
         guard let html = try? await client.desktop("/book/\(aid).htm") else { return nil }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return nil }
+        // The rendered header is the authority. The `jieqiUserInfo` cookie outlives the
+        // session it names — a stale one made an expired login look valid, which showed up
+        // as a "signed in" account with an empty cloud shelf.
         return AccountParser.desktopAccountName(html)
-            ?? client.sessionUserName()
     }
 
     // MARK: - Account

@@ -136,18 +136,23 @@ final class AccountStore: ObservableObject {
     func verifySessionAfterSourceChange() async -> SessionCheck {
         guard userName != nil || Wenku8Client.shared.hasSession() else { return .notSignedIn }
 
-        // `accountName()` reads the header the site renders, so this is the same check a
-        // reload would make.
-        if let current = await service.accountName() {
-            setUserName(current)
-            return .valid(current)
+        // Covers both sides: with the relay on, its session is what the app's requests
+        // actually depend on; with it off, the website's.
+        switch await service.sessionState() {
+        case .signedIn(let name):
+            if !name.isEmpty { setUserName(name) }
+            return .valid(userName ?? name)
+        case .unknown:
+            // Could not ask. Leave the state alone rather than sign the reader out on a
+            // failed request.
+            return .valid(userName ?? "")
+        case .signedOut:
+            // Drop the name rather than leave the app claiming a session it does not have.
+            setUserName(nil)
+            remoteNovels = []
+            remoteShelf = []
+            return .expired
         }
-
-        // Drop the name rather than leave the app claiming a session it does not have.
-        setUserName(nil)
-        remoteNovels = []
-        remoteShelf = []
-        return .expired
     }
 
     /// Pulls the site's bookcase so the app can show it next to the local shelf.
