@@ -211,6 +211,9 @@ struct NovelDetailView: View {
             }
         }
         .onChange(of: downloadManager.progress) { _, newValue in
+            // Every step, not only the last: the catalogue's per-chapter and per-volume
+            // marks are the only feedback while a download runs.
+            Task { await refreshOffline() }
             if newValue == nil { Task { await refreshOffline() } }
         }
         .sheet(item: $webItem) { item in
@@ -255,7 +258,9 @@ struct NovelDetailView: View {
     }
 
     private func refreshOffline() async {
-        offlineEntry = await OfflineStore.shared.entry(for: novelID)
+        let entry = await OfflineStore.shared.entry(for: novelID)
+        offlineEntry = entry
+        cachedChapterIDs = entry?.storedChapterIDs ?? []
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
