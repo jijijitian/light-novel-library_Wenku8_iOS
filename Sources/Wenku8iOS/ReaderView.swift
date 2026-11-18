@@ -160,7 +160,7 @@ struct ReaderView: View {
     /// Height reserved for the custom top bar so prose never runs under it.
     /// The bar is an overlay (it must not touch the safe area, or the text would
     /// reflow when it appears), so the reader reserves this itself.
-    static let topBarHeight: CGFloat = 56
+    static let topBarHeight: CGFloat = 48
 
     private var theme: ReaderTheme {
         ReaderTheme.all.first { $0.name == themeName }?.theme ?? .paper
@@ -232,7 +232,7 @@ struct ReaderView: View {
     @ViewBuilder
     private var verticalContent: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: ChapterPaginator.paragraphSpacing) {
                 chapterTitle
 
                 if let content = model.content {
@@ -267,10 +267,12 @@ struct ReaderView: View {
     }
 
     private var chapterTitle: some View {
-        Text(displayTitle)
+        // Indented like a paragraph, matching the paged reader.
+        Text(indentFirstLine ? "\u{3000}\u{3000}" + displayTitle : displayTitle)
             .font(.title3.weight(.bold))
             .foregroundStyle(theme.text)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -393,8 +395,8 @@ struct ReaderView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .padding(.bottom, 10)
+            .padding(.top, 0)
+            .padding(.bottom, 4)
             // A soft gradient scrim behind the capsules. It fades into the page so
             // the bar does not read as an opaque slab, but still keeps the prose
             // from colliding with the buttons.

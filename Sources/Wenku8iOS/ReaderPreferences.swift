@@ -54,7 +54,7 @@ enum ReaderMetrics {
     static let topInsetKey = "reader.topInset"
     static let bottomInsetKey = "reader.bottomInset"
 
-    static let defaultTopInset: Double = 8
+    static let defaultTopInset: Double = 4
     static let defaultBottomInset: Double = 40
 
     /// Range offered in Settings. The floor is 0 (text flush to the safe area)

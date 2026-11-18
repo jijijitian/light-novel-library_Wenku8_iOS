@@ -10,6 +10,12 @@ import Wenku8Core
 /// SwiftUI layout because it can report exactly which character range fits in a
 /// given box, which is what makes page boundaries stable across sizes.
 enum ChapterPaginator {
+    /// Gap between paragraphs. Used by CoreText when measuring *and* by the SwiftUI
+    /// `VStack` that renders the page, so the two can never drift apart (a mismatch
+    /// made CoreText fit one line more than SwiftUI could draw, clipping the last
+    /// line of every page).
+    static let paragraphSpacing: CGFloat = 18
+
     /// One page of content.
     struct Page: Identifiable {
         let id: Int
@@ -22,16 +28,47 @@ enum ChapterPaginator {
         fontSize: CGFloat,
         lineSpacing: CGFloat,
         indent: CGFloat,
-        textColor: UIColor
+        textColor: UIColor,
+        /// Chapter title, laid out on the first page with `titleFont` and the same
+        /// first-line indent as the prose.
+        title: String = "",
+        titleFont: UIFont? = nil
     ) -> [Page] {
         guard size.width > 20, size.height > 20 else {
             return [Page(id: 0, blocks: blocks)]
         }
 
+        // The title is measured as part of the same attributed string the pages are
+        // cut from, so a tall bold title can no longer overflow page one.
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         var pages: [[ChapterContent.Block]] = []
         var pendingText: [String] = []
         var paraStarts: [Int] = []
         var buffer = NSMutableAttributedString()
+        if !trimmedTitle.isEmpty {
+            let display = indent > 0 ? "\u{3000}\u{3000}" + trimmedTitle : trimmedTitle
+            pendingText.append(display)
+            paraStarts.append(0)
+            buffer.append(NSAttributedString(
+                string: display,
+                attributes: attributes(
+                    fontSize: fontSize,
+                    lineSpacing: lineSpacing,
+                    indent: 0,
+                    textColor: textColor,
+                    fontOverride: titleFont
+                )
+            ))
+            buffer.append(NSAttributedString(
+                string: "\n",
+                attributes: attributes(
+                    fontSize: fontSize,
+                    lineSpacing: lineSpacing,
+                    indent: 0,
+                    textColor: textColor
+                )
+            ))
+        }
 
         func flushText() {
             guard !buffer.string.isEmpty else {
@@ -154,15 +191,16 @@ enum ChapterPaginator {
         fontSize: CGFloat,
         lineSpacing: CGFloat,
         indent: CGFloat,
-        textColor: UIColor
+        textColor: UIColor,
+        fontOverride: UIFont? = nil
     ) -> [NSAttributedString.Key: Any] {
         let style = NSMutableParagraphStyle()
         style.firstLineHeadIndent = indent
         style.lineSpacing = lineSpacing
-        style.paragraphSpacing = fontSize * 0.6
+        style.paragraphSpacing = Self.paragraphSpacing
         style.lineBreakMode = .byWordWrapping
         return [
-            .font: UIFont.systemFont(ofSize: fontSize),
+            .font: fontOverride ?? UIFont.systemFont(ofSize: fontSize),
             .foregroundColor: textColor,
             .paragraphStyle: style,
         ]

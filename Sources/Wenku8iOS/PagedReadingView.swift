@@ -27,7 +27,9 @@ struct PagedReadingView: View {
 
     /// Kept in one place so the paginator and the view agree on the text width.
     private static let horizontalPadding: CGFloat = 20
-    private static let topPadding: CGFloat = 12
+    /// No extra padding: `topInset` already carries the top-bar reservation from
+    /// `ReaderView`, and adding more made paged mode start lower than scrolling.
+    private static let topPadding: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
@@ -106,21 +108,34 @@ struct PagedReadingView: View {
     /// Constant, so toggling the control panel never repaginates the chapter.
     private var resolvedBottomInset: CGFloat { CGFloat(bottomInset) }
 
+    private func isTitleBlock(_ text: String, page: ChapterPaginator.Page) -> Bool {
+        guard page.id == 0 else { return false }
+        let title = displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !title.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines) == title
+    }
+
+    /// Same type ramp as the vertical reader (`title3` bold), so a chapter looks
+    /// identical in both modes. Built from the point size so no weight helper is
+    /// needed.
+    static let titleFont: UIFont = {
+        let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .title3)
+        return UIFont.systemFont(ofSize: descriptor.pointSize, weight: .bold)
+    }()
+
     @ViewBuilder
     private func pageContent(_ page: ChapterPaginator.Page) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if page.id == 0 {
-                Text(displayTitle)
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(theme.text)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
+        VStack(alignment: .leading, spacing: ChapterPaginator.paragraphSpacing) {
             ForEach(Array(page.blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .paragraph(let text):
+                    // The title is the first block of page one. It is drawn with the
+                    // same ramp the vertical reader uses (`title3` bold) and keeps
+                    // the indent prefix that the paginator measured with.
+                    let isTitle = isTitleBlock(text, page: page)
                     Text(text)
-                        .font(.system(size: fontSize))
+                        .font(isTitle
+                            ? Font(Self.titleFont)
+                            : .system(size: fontSize))
                         .lineSpacing(lineSpacing)
                         .foregroundStyle(theme.text)
                         .fixedSize(horizontal: false, vertical: true)
@@ -169,7 +184,9 @@ struct PagedReadingView: View {
             fontSize: fontSize,
             lineSpacing: lineSpacing,
             indent: indent,
-            textColor: UIColor(theme.text)
+            textColor: UIColor(theme.text),
+            title: displayTitle,
+            titleFont: Self.titleFont
         )
         pages = built
         if pageIndex >= built.count { pageIndex = max(0, built.count - 1) }
