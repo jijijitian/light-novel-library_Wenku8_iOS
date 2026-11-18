@@ -6,6 +6,12 @@ struct ShelfView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
 
+    /// Whether the automatic shelf sync has already run in this launch.
+    ///
+    /// Static rather than per-view: the tab's view is rebuilt on every visit, and a
+    /// per-instance flag would reset with it and sync every time.
+    private static var didSyncThisLaunch = false
+
     /// Which shelf books are cached, and how much of them. Read once per appearance.
     @State private var cacheStates: [Int: CacheState] = [:]
 
@@ -42,14 +48,21 @@ struct ShelfView: View {
         // Entering the page refreshes the cloud shelf, so the app and the website
         // agree on what is on it.
         .task {
-            // Paint from cache first, then refresh in the background. Awaiting the
-            // network before showing anything made every visit to this tab look like a
-            // reload, even when the contents were already on disk.
+            // Paint from cache first, then refresh. Awaiting the network before showing
+            // anything made every visit look like a reload even when the contents were
+            // already on disk.
             account.restoreCachedShelf()
             await loadCacheStates()
+
+            // Once per launch, not once per visit. Returning to this tab re-ran the whole
+            // sync — four relay calls each time — which is what made the shelf feel like it
+            // was constantly updating. The refresh button is there for a deliberate re-sync.
+            guard !Self.didSyncThisLaunch else { return }
+            Self.didSyncThisLaunch = true
+
             await syncInBackground()
-            // Metadata for shelf books is cached so they open offline; the same pass
-            // prunes books that have left both the shelf and the device.
+            // Metadata for shelf books is cached so they open offline; the same pass prunes
+            // books that have left both the shelf and the device.
             await account.syncShelfMetadata(localIDs: store.saved.map(\.id))
             await loadCacheStates()
             await migrateLegacyLocalShelf()
@@ -325,7 +338,12 @@ struct ShelfView: View {
     private func loadCacheStates() async {
         let entries = await OfflineStore.shared.entries()
         var states: [Int: CacheState] = [:]
-        for entry in entries where !entry.chapterIDs.isEmpty {
+        for entry in entries {
+            // A book with metadata only is not "partly downloaded" — nothing of it is on
+            // disk to read. Only a book with stored chapters has a cache state to report,
+            // and it is complete when every chapter is there.
+            guard !entry.storedChapterIDs.isEmpty else { continue }
+            guard !entry.chapterIDs.isEmpty else { continue }
             states[entry.novelID] = entry.isComplete ? .complete : .partial
         }
         cacheStates = states

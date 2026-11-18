@@ -74,12 +74,17 @@ struct SettingsView: View {
                 }
 
                 // Metadata is cached separately from downloads, so it gets its own row:
-                // a reader can tell what the app holds offline even with nothing downloaded.
-                LabeledContent {
-                    Text(metadataSummary)
-                        .foregroundStyle(.secondary)
+                // a reader can tell what the app holds offline even with nothing
+                // downloaded. It opens the list, because a bare count is not actionable.
+                NavigationLink {
+                    MetadataCacheView()
                 } label: {
-                    Label("元数据缓存", systemImage: "tray.full")
+                    LabeledContent {
+                        Text(metadataSummary)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("元数据缓存", systemImage: "tray.full")
+                    }
                 }
 
                 NavigationLink {
