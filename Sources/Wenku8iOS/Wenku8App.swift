@@ -6,6 +6,7 @@ struct Wenku8App: App {
     @StateObject private var store = LibraryStore()
     @StateObject private var router = AppRouter()
     @StateObject private var account = AccountStore()
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
 
     init() {
         Self.configureRelay()
@@ -60,6 +61,11 @@ struct Wenku8App: App {
                 .environmentObject(router)
                 .environmentObject(account)
                 .tint(AppTheme.accent)
+                // Applies the app-wide appearance chosen in Settings; the reader's
+                // own palettes are unaffected.
+                .preferredColorScheme(
+                    (AppAppearance(rawValue: appearanceRaw) ?? .system).colorScheme
+                )
                 .task {
                     #if DEBUG
                     await account.debugSignInIfConfigured()

@@ -8,19 +8,10 @@ struct SettingsView: View {
     @State private var showLicense = false
     @State private var showLogin = false
     @State private var accountMessage: String?
-    @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var offlineCount = 0
     @State private var offlineBytes: Int64 = 0
-    private let relayStore = RelayCredentialStore.shared
-    @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
-    @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = ReaderPreferences.defaultLineSpacing
-    @AppStorage(ReaderPreferences.paragraphSpacingKey) private var paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
-    @AppStorage(ReaderPreferences.layoutKey) private var layoutRaw = ReaderLayout.vertical.rawValue
-    @AppStorage(ReaderPreferences.indentKey) private var indentFirstLine = false
-    @AppStorage(ReaderPreferences.collapsedInfoKey) private var collapsedInfo = true
-    @AppStorage(ReaderMetrics.topInsetKey) private var topInset = ReaderMetrics.defaultTopInset
-    @AppStorage(ReaderMetrics.bottomInsetKey) private var bottomInset = ReaderMetrics.defaultBottomInset
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
 
     var body: some View {
         Form {
@@ -29,7 +20,7 @@ struct SettingsView: View {
                     Image(systemName: "books.vertical.fill")
                         .font(.title2)
                         .frame(width: 48, height: 48)
-                        .glassCard(cornerRadius: 14, tint: AppTheme.accent.opacity(0.4))
+                       .glassCard(cornerRadius: 14, tint: AppTheme.accent.opacity(0.4))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("轻小说文库").font(.headline)
                         Text("iOS 版 · SwiftUI + Liquid Glass")
@@ -42,112 +33,33 @@ struct SettingsView: View {
 
             accountSection
 
-            Section("阅读") {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("字号", systemImage: "textformat.size")
-                        Spacer()
-                        Text("\(Int(fontSize)) pt").foregroundStyle(.secondary)
-                    }
-                    Slider(value: $fontSize, in: ReaderPreferences.fontSizeRange, step: 1)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("行距", systemImage: "text.alignleft")
-                        Spacer()
-                        Text("\(Int(lineSpacing))").foregroundStyle(.secondary)
-                    }
-                    Slider(value: $lineSpacing, in: ReaderPreferences.lineSpacingRange, step: 1)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("段间距", systemImage: "text.justify.leading")
-                        Spacer()
-                        Text("\(Int(paragraphSpacing))").foregroundStyle(.secondary)
-                    }
-                    Slider(
-                        value: $paragraphSpacing,
-                        in: ReaderPreferences.paragraphSpacingRange,
-                        step: 1
-                    )
-                }
-
-                Button {
-                    fontSize = ReaderPreferences.defaultFontSize
-                    lineSpacing = ReaderPreferences.defaultLineSpacing
-                    paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
+            // Two-level menu: the front page is a directory of sub-screens, so each
+            // group of related options has room to breathe instead of one long form.
+            Section {
+                NavigationLink {
+                    AppearanceSettingsView()
                 } label: {
-                    Label("恢复默认字号与间距", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(
-                    fontSize == ReaderPreferences.defaultFontSize
-                        && lineSpacing == ReaderPreferences.defaultLineSpacing
-                        && paragraphSpacing == ReaderPreferences.defaultParagraphSpacing
-                )
-
-                // A segmented Picker bound to @AppStorage does not reliably
-                // re-read the stored value inside a Form on iOS 26+, so the
-                // selection is projected through an explicit Binding.
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("翻页方式", systemImage: "rectangle.split.1x2")
-                    Picker("翻页方式", selection: Binding(
-                        get: { ReaderLayout(rawValue: layoutRaw) ?? .vertical },
-                        set: { layoutRaw = $0.rawValue }
-                    )) {
-                        ForEach(ReaderLayout.allCases) { layout in
-                            Text(layout.title).tag(layout)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-
-                Toggle(isOn: Binding(
-                    get: { indentFirstLine },
-                    set: { indentFirstLine = $0 }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label("首行缩进", systemImage: "text.append")
-                        Text("每段首行缩进两个字符")
-                            .font(.caption)
+                    LabeledContent {
+                        Text(appearanceTitle)
                             .foregroundStyle(.secondary)
+                    } label: {
+                        Label("外观", systemImage: "circle.lefthalf.filled")
                     }
                 }
 
-                Toggle(isOn: Binding(
-                    get: { collapsedInfo },
-                    set: { collapsedInfo = $0 }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label("沉浸式标题", systemImage: "rectangle.topthird.inset.filled")
-                        Text("隐藏菜单时，在顶部显示浅色章节标题与页码")
-                            .font(.caption)
+                NavigationLink {
+                    ReaderSettingsView()
+                } label: {
+                    LabeledContent {
+                        Text(readerSummary)
                             .foregroundStyle(.secondary)
+                    } label: {
+                        Label("阅读", systemImage: "book")
                     }
-                }
-
-                // Kept as sliders rather than steppers so the effect is visible
-                // immediately while dragging in the reader.
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("顶部留白", systemImage: "arrow.up.to.line")
-                        Spacer()
-                        Text("\(Int(topInset)) pt").foregroundStyle(.secondary)
-                    }
-                    Slider(value: $topInset, in: ReaderMetrics.insetRange, step: 2)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label("底部留白", systemImage: "arrow.down.to.line")
-                        Spacer()
-                        Text("\(Int(bottomInset)) pt").foregroundStyle(.secondary)
-                    }
-                    Slider(value: $bottomInset, in: ReaderMetrics.insetRange, step: 2)
                 }
             }
 
-            Section("离线缓存") {
+            Section {
                 NavigationLink {
                     OfflineLibraryView()
                 } label: {
@@ -158,6 +70,19 @@ struct SettingsView: View {
                         Label("已下载小说", systemImage: "arrow.down.circle")
                     }
                 }
+
+                NavigationLink {
+                    DataSourceSettingsView()
+                } label: {
+                    LabeledContent {
+                        Text(domainTitle)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("数据来源", systemImage: "globe.asia.australia")
+                    }
+                }
+            } header: {
+                Text("存储与数据")
             }
 
             Section("书架") {
@@ -171,54 +96,27 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker(selection: Binding(
-                    get: { domainRaw },
-                    set: { newValue in
-                        domainRaw = newValue
-                        Wenku8Client.shared.use(domain: SiteDomain(rawValue: newValue) ?? .net)
-                    }
-                )) {
-                    ForEach(SiteDomain.allCases) { domain in
-                        Text(domain.title).tag(domain.rawValue)
-                    }
+                NavigationLink {
+                    AboutSettingsView(onShowLicense: { showLicense = true })
                 } label: {
-                    Label("站点域名", systemImage: "globe.asia.australia")
+                    LabeledContent {
+                        Text(appVersion)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("关于", systemImage: "info.circle")
+                    }
                 }
-                .pickerStyle(.segmented)
-            } header: {
-                Text("数据来源")
-            } footer: {
-                Text("两个域名内容一致；某个域名访问不通时可以切换到另一个。首页抓取仍会自动回退。")
-                    .font(.footnote)
-            }
 
-            Section("数据来源") {
                 Button {
                     showWeb = true
                 } label: {
                     Label("打开文库网页版", systemImage: "safari")
                 }
-                Link(destination: URL(string: "https://wenku8.mewx.org/")!) {
-                    Label("项目主页", systemImage: "globe")
-                }
-            }
-
-            relaySection
-
-            Section("关于") {
-                Button {
-                    showLicense = true
-                } label: {
-                    Label("开源声明", systemImage: "doc.text")
-                }
-                LabeledContent("版本", value: appVersion)
-                LabeledContent("协议", value: "GPL-2.0")
-            }
-
-            Section {
+            } header: {
+                Text("关于")
+            } footer: {
                 Text("本应用为非官方第三方客户端，所有内容均来自轻小说文库网站，仅供学习交流使用。")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .scrollContentBackground(.hidden)
@@ -293,41 +191,24 @@ struct SettingsView: View {
         }
     }
 
-    private func applyRelaySettings() {
-        relayStore.setEnabled(relayEnabled)
-        RelayClient.shared.configure(
-            RelayConfiguration(isEnabled: relayEnabled),
-            provider: relayEnabled ? BuiltinAppVerProvider() : nil
-        )
-        if relayEnabled {
-            Task { await RelayClient.shared.setMinimumInterval(relayStore.minimumInterval) }
-            accountMessage = "中转服务已启用"
-        } else {
-            accountMessage = "已关闭中转服务，将使用网页版数据"
-        }
+    private var appearanceTitle: String {
+        (AppAppearance(rawValue: appearanceRaw) ?? .system).title
     }
 
-    @ViewBuilder
-    private var relaySection: some View {
-        Section {
-            Toggle(isOn: $relayEnabled) {
-                Label("启用中转服务", systemImage: "antenna.radiowaves.left.and.right")
-            }
-            .onChange(of: relayEnabled) { _, _ in
-                applyRelaySettings()
-            }
+    /// Compact summary of the reading settings, shown on the row that opens them.
+    /// Read straight from storage: these values now live in `ReaderSettingsView`.
+    private var readerSummary: String {
+        let defaults = UserDefaults.standard
+        let raw = defaults.string(forKey: ReaderPreferences.layoutKey)
+            ?? ReaderLayout.vertical.rawValue
+        let layout = ReaderLayout(rawValue: raw) ?? .vertical
+        let stored = defaults.double(forKey: ReaderPreferences.fontSizeKey)
+        let size = stored > 0 ? stored : ReaderPreferences.defaultFontSize
+        return "\(layout.title) · \(Int(size))pt"
+    }
 
-        } header: {
-            Text("中转服务")
-        } footer: {
-            Text("""
-            中转服务提供网页版匿名访问不到的排行榜、文库分类，\
-            以及部分因站点限制无法在网页版阅读的正文。\
-            它是第三方公益服务，有独立配额，因此本应用强制对请求限速。\
-            关闭后将改用网页版数据，排行榜会回退为年度榜单。
-            """)
-            .font(.footnote)
-        }
+    private var domainTitle: String {
+        (SiteDomain(rawValue: domainRaw) ?? .net).title
     }
 
     private var offlineSummary: String {
