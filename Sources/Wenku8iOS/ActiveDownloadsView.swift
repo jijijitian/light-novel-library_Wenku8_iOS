@@ -13,7 +13,29 @@ struct ActiveDownloadsView: View {
 
     var body: some View {
         List {
-            if let progress = manager.progress {
+            if manager.progress == nil, let starting = manager.startingNovelID {
+                // The first request has not returned yet; say so rather than showing an
+                // empty page, which looked like the tap had done nothing.
+                Section {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在准备下载…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button {
+                            manager.cancel()
+                        } label: {
+                            Image(systemName: "pause.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("取消下载")
+                    }
+                    .id(starting)
+                }
+            } else if let progress = manager.progress {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 10) {

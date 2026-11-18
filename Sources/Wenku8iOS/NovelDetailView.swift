@@ -343,9 +343,9 @@ struct NovelDetailView: View {
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("正在下载")
         } else if stored > 0 && stored == volume.chapters.count {
-            Image(systemName: "arrow.down.circle.fill")
+            Image(systemName: "circle.fill")
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(.quaternary)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("已下载")
         } else if stored > 0 {
@@ -372,9 +372,9 @@ struct NovelDetailView: View {
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("正在下载")
         } else if cachedChapterIDs.contains(chapterID) {
-            Image(systemName: "arrow.down.circle.fill")
+            Image(systemName: "circle.fill")
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(.quaternary)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("已下载")
         } else {

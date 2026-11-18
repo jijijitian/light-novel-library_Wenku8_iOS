@@ -62,19 +62,9 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink {
-                    OfflineLibraryView()
-                } label: {
-                    LabeledContent {
-                        Text(offlineSummary)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("离线缓存", systemImage: "arrow.down.circle")
-                    }
-                }
-
-                // A download outlives the page that started it, so its progress belongs
-                // here rather than on the book.
+                // An active transfer first: it is the thing that is happening now, and it
+                // used to share an icon with the storage row below it, which made the two
+                // hard to tell apart.
                 NavigationLink {
                     ActiveDownloadsView()
                 } label: {
@@ -82,7 +72,18 @@ struct SettingsView: View {
                         Text(downloadSummary)
                             .foregroundStyle(.secondary)
                     } label: {
-                        Label("正在下载", systemImage: "arrow.down.circle")
+                        Label("正在下载", systemImage: "arrow.down.circle.fill")
+                    }
+                }
+
+                NavigationLink {
+                    OfflineLibraryView()
+                } label: {
+                    LabeledContent {
+                        Text(offlineSummary)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label("离线缓存", systemImage: "internaldrive")
                     }
                 }
 

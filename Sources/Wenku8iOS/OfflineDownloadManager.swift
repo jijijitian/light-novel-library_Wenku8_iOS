@@ -129,23 +129,35 @@ public final class OfflineDownloadManager: ObservableObject {
                 if Task.isCancelled { break }
                 progress?.currentChapterTitle = chapter.title
                 progress?.currentChapterID = chapter.id
-                do {
-                    let content = try await service.chapter(aid: aid, cid: chapter.id)
-                    await store.saveChapter(content, for: aid)
-                    // Illustrations are part of the chapter, so fetch them too.
-                    for case let .image(url) in content.blocks {
-                        if let data = try? await fetch(url) {
-                            await store.saveImage(data, for: aid, remote: url)
+                // Two attempts per chapter. The first request of a session pays the
+                // cold-start cost and used to fail silently, leaving a hole in the book —
+                // most visibly the first chapter, which then needed a second download.
+                var stored = false
+                for attempt in 0..<2 where !stored {
+                    do {
+                        let content = try await service.chapter(aid: aid, cid: chapter.id)
+                        await store.saveChapter(content, for: aid)
+                        // Illustrations are part of the chapter, so fetch them too.
+                        for case let .image(url) in content.blocks {
+                            if let data = try? await fetch(url) {
+                                await store.saveImage(data, for: aid, remote: url)
+                            }
+                        }
+                        entry.storedChapterIDs.insert(chapter.id)
+                        entry.updatedAt = Date()
+                        await store.saveManifest(entry)
+                        stored = true
+                    } catch {
+                        // A failing chapter must not abort the whole book. It stays out of
+                        // `storedChapterIDs`, so it is retried next time — and once more
+                        // here before giving up.
+                        if attempt == 1 {
+                            lastError = (error as? LocalizedError)?.errorDescription
+                                ?? error.localizedDescription
+                        } else {
+                            try? await Task.sleep(nanoseconds: 400_000_000)
                         }
                     }
-                    entry.storedChapterIDs.insert(chapter.id)
-                    entry.updatedAt = Date()
-                    await store.saveManifest(entry)
-                } catch {
-                    // A single failing chapter must not abort the whole book; it
-                    // stays out of `storedChapterIDs` and is retried next time.
-                    lastError = (error as? LocalizedError)?.errorDescription
-                        ?? error.localizedDescription
                 }
                 // Counted against this download's own chapters for the same reason.
                 progress?.completed = chapters.filter { entry.storedChapterIDs.contains($0.id) }.count
