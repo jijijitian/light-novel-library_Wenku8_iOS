@@ -33,8 +33,8 @@ struct PagedReadingView: View {
     @State private var landOnLastPage = false
     var onLongPressImage: (URL) -> Void
 
-    /// Live finger offset in points; zero when a page rests in place.
-    @State private var dragOffset: CGFloat = 0
+    /// Passed to the native pager so a slider jump slides instead of snapping.
+    @State private var pagerAnimatesNextMove = false
     @State private var pageIndex = 0
     @State private var pages: [ChapterPaginator.Page] = []
     @State private var measuredSize: CGSize = .zero
@@ -87,7 +87,6 @@ struct PagedReadingView: View {
                 // old offset would read as an extra page turn after loading.
                 pageIndex = landOnLastPage ? max(0, pages.count - 1) : 0
                 landOnLastPage = false
-                dragOffset = 0
                 updatePageLabel()
             }
             .onChange(of: fontSize) { _, _ in rebuild(size: size) }
@@ -99,6 +98,8 @@ struct PagedReadingView: View {
             // Applies a page jump requested by the slider.
             .onChange(of: requestedPage) { _, newValue in
                 guard let newValue, pages.indices.contains(newValue) else { return }
+                // Slider jumps glide; taps and chapter loads snap.
+                pagerAnimatesNextMove = true
                 pageIndex = newValue
                 requestedPage = nil
             }
@@ -231,49 +232,39 @@ struct PagedReadingView: View {
     private func horizontalPager(size: CGSize, topPadding: CGFloat) -> some View {
         let pageWidth = size.width + Self.horizontalPadding * 2
         let height = topPadding + size.height
-        return HStack(spacing: 0) {
-            ForEach(Array(pages.enumerated()), id: \.element.id) { _, page in
-                pageContent(page)
-                    .padding(.horizontal, Self.horizontalPadding)
-                    .padding(.top, topPadding)
-                    .frame(width: pageWidth, height: height, alignment: .topLeading)
-            }
+        return NativePager(
+            pageCount: pages.count,
+            pageIndex: $pageIndex,
+            pageWidth: pageWidth,
+            pageHeight: height,
+            onBoundary: { boundary in
+                switch boundary {
+                case .before: retreatChapter()
+                case .after: advanceChapter()
+                }
+            },
+            onTap: { x, width in
+                handleTap(at: CGPoint(x: x, y: 0), width: width)
+            },
+            animateNextMove: pagerAnimatesNextMove
+        ) { index in
+            // `@ViewBuilder` inside the closure is not inferred across the
+            // representable boundary, so the branch is spelled out as one type.
+            pageSlot(at: index)
+                .padding(.horizontal, Self.horizontalPadding)
+                .padding(.top, topPadding)
         }
-        .offset(x: -CGFloat(pageIndex) * pageWidth + dragOffset)
-        .frame(width: pageWidth, height: height, alignment: .leading)
-        .clipped()
-        .contentShape(Rectangle())
-        // Tap must know where it landed, so a spatial tap is used; it coexists with
-        // the drag because it only recognises a stationary finger.
-        .simultaneousGesture(
-            SpatialTapGesture()
-                .onEnded { value in
-                    handleTap(at: value.location, width: pageWidth)
-                }
-        )
-        .gesture(
-            DragGesture(minimumDistance: 12)
-                .onChanged { value in
-                    // Rubber-band at the ends so the page follows the finger but
-                    // resists being pulled past the first or last one.
-                    let raw = value.translation.width
-                    let atFirst = pageIndex == 0 && raw > 0
-                    let atLast = pageIndex == pages.count - 1 && raw < 0
-                    dragOffset = (atFirst || atLast) ? raw * 0.28 : raw
-                }
-                .onEnded { value in
-                    let dx = value.translation.width
-                    let threshold = pageWidth * 0.22
-                    if dx <= -threshold {
-                        turnForward()
-                    } else if dx >= threshold {
-                        turnBackward()
-                    } else {
-                        // Not far enough: spring back to the current page.
-                        withAnimation(.easeOut(duration: 0.2)) { dragOffset = 0 }
-                    }
-                }
-        )
+        .frame(width: pageWidth, height: height)
+    }
+
+    /// One page, or an empty placeholder while pages are being rebuilt.
+    @ViewBuilder
+    private func pageSlot(at index: Int) -> some View {
+        if pages.indices.contains(index) {
+            pageContent(pages[index])
+        } else {
+            Color.clear
+        }
     }
 
     private var displayTitle: String {
@@ -333,31 +324,30 @@ struct PagedReadingView: View {
             return
         }
 
+        // Taps never animate: `NativePager` snaps the offset, so the next page is
+        // simply there.
         if ratio <= 0.3 {
             retreat()
-            dragOffset = 0
         } else {
             advance()
-            dragOffset = 0
         }
     }
 
-    /// Swipe-triggered turn: the page finishes sliding at a fixed speed.
-    ///
-    /// The offset is reset inside the same animation that moves the index, so the
-    /// finger's travel is absorbed rather than snapping first and scrolling after.
-    private func turnForward() {
-        withAnimation(.easeOut(duration: Self.turnDuration)) {
-            advance()
-            dragOffset = 0
+    /// The native pager reports a drag past the last page.
+    private func advanceChapter() {
+        guard model.canGoNext else {
+            reachedBookEnd = true
+            return
         }
+        landOnLastPage = false
+        Task { await model.goNext() }
     }
 
-    private func turnBackward() {
-        withAnimation(.easeOut(duration: Self.turnDuration)) {
-            retreat()
-            dragOffset = 0
-        }
+    /// The native pager reports a drag past the first page.
+    private func retreatChapter() {
+        guard model.canGoPrevious else { return }
+        landOnLastPage = true
+        Task { await model.goPrevious() }
     }
 
     /// One page forward; only at the end of the chapter does this load the next.
