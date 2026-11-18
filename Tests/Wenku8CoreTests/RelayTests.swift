@@ -302,3 +302,26 @@ final class RelayImageTests: XCTestCase {
         XCTAssertEqual(last, "后文")
     }
 }
+
+final class RelayCategoriesTests: XCTestCase {
+    func testCategoriesAreParsedWithAllPrepended() {
+        let text = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <metadata>
+          <item sort="1">电击文库</item>
+          <item sort="2">富士见文库</item>
+        </metadata>
+        """
+        let items = RelayParser.categories(text)
+        XCTAssertEqual(items?.count, 3)
+        XCTAssertEqual(items?.first?.id, 0)
+        XCTAssertEqual(items?.first?.name, "全部轻小说")
+        XCTAssertEqual(items?[1].id, 1)
+        XCTAssertEqual(items?[1].name, "电击文库")
+    }
+
+    func testCategoriesNilWhenUnparseable() {
+        XCTAssertNil(RelayParser.categories("<metadata></metadata>"))
+        XCTAssertNil(RelayParser.categories(""))
+    }
+}

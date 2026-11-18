@@ -470,6 +470,35 @@ public enum RelayParser {
         return ""
     }
 
+    /// The library taxonomy (`action=xml&item=sort`).
+    ///
+    /// ```xml
+    /// <item sort="1">电击文库</item>
+    /// ```
+    ///
+    /// A leading "全部轻小说" entry is prepended because every listing screen offers it
+    /// and the relay does not name it.
+    public static func categories(_ text: String) -> [LibraryCategory]? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<item\s+sort="(\d+)"[^>]*>([\s\S]*?)</item>"#,
+            options: [.caseInsensitive]
+        ) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var items: [LibraryCategory] = []
+        for match in regex.matches(in: text, range: range) {
+            guard match.numberOfRanges > 2,
+                  let idRange = Range(match.range(at: 1), in: text),
+                  let nameRange = Range(match.range(at: 2), in: text),
+                  let id = Int(text[idRange]) else { continue }
+            let name = text[nameRange]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            items.append(LibraryCategory(id: id, name: name))
+        }
+        guard !items.isEmpty else { return nil }
+        return [LibraryCategory(id: 0, name: "全部轻小说")] + items
+    }
+
     // MARK: - Bookshelf
 
     /// One entry of the relay's bookshelf listing.

@@ -67,11 +67,32 @@ public struct NovelService: Sendable {
 
     // MARK: - Home
 
+    /// The home screen's rows.
+    ///
+    /// With the relay enabled these come from it alone: the WAP home page serves a
+    /// different (and partly login-gated) selection, so mixing the two would show a
+    /// home screen assembled from two sources. The relay is asked for each board and
+    /// the rows are built from what it returns; a board it cannot serve is simply
+    /// omitted rather than quietly filled from the website.
     public func homeRows() async throws -> [HomeRow] {
+        if relayIsAvailable {
+            return await relayHomeRows()
+        }
         let html = try await client.wap("/")
         let rows = WAPParser.homeSections(html)
         if rows.isEmpty {
             return try await fallbackHomeRows()
+        }
+        return rows
+    }
+
+    /// Builds the home rows from the relay's boards.
+    private func relayHomeRows() async -> [HomeRow] {
+        var rows: [HomeRow] = []
+        for section in HomeSection.allCases {
+            guard let items = await relayNovelList(sort: section.board.rawValue, page: 1),
+                  !items.isEmpty else { continue }
+            rows.append(HomeRow(section: section, items: items))
         }
         return rows
     }
@@ -89,9 +110,14 @@ public struct NovelService: Sendable {
     // MARK: - Ranking
 
     public func rank(_ board: RankBoard, page: Int = 1) async throws -> [NovelSummary] {
-        // The relay is the only path that serves real ranking data anonymously.
-        if let items = await relayNovelList(sort: board.rawValue, page: page) {
-            return items
+        // With the relay enabled every board comes from it, and nothing is silently
+        // substituted from the website: a blank board is honest, a board quietly
+        // assembled from another source is not.
+        if relayIsAvailable {
+            if let items = await relayNovelList(sort: board.rawValue, page: page), !items.isEmpty {
+                return items
+            }
+            throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
         }
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.wap(path)
@@ -141,8 +167,11 @@ public struct NovelService: Sendable {
 
     public func library(_ category: Int, page: Int = 1) async throws -> [NovelSummary] {
         let sort = category == 0 ? "all" : "\(category)"
-        if let items = await relayNovelList(sort: sort, page: page) {
-            return items
+        if relayIsAvailable {
+            if let items = await relayNovelList(sort: sort, page: page), !items.isEmpty {
+                return items
+            }
+            throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
         }
         let path = "/article/sortlist.php?class=\(category)&page=\(page)"
         let html = try await client.wap(path)
@@ -154,7 +183,18 @@ public struct NovelService: Sendable {
         return WAPParser.linksIn(html).uniquedByID()
     }
 
+    /// Library categories.
+    ///
+    /// The relay publishes the same taxonomy (`action=xml&item=sort`); with it enabled
+    /// the list comes from there so the categories match the listings the relay
+    /// actually serves.
     public func categories() async throws -> [LibraryCategory] {
+        if relayIsAvailable,
+           let text = try? await relay.sendText(RelayAction.sorts()),
+           let parsed = RelayParser.categories(text), !parsed.isEmpty {
+            return parsed
+        }
+        if relayIsAvailable { return LibraryCategory.all }
         let html = try await client.wap("/article/sort.php")
         let list = WAPParser.libraryCategories(html)
         return list.isEmpty ? LibraryCategory.all : list
@@ -165,8 +205,11 @@ public struct NovelService: Sendable {
     public func search(_ query: SearchQuery) async throws -> [NovelSummary] {
         let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return [] }
-        if let items = await relaySearch(keyword, type: query.field.parameter) {
-            return items
+        if relayIsAvailable {
+            if let items = await relaySearch(keyword, type: query.field.parameter) {
+                return items
+            }
+            throw Wenku8Error.unavailable("中转服务暂时无法搜索，请稍后再试")
         }
         let fields = [
             "action": "search",
@@ -226,17 +269,20 @@ public struct NovelService: Sendable {
     }
 
     private func onlineDetail(aid: Int) async throws -> NovelDetail {
-        if relayIsAvailable,
-           let data = try? await relay.send(RelayAction.meta(aid: aid)) {
-            var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
-            if !parsed.title.isEmpty {
-                // `meta` carries the short preview; `intro` carries the full text.
-                if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
-                    let full = RelayParser.intro(TextDecoding.decode(introData))
-                    if !full.isEmpty { parsed.intro = full }
-                }
-                return parsed
+        if relayIsAvailable {
+            guard let data = try? await relay.send(RelayAction.meta(aid: aid)) else {
+                throw Wenku8Error.unavailable("中转服务暂时无法获取书籍信息")
             }
+            var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
+            guard !parsed.title.isEmpty else {
+                throw Wenku8Error.unavailable("中转服务返回的书籍信息不完整")
+            }
+            // `meta` carries the short preview; `intro` carries the full text.
+            if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
+                let full = RelayParser.intro(TextDecoding.decode(introData))
+                if !full.isEmpty { parsed.intro = full }
+            }
+            return parsed
         }
         let html = try await client.wap("/article/articleinfo.php?id=\(aid)")
         var detail = WAPParser.novelDetail(html, aid: aid)
@@ -264,10 +310,15 @@ public struct NovelService: Sendable {
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {
-        if relayIsAvailable,
-           let data = try? await relay.send(RelayAction.chapterList(aid: aid)) {
+        if relayIsAvailable {
+            guard let data = try? await relay.send(RelayAction.chapterList(aid: aid)) else {
+                throw Wenku8Error.unavailable("中转服务暂时无法获取目录")
+            }
             let relayed = RelayParser.volumes(TextDecoding.decode(data))
-            if !relayed.isEmpty { return Self.mergeVolumes(relayed) }
+            guard !relayed.isEmpty else {
+                throw Wenku8Error.unavailable("中转服务返回的目录为空")
+            }
+            return Self.mergeVolumes(relayed)
         }
         do {
             let volumes = try await wapVolumes(aid: aid)
@@ -347,10 +398,15 @@ public struct NovelService: Sendable {
         if let cached = await offline.chapter(aid, cid: cid) {
             return cached
         }
-        if relayIsAvailable,
-           let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) {
+        if relayIsAvailable {
+            guard let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) else {
+                throw Wenku8Error.unavailable("中转服务暂时无法获取正文")
+            }
             let parsed = RelayParser.chapter(TextDecoding.decode(data), aid: aid, cid: cid)
-            if !parsed.blocks.isEmpty { return parsed }
+            guard !parsed.blocks.isEmpty else {
+                throw Wenku8Error.unavailable("中转服务返回的正文为空")
+            }
+            return parsed
         }
         var pages: [ChapterContent] = []
         var page = 1
@@ -584,13 +640,16 @@ public struct NovelService: Sendable {
         // With the relay enabled the shelf comes from the relay's own session, which
         // `signIn` establishes alongside the website's. Relay ids carry no group on
         // that listing, so groups still come from the desktop page.
-        if relayIsAvailable, classID ?? 0 == 0,
-           let text = try? await relay.sendText(RelayAction.bookcaseList()) {
-            let entries = RelayParser.bookcaseEntries(text)
-            if !entries.isEmpty {
-                let shelf = await enrich(entries)
-                return (shelf, shelf.count)
+        if relayIsAvailable, classID ?? 0 == 0 {
+            guard let text = try? await relay.sendText(RelayAction.bookcaseList()) else {
+                throw Wenku8Error.unavailable("中转服务暂时无法获取书架")
             }
+            // An empty listing is a real answer — the account has nothing — and must
+            // not be mistaken for a failure, or an empty shelf would silently be
+            // re-read from a different source.
+            let entries = RelayParser.bookcaseEntries(text)
+            let shelf = await enrich(entries)
+            return (shelf, shelf.count)
         }
         guard client.hasSession() else { throw Wenku8Error.needLogin }
         let path = classID.map { "/modules/article/bookcase.php?classid=\($0)" }
