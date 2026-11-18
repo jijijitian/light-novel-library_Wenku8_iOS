@@ -133,7 +133,14 @@ struct PagedReadingView: View {
             if model.isLoading {
                 // Shown for every chapter change, not just the first one: the old
                 // page must not linger while the next chapter is being fetched.
+                // The overlay must not swallow taps: the reader still wants to be
+                // able to summon the menu while a chapter is loading.
                 loadingOverlay
+                    .allowsHitTesting(false)
+                    // With the pages cleared there is nothing under the overlay to
+                    // carry a tap, so one is layered on top: loading must still let
+                    // the reader summon the menu.
+                    .overlay { loadingTapLayer }
             } else if let error = model.error {
                 VStack(spacing: 12) {
                     Text((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
@@ -160,6 +167,24 @@ struct PagedReadingView: View {
     ///
     /// Without it the old chapter stayed on screen until the new one arrived, which
     /// looked like the swipe had done nothing.
+    /// Invisible tap catcher used while a chapter loads.
+    ///
+    /// Mirrors the pager's own routing so the loading state behaves like a loaded
+    /// page: the middle opens the menu, the sides would turn a page (which the model
+    /// ignores while loading).
+    private var loadingTapLayer: some View {
+        GeometryReader { geo in
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture()
+                        .onEnded { value in
+                            handleTap(at: value.location, width: geo.size.width)
+                        }
+                )
+        }
+    }
+
     private var loadingOverlay: some View {
         ZStack {
             theme.background
@@ -377,6 +402,9 @@ struct PagedReadingView: View {
 
     /// One page forward; only at the end of the chapter does this load the next.
     private func advance() {
+        // A chapter is already being fetched: a side tap would otherwise queue a
+        // second request for the same chapter.
+        guard !model.isLoading else { return }
         if pageIndex + 1 < pages.count {
             let target = pageIndex + 1
             // The scroll view owns the offset now, so the index alone is not enough:
@@ -394,6 +422,7 @@ struct PagedReadingView: View {
     }
 
     private func retreat() {
+        guard !model.isLoading else { return }
         if pageIndex > 0 {
             let target = pageIndex - 1
             jumpRequest = PagerJump(id: UUID(), index: target, animated: false)
