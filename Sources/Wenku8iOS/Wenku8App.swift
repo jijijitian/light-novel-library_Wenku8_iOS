@@ -8,19 +8,22 @@ struct Wenku8App: App {
     @StateObject private var account = AccountStore()
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
 
-    /// `WENKU8_APPEARANCE=light|dark|system` overrides the stored appearance so a
-    /// debug launch can check both modes without picking through the UI.
-    private var effectiveAppearanceRaw: String {
+    /// Seeds the stored appearance from `WENKU8_APPEARANCE=light|dark|system` once,
+    /// so a debug launch can open in a given mode.
+    ///
+    /// It must not be an override: reading the environment on every render made the
+    /// setting unchangeable for the life of the process, since the variable always
+    /// won over whatever the user picked in Settings.
+    private static func seedAppearanceFromEnvironment() {
         #if DEBUG
-        if let raw = ProcessInfo.processInfo.environment["WENKU8_APPEARANCE"],
-           AppAppearance(rawValue: raw) != nil {
-            return raw
-        }
+        guard let raw = ProcessInfo.processInfo.environment["WENKU8_APPEARANCE"],
+              AppAppearance(rawValue: raw) != nil else { return }
+        UserDefaults.standard.set(raw, forKey: AppAppearance.storageKey)
         #endif
-        return appearanceRaw
     }
 
     init() {
+        Self.seedAppearanceFromEnvironment()
         Self.configureRelay()
         Self.restoreDomain()
         Self.applyReaderOverrides()
@@ -76,7 +79,7 @@ struct Wenku8App: App {
                 // Applies the app-wide appearance chosen in Settings; the reader's
                 // own palettes are unaffected.
                 .preferredColorScheme(
-                    (AppAppearance(rawValue: effectiveAppearanceRaw) ?? .system).colorScheme
+                    (AppAppearance(rawValue: appearanceRaw) ?? .system).colorScheme
                 )
                 .task {
                     #if DEBUG
