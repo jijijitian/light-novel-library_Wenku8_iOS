@@ -28,22 +28,18 @@ final class NovelDetailViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        if !force {
-            if let cached = await service.cachedDetail(aid: novelID) {
-                detail = cached
-                loaded = true
-                // The catalogue is small and already on disk when the book is downloaded;
-                // fetching it here keeps chapter marks correct without touching metadata.
-                if let result = try? await service.volumes(aid: novelID) {
-                    volumes = result
-                }
-                isLoadingVolumes = false
-                return
-            }
+        if !force, let cached = await service.cachedDetail(aid: novelID) {
+            // Book and catalogue both come from the cache: the catalogue is part of the
+            // metadata now, so a book opened once is complete offline.
+            detail = cached
+            volumes = await service.cachedVolumes(aid: novelID) ?? []
+            loaded = true
+            isLoadingVolumes = false
+            return
         }
 
         async let detailTask = service.fetchDetail(aid: novelID)
-        async let volumesTask = service.volumes(aid: novelID)
+        async let volumesTask = service.fetchVolumes(aid: novelID)
         do {
             detail = try await detailTask
             error = nil

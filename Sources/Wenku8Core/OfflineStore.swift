@@ -39,6 +39,13 @@ public actor OfflineStore {
         /// falls back to the title and author above.
         public var detail: NovelDetail?
 
+        /// The book's catalogue, kept with the metadata.
+        ///
+        /// A book that was only opened has no chapters on disk, and the catalogue is what
+        /// the detail screen lists. Without it the offline page showed a book with no
+        /// table of contents. Optional so older manifests still decode.
+        public var volumes: [Volume]?
+
         public var id: Int { novelID }
         public var progress: Double {
             guard !chapterIDs.isEmpty else { return 0 }
@@ -294,6 +301,35 @@ public actor OfflineStore {
     /// Books whose metadata is cached but which have no downloaded chapters.
     public func metadataOnlyEntries() -> [Entry] {
         entries().filter { $0.chapterIDs.isEmpty && $0.detail != nil }
+    }
+
+    /// Records the cover file for a book that already has a manifest.
+    public func attachCover(_ coverFile: String?, for aid: Int) async {
+        guard let coverFile, var entry = entry(for: aid) else { return }
+        entry.coverFile = coverFile
+        saveManifest(entry)
+    }
+
+    /// Stores a book's catalogue with its metadata.
+    public func cacheVolumes(_ volumes: [Volume], for aid: Int) async {
+        guard var entry = entry(for: aid) else { return }
+        entry.volumes = volumes
+        // Keep the flat chapter list in step so progress and downloads still work.
+        let chapters = volumes.flatMap(\.chapters)
+        if entry.chapterIDs.isEmpty {
+            entry.chapterIDs = chapters.map(\.id)
+            var titles: [Int: String] = [:]
+            for chapter in chapters { titles[chapter.id] = chapter.title }
+            entry.chapterTitles = titles
+        }
+        entry.updatedAt = Date()
+        saveManifest(entry)
+    }
+
+    /// The stored catalogue for a book, when one was cached.
+    public func cachedVolumes(for aid: Int) -> [Volume]? {
+        guard let entry = entry(for: aid), let volumes = entry.volumes else { return nil }
+        return volumes.isEmpty ? nil : volumes
     }
 
     /// Removes the metadata for a book while leaving its chapters alone.

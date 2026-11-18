@@ -389,7 +389,44 @@ public struct NovelService: Sendable {
     public func fetchDetail(aid: Int) async throws -> NovelDetail {
         let online = try await onlineDetail(aid: aid)
         await offline.refreshDetail(online)
+        // Cover and catalogue are part of what the page shows, so they are cached with it
+        // rather than left to be re-fetched on the next visit.
+        if let cover = online.coverURL, let data = try? await fetchImage(cover) {
+            let file = await offline.saveCover(data, for: aid, remote: cover)
+            await offline.attachCover(file, for: aid)
+        }
+        if let volumes = try? await onlineVolumes(aid: aid) {
+            await offline.cacheVolumes(volumes, for: aid)
+        }
         return online
+    }
+
+    /// Caches a book's metadata, cover image and catalogue together.
+    ///
+    /// The three travel as one unit: a page with a title and no cover or contents is half a
+    /// page, and all three come from separate requests that would otherwise each have to
+    /// be remembered.
+    /// Downloads an image the same way the rest of the app does.
+    private func fetchImage(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        if url.host?.contains("wenku8-relay") == true {
+            request.setValue("okhttp/4.12.0", forHTTPHeaderField: "User-Agent")
+        }
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
+    }
+
+    public func cacheDetailFully(aid: Int) async {
+        guard let detail = try? await onlineDetail(aid: aid) else { return }
+        var coverFile: String?
+        if let cover = detail.coverURL, let data = try? await fetchImage(cover) {
+            coverFile = await offline.saveCover(data, for: aid, remote: cover)
+        }
+        await offline.cacheMetadata(detail, coverFile: coverFile)
+        if let volumes = try? await onlineVolumes(aid: aid) {
+            await offline.cacheVolumes(volumes, for: aid)
+        }
     }
 
     public func detail(aid: Int) async throws -> NovelDetail {
@@ -445,9 +482,27 @@ public struct NovelService: Sendable {
         return detail
     }
 
+    /// A book's catalogue, from the cache when one is stored.
+    ///
+    /// The catalogue is part of the metadata, so a book opened once is complete offline;
+    /// reaching the network on every visit would defeat that.
+    public func cachedVolumes(aid: Int) async -> [Volume]? {
+        await offline.cachedVolumes(for: aid)
+    }
+
+    /// Fetches a catalogue and stores it with the book's metadata.
+    public func fetchVolumes(aid: Int) async throws -> [Volume] {
+        let volumes = try await onlineVolumes(aid: aid)
+        await offline.cacheVolumes(volumes, for: aid)
+        return volumes
+    }
+
     public func volumes(aid: Int) async throws -> [Volume] {
+        if let cached = await offline.cachedVolumes(for: aid) {
+            return cached
+        }
         do {
-            return try await onlineVolumes(aid: aid)
+            return try await fetchVolumes(aid: aid)
         } catch {
             // Offline: rebuild the catalogue from the downloaded manifest so the
             // reader can still navigate a cached book.
