@@ -745,11 +745,12 @@ public struct NovelService: Sendable {
     }
 
     public func sessionState() async -> SessionState {
-        // With the relay on, everything the app reads comes from it, so its session is the
-        // one that decides whether the reader is signed in — the website's cookie can be
-        // perfectly valid while every relay call answers "not signed in".
-        if relayIsAvailable, case .signedOut = await relaySessionState() {
-            return .signedOut
+        // The two sources hold separate sessions, and only the active one is consulted:
+        // with the relay on every request goes there, so the website's state is irrelevant
+        // — and vice versa. Asking both would report a login the reader's requests do not
+        // actually use.
+        if relayIsAvailable {
+            return await relaySessionState()
         }
         guard let html = try? await client.desktop("/book/1614.htm") else { return .unknown }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return .signedOut }

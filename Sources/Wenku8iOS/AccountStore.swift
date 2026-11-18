@@ -98,7 +98,9 @@ final class AccountStore: ObservableObject {
         let remembered = userName
         switch await service.sessionState() {
         case .signedIn(let name):
-            setUserName(name)
+            // The relay can confirm a session without telling us the name; keep the one we
+            // already have rather than blanking it.
+            if !name.isEmpty { setUserName(name) }
             sessionExpiredNotice = false
         case .signedOut:
             let hadSession = remembered != nil || Wenku8Client.shared.hasSession()
