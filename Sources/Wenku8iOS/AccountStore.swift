@@ -136,24 +136,28 @@ final class AccountStore: ObservableObject {
     /// no password is kept, in memory or on disk, so the only honest outcome is to report
     /// that a login is needed and let the reader supply one.
     func verifySessionAfterSourceChange() async -> SessionCheck {
-        guard userName != nil || Wenku8Client.shared.hasSession() else { return .notSignedIn }
+        // Why the switch happened decides what to ask, and `sessionState()` already answers
+        // that: relay on means the relay's session, relay off means the site now selected.
+        // The check therefore runs even when the app believes nobody is signed in — turning
+        // the relay on can reveal a session the website never had.
+        let wasSignedIn = userName != nil
 
-        // Covers both sides: with the relay on, its session is what the app's requests
-        // actually depend on; with it off, the website's.
         switch await service.sessionState() {
         case .signedIn(let name):
             if !name.isEmpty { setUserName(name) }
-            return .valid(userName ?? name)
+            let shown = userName ?? name
+            return shown.isEmpty ? .notSignedIn : .valid(shown)
         case .unknown:
             // Could not ask. Leave the state alone rather than sign the reader out on a
             // failed request.
+            guard wasSignedIn else { return .notSignedIn }
             return .valid(userName ?? "")
         case .signedOut:
             // Drop the name rather than leave the app claiming a session it does not have.
             setUserName(nil)
             remoteNovels = []
             remoteShelf = []
-            return .expired
+            return wasSignedIn ? .expired : .notSignedIn
         }
     }
 
