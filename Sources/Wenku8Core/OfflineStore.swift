@@ -349,7 +349,10 @@ public actor OfflineStore {
         var titles: [Int: String] = [:]
         for chapter in chapters { titles[chapter.id] = chapter.title }
         let existing = entry(for: detail.id)
-        return Entry(
+        // Every field the manifest already holds has to be carried over: this value
+        // replaces the manifest wholesale, so anything omitted is deleted. The catalogue
+        // was missing here, and starting a download wiped the cached one.
+        var entry = Entry(
             novelID: detail.id,
             title: detail.title,
             author: detail.author.isEmpty ? nil : detail.author,
@@ -361,5 +364,9 @@ public actor OfflineStore {
             bytes: usedBytes(for: detail.id),
             detail: detail
         )
+        // A partial download passes the full catalogue; a re-download that somehow has
+        // none keeps whatever was stored rather than clearing it.
+        entry.volumes = volumes.isEmpty ? existing?.volumes : volumes
+        return entry
     }
 }
