@@ -9,65 +9,20 @@ struct ShelfView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                // One list, not two. Signed in, the account's shelf *is* the shelf: the
+                // local list was rendered underneath it as a separate "2 本收藏" block,
+                // so a book added here appeared twice and the counts disagreed. The
+                // local list is only the shelf when there is no account.
                 if account.isSignedIn {
                     cloudShelfSection
+                } else if store.saved.isEmpty {
+                    emptyState
+                } else {
+                    localShelfSection
                 }
 
-                if store.saved.isEmpty && account.remoteShelf.isEmpty {
-                    EmptyStateView(
-                        symbol: "books.vertical",
-                        title: "书架还是空的",
-                        message: "在小说详情页点击「加入书架」，就能在这里追踪阅读进度。",
-                        actionTitle: "去首页看看"
-                    ) {
-                        router.tab = .home
-                    }
-                    .padding(.top, 30)
-                } else if !store.saved.isEmpty {
-                    HStack(spacing: 10) {
-                        TagChip(text: "\(store.saved.count) 本收藏", systemImage: "bookmark.fill")
-                        Spacer()
-                    }
-                    NovelGrid(novels: store.saved) { novel in
-                        router.open(.novel(novel.id))
-                    }
-                    .padding(14)
-                    .glassCard(cornerRadius: 24)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "阅读进度", symbol: "timer")
-                        ForEach(store.saved) { novel in
-                            if let progress = store.progress(for: novel.id) {
-                                Button {
-                                    router.open(.novel(novel.id))
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        CoverCard(url: novel.coverURL, title: novel.title, width: 44, height: 62)
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(novel.title)
-                                                .font(.subheadline.weight(.semibold))
-                                                .lineLimit(1)
-                                            Text(progress.chapterTitle)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                            Text(relative(progress.updated))
-                                                .font(.caption2)
-                                                .foregroundStyle(.tertiary)
-                                        }
-                                        Spacer(minLength: 0)
-                                        Image(systemName: "chevron.right")
-                                            .font(.footnote)
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(14)
-                    .glassCard(cornerRadius: 22)
-                    .opacity(store.progress.isEmpty ? 0 : 1)
+                if !progressNovels.isEmpty {
+                    progressSection
                 }
             }
             .padding(.horizontal, 18)
@@ -108,6 +63,74 @@ struct ShelfView: View {
                 }
             }
         }
+    }
+
+    private var emptyState: some View {
+        EmptyStateView(
+            symbol: "books.vertical",
+            title: "书架还是空的",
+            message: "在小说详情页点击「加入书架」，就能在这里追踪阅读进度。",
+            actionTitle: "去首页看看"
+        ) {
+            router.tab = .home
+        }
+        .padding(.top, 30)
+    }
+
+    /// The local shelf, used only when no account is signed in.
+    private var localShelfSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TagChip(text: "\(store.saved.count) 本收藏", systemImage: "bookmark.fill")
+            NovelGrid(novels: store.saved) { novel in
+                router.open(.novel(novel.id))
+            }
+        }
+        .padding(14)
+        .glassCard(cornerRadius: 24)
+    }
+
+    /// Books with a recorded reading position, from either shelf.
+    private var progressNovels: [NovelSummary] {
+        let source = account.isSignedIn
+            ? account.remoteShelf.map(\.novel)
+            : store.saved
+        return source.filter { store.progress(for: $0.id) != nil }
+    }
+
+    private var progressSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "阅读进度", symbol: "timer")
+            ForEach(progressNovels) { novel in
+                if let progress = store.progress(for: novel.id) {
+                    Button {
+                        router.open(.novel(novel.id))
+                    } label: {
+                        HStack(spacing: 12) {
+                            CoverCard(url: novel.coverURL, title: novel.title, width: 44, height: 62)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(novel.title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Text(progress.chapterTitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Text(relative(progress.updated))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
+        .glassCard(cornerRadius: 22)
     }
 
     /// The site's shelf, grouped the way the website groups it.

@@ -70,7 +70,7 @@ struct NovelDetailView: View {
                 // Adding offers the site's shelf groups; the toolbar button toggles
                 // for a quick save, while this menu places the book deliberately.
                 Menu {
-                    if store.isSaved(novelID) {
+                    if isOnShelf {
                         Button(role: .destructive) {
                             removeFromShelf()
                         } label: {
@@ -92,10 +92,10 @@ struct NovelDetailView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: store.isSaved(novelID) ? "bookmark.fill" : "bookmark")
+                    Image(systemName: isOnShelf ? "bookmark.fill" : "bookmark")
                 }
                 .disabled(model.detail == nil)
-                .accessibilityLabel(store.isSaved(novelID) ? "移出书架" : "加入书架")
+                .accessibilityLabel(isOnShelf ? "移出书架" : "加入书架")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -139,6 +139,11 @@ struct NovelDetailView: View {
         .task {
             await model.load(novelID: novelID)
             await refreshOffline()
+            // Ensures the bookmark shows the truth for books that are on the website's
+            // shelf but were never added on this device.
+            if account.remoteShelf.isEmpty {
+                account.restoreCachedShelf()
+            }
         }
         .onChange(of: downloadManager.progress) { _, newValue in
             if newValue == nil { Task { await refreshOffline() } }
@@ -368,6 +373,14 @@ struct NovelDetailView: View {
         .glassCard(cornerRadius: 22)
     }
 
+    /// Whether this book is on the shelf, checking the account as well.
+    ///
+    /// The icon used to look at the local list only, so books already on the website's
+    /// shelf showed as "not added" until the reader added them a second time.
+    private var isOnShelf: Bool {
+        store.isSaved(novelID) || account.remoteShelf.contains { $0.novel.id == novelID }
+    }
+
     /// Saves locally and, when signed in, on the site — into `classID` when given.
     private func addToShelf(classID: Int?) {
         guard let detail = model.detail else { return }
@@ -377,19 +390,28 @@ struct NovelDetailView: View {
             author: detail.author,
             coverURL: detail.coverURL
         )
-        store.add(summary)
         guard account.isSignedIn else {
+            // No account: the local shelf is the shelf.
+            store.add(summary)
             shelfMessage = "已加入本地书架"
             return
         }
-        Task { shelfMessage = await account.addToRemoteShelf(summary, classID: classID) }
+        // Signed in: the account's shelf is the single list the app shows, so the book
+        // is added there only. Writing the local list as well made the same book appear
+        // twice — once in the cloud section and once in "N 本收藏".
+        Task {
+            shelfMessage = await account.addToRemoteShelf(summary, classID: classID)
+            account.loadCachedShelf(classID: account.selectedShelfClass)
+        }
     }
 
     private func removeFromShelf() {
         guard let detail = model.detail else { return }
         store.remove(detail.id)
-        shelfMessage = "已从本地书架移除"
-        guard account.isSignedIn else { return }
+        guard account.isSignedIn else {
+            shelfMessage = "已从本地书架移除"
+            return
+        }
         Task { shelfMessage = await account.removeFromRemoteShelf(detail.id) }
     }
 
