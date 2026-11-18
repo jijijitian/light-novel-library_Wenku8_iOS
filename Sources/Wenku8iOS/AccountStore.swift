@@ -95,7 +95,13 @@ final class AccountStore: ObservableObject {
     /// Signing out is only ever the result of a definite answer: an unreachable site leaves
     /// the state untouched, so opening the app without a network does not log the reader out.
     func checkSessionOnLaunch() async {
-        let remembered = userName
+        // Nothing remembered means nothing to settle: a signed-out launch never touches the
+        // network for this.
+        guard userName != nil else {
+            sessionExpiredNotice = false
+            return
+        }
+
         switch await service.sessionState() {
         case .signedIn(let name):
             // The relay can confirm a session without telling us the name; keep the one we
@@ -103,12 +109,11 @@ final class AccountStore: ObservableObject {
             if !name.isEmpty { setUserName(name) }
             sessionExpiredNotice = false
         case .signedOut:
-            let hadSession = remembered != nil || Wenku8Client.shared.hasSession()
             service.signOut()
             setUserName(nil)
             remoteNovels = []
             remoteShelf = []
-            sessionExpiredNotice = hadSession
+            sessionExpiredNotice = true
         case .unknown:
             // Could not ask. Keep whatever was known rather than guess.
             break
@@ -136,28 +141,27 @@ final class AccountStore: ObservableObject {
     /// no password is kept, in memory or on disk, so the only honest outcome is to report
     /// that a login is needed and let the reader supply one.
     func verifySessionAfterSourceChange() async -> SessionCheck {
-        // Why the switch happened decides what to ask, and `sessionState()` already answers
-        // that: relay on means the relay's session, relay off means the site now selected.
-        // The check therefore runs even when the app believes nobody is signed in — turning
-        // the relay on can reveal a session the website never had.
-        let wasSignedIn = userName != nil
+        // Signed out already: there is no session to verify, and the app must not go
+        // probing a source on behalf of nobody. Every switch is silent in that state.
+        guard userName != nil else { return .notSignedIn }
 
+        // Which session to ask is decided by the switch itself, and `sessionState()`
+        // answers it: relay enabled means the relay, relay disabled means the site now
+        // selected.
         switch await service.sessionState() {
         case .signedIn(let name):
             if !name.isEmpty { setUserName(name) }
-            let shown = userName ?? name
-            return shown.isEmpty ? .notSignedIn : .valid(shown)
+            return .valid(userName ?? name)
         case .unknown:
             // Could not ask. Leave the state alone rather than sign the reader out on a
             // failed request.
-            guard wasSignedIn else { return .notSignedIn }
             return .valid(userName ?? "")
         case .signedOut:
             // Drop the name rather than leave the app claiming a session it does not have.
             setUserName(nil)
             remoteNovels = []
             remoteShelf = []
-            return wasSignedIn ? .expired : .notSignedIn
+            return .expired
         }
     }
 
