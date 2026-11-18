@@ -39,20 +39,19 @@ struct ShelfView: View {
             // reload, even when the contents were already on disk.
             account.restoreCachedShelf()
             await syncInBackground()
+            await migrateLegacyLocalShelf()
         }
         .refreshable { await syncNow() }
         .toolbar {
-            if !store.saved.isEmpty {
+            // The menu listed the *local* list while the screen shows the account's
+            // shelf, so signed in it offered books that were not on screen — leftovers
+            // from before the two lists were unified — and nothing that was.
+            if !account.isSignedIn, !store.saved.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(store.saved) { novel in
                             Button(role: .destructive) {
                                 store.remove(novel.id)
-                                // Keep the website's shelf in step: the local list
-                                // is only a mirror once the account is signed in.
-                                if account.isSignedIn {
-                                    Task { _ = await account.removeFromRemoteShelf(novel.id) }
-                                }
                             } label: {
                                 Label(novel.title, systemImage: "minus.circle")
                             }
@@ -255,6 +254,24 @@ struct ShelfView: View {
     /// Two-way sync, passing the local shelf as a single snapshot.
     private func syncNow() async {
         await account.syncWithLocalShelf(store.saved.map(\.id))
+    }
+
+    /// Moves books left in the local list onto the account, then empties it.
+    ///
+    /// Before the two lists were unified, adding a book wrote it locally even when
+    /// signed in, so an account can have books that exist on the device and nowhere
+    /// else — invisible on this screen and impossible to remove from it. They are
+    /// uploaded first: discarding them would lose the reader's shelf.
+    private func migrateLegacyLocalShelf() async {
+        guard account.isSignedIn, !store.saved.isEmpty else { return }
+        let legacy = store.saved
+        for novel in legacy where !account.remoteShelf.contains(where: { $0.novel.id == novel.id }) {
+            _ = try? await account.addToRemoteShelf(novel)
+        }
+        for novel in legacy {
+            store.remove(novel.id)
+        }
+        await syncNow()
     }
 
     /// Refreshes without clearing what is already on screen.
