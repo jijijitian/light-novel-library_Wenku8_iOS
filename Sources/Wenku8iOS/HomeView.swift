@@ -13,6 +13,8 @@ final class HomeViewModel: ObservableObject {
     private var loadTask: Task<Void, Never>?
     /// Monotonic counter identifying the current load.
     private var generation = 0
+    /// Whether the pull-to-refresh indicator should be showing.
+    @Published private(set) var isRefreshing = false
     @Published private(set) var error: Error?
     @Published private(set) var lastUpdated: Date?
 
@@ -44,6 +46,8 @@ final class HomeViewModel: ObservableObject {
     func refresh() async {
         loadTask?.cancel()
         loadTask = nil
+        isRefreshing = true
+        defer { isRefreshing = false }
         // Bump first, so the superseded load cannot clear the new one's state; then it is
         // safe to admit the replacement.
         generation &+= 1
@@ -150,15 +154,38 @@ struct HomeView: View {
         }
         .background { AppBackground() }
         .navigationTitle("轻小说文库")
-        // A pull-to-refresh must always run. The previous version could be swallowed by
-        // the re-entry guard while an earlier load was still retrying, so the indicator
-        // appeared and immediately retracted with nothing having happened.
+        // A custom indicator rather than `.refreshable`: the system one retracts the
+        // moment the closure returns, so a fast refresh flashed by and read as "the gesture
+        // did nothing". This one is ours, so it stays up for the full minimum.
+        .overlay(alignment: .top) { refreshIndicator }
+        // Kept as the gesture source: iOS only reports a pull-to-refresh through this
+        // modifier. Its closure now runs for the full minimum duration, so the system
+        // spinner does not retract early either.
         .refreshable { await model.refresh() }
+
         // Not `.task`: it is cancelled when the view is rebuilt, which happens when the
         // tab changes or the parent re-renders. The load owns the first section, so
         // cancelling it left 今日热榜 — and the banner built from it — permanently empty
         // until a manual refresh.
         .onAppear { model.startLoadingIfNeeded() }
+    }
+
+    /// Pull-to-refresh indicator, drawn by us so its duration is ours to decide.
+    @ViewBuilder
+    private var refreshIndicator: some View {
+        if model.isRefreshing {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("正在刷新…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .glassCard(cornerRadius: 16)
+            .padding(.top, 6)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     /// The banner, or its placeholder while the first section is on its way.
