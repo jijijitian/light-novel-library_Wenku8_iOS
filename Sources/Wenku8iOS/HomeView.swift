@@ -38,7 +38,13 @@ final class HomeViewModel: ObservableObject {
 
         // Rows are appended as each section arrives, top-down, so the top of the page is
         // readable while the rest is still loading rather than after the slowest section.
-        let collected = await service.homeRowsStreaming { [weak self] row in
+        //
+        // The returned collection is deliberately *not* assigned back over `rows`: it is a
+        // second, independent description of the same fetch, and a section that failed on
+        // the retry is absent from it even though its row was already delivered. Assigning
+        // it removed rows that were on screen — the banner would disappear after appearing,
+        // because it is built from the first section.
+        _ = await service.homeRowsStreaming { [weak self] row in
             guard let self else { return }
             await MainActor.run {
                 if !self.rows.contains(where: { $0.section == row.section }) {
@@ -46,7 +52,6 @@ final class HomeViewModel: ObservableObject {
                 }
             }
         }
-        rows = collected
         error = rows.isEmpty ? Wenku8Error.unavailable("首页内容暂时无法载入") : nil
         lastUpdated = Date()
         hasLoaded = true
