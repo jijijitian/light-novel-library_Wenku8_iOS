@@ -47,8 +47,8 @@ final class SugoiParserTests: XCTestCase {
 
     func testYearListCoversArchivedYears() {
         XCTAssertEqual(SugoiParser.availableYears.first, 2026)
-        XCTAssertEqual(SugoiParser.availableYears.last, 2006)
-        XCTAssertEqual(SugoiParser.availableYears.count, 21)
+        XCTAssertEqual(SugoiParser.availableYears.last, 2005)
+        XCTAssertEqual(SugoiParser.availableYears.count, 22)
     }
 
     func testEmptyPageYieldsNoSections() {
