@@ -139,12 +139,25 @@ public enum SugoiParser {
             let title = Markup.normalize(Markup.decodeEntities(raw))
 
             if let href, let id = bookID(in: href) {
-                guard seen.insert(id).inserted else { continue }
-                novels.append(NovelSummary(
-                    id: id,
-                    title: title,
-                    coverURL: CoverURL.image(for: id)
-                ))
+                if seen.insert(id).inserted {
+                    novels.append(NovelSummary(
+                        id: id,
+                        title: title,
+                        coverURL: CoverURL.image(for: id)
+                    ))
+                } else {
+                    // The same book occupying two positions — the 2026 单行本 list does
+                    // this. Dropping the repeat lost a place and made a TOP10 render as
+                    // nine, so the slot is kept; only the first occurrence is navigable,
+                    // since a row needs a unique id to be identified.
+                    let repeatID = -(pageTag * 100 + index + 1)
+                    guard seen.insert(repeatID).inserted else { continue }
+                    novels.append(NovelSummary(
+                        id: repeatID,
+                        title: title,
+                        coverURL: CoverURL.image(for: id)
+                    ))
+                }
             } else if !title.isEmpty, let placeholder = placeholderID(for: title) {
                 guard seen.insert(placeholder).inserted else { continue }
                 novels.append(NovelSummary(id: placeholder, title: title, coverURL: nil))

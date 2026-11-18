@@ -16,10 +16,18 @@ final class SugoiParserTests: XCTestCase {
         XCTAssertEqual(year.sections.count, 2)
         XCTAssertTrue(year.sections[0].caption.contains("文库部门"))
         XCTAssertTrue(year.sections[1].caption.contains("单行本部门"))
-        // The page nominates ten books per section. An entry the library does not stock
-        // links to "#"; it is still shown, because dropping it made a TOP10 render as
-        // fewer rows, but it carries no book id to open.
+        // The page nominates ten positions per section. An entry the library does not stock
+        // links to "#"; it is still shown, because dropping it made a TOP10 render as fewer
+        // rows, but it carries no book id to open.
         XCTAssertEqual(year.sections[0].novels.count, 10)
+        // 单行本 lists 2767 twice, in positions 2 and 7. The repeat keeps its place rather
+        // than collapsing the list to nine.
+        XCTAssertEqual(year.sections[1].novels.count, 10)
+        XCTAssertEqual(year.sections[1].novels.filter { $0.id == 2767 }.count, 1)
+        XCTAssertEqual(
+            year.sections[1].novels.filter { $0.title.hasPrefix("转生后的大圣女") }.count,
+            2
+        )
         XCTAssertEqual(year.sections[0].novels.first?.id, 3988)
         XCTAssertEqual(year.sections[0].novels.first?.title, "玩乐关系")
         // Every entry is either a real book or a titled placeholder.
