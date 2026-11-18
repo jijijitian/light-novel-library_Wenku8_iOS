@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(FoundationNetworking)
+// The parser tests compile this module on Linux, where `URLRequest` and `URLSession`
+// live in a separate module. Only the image download needs them.
+import FoundationNetworking
+#endif
 
 public struct SearchQuery: Hashable, Sendable {
     public enum Field: String, CaseIterable, Identifiable, Sendable {
