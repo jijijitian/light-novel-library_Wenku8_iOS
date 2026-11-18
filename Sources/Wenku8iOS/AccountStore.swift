@@ -16,9 +16,12 @@ final class AccountStore: ObservableObject {
     /// recorded for each book.
     @Published private(set) var remoteShelf: [ShelfEntry] = []
     @Published private(set) var pendingAdds = Set<Int>()
-    /// The site's shelf groups (默认书架 + 第1…5组), so the app can present the same
-    /// organisation instead of flattening everything into one list.
-    @Published private(set) var shelfGroups: [DesktopParser.ShelfGroup] = []
+    /// The six groups the site always offers. Declared, not fetched: the names never
+    /// change, and only the counts do.
+    @Published private(set) var shelfGroups: [DesktopParser.ShelfGroup] =
+        DesktopParser.fixedShelfGroups
+    /// Per-group counts, cached so the chips show real figures before any refresh.
+    @Published private(set) var shelfGroupCounts: [Int: Int] = [:]
     /// Which group the shelf view is showing. `0` is 默认书架.
     @Published var selectedShelfClass = 0
 
@@ -93,19 +96,82 @@ final class AccountStore: ObservableObject {
         isSyncingShelf = true
         defer { isSyncingShelf = false }
 
-        if let groups = try? await service.remoteShelfGroups(), !groups.isEmpty {
-            shelfGroups = groups
-            // Keep the selection valid: a group can disappear when the account has
-            // fewer shelves than before.
-            if !groups.contains(where: { $0.classID == selectedShelfClass }) {
-                selectedShelfClass = groups.first?.classID ?? 0
-            }
+        if let page = try? await service.remoteShelfPage(classID: selectedShelfClass) {
+            apply(page: page, classID: selectedShelfClass)
         }
+    }
 
-        if let shelf = try? await service.remoteShelf(classID: selectedShelfClass) {
-            remoteShelf = shelf
-            remoteNovels = shelf.map(\.novel)
+    /// Installs a fetched group: rows, the site's own count, and the local cache.
+    private func apply(
+        page: (entries: [ShelfEntry], reportedCount: Int?),
+        classID: Int
+    ) {
+        remoteShelf = page.entries
+        remoteNovels = page.entries.map(\.novel)
+        if let reported = page.reportedCount {
+            shelfGroupCounts[classID] = reported
+        } else {
+            shelfGroupCounts[classID] = page.entries.count
         }
+        cacheShelf(page.entries, classID: classID)
+    }
+
+    // MARK: - Local cache
+    //
+    // The shelf is cached per group so opening 我的书架 shows the last known contents
+    // immediately, then refreshes — the same order the Android app uses. A cache is
+    // only ever replaced by a successful fetch: a failed refresh leaves the previous
+    // contents in place rather than blanking the list.
+
+    private var cacheDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("ShelfCache", isDirectory: true)
+    }
+
+    private func cacheURL(for classID: Int) -> URL {
+        cacheDirectory.appendingPathComponent("group-\(classID).json")
+    }
+
+    private func cacheShelf(_ entries: [ShelfEntry], classID: Int) {
+        let directory = cacheDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        try? data.write(to: cacheURL(for: classID), options: .atomic)
+
+        // Counts are cached alongside so the chips are right on next launch.
+        if var counts = UserDefaults.standard.dictionary(forKey: countsKey) as? [String: Int] {
+            counts["\(classID)"] = shelfGroupCounts[classID]
+            UserDefaults.standard.set(counts, forKey: countsKey)
+        } else {
+            UserDefaults.standard.set(["\(classID)": shelfGroupCounts[classID] ?? 0], forKey: countsKey)
+        }
+    }
+
+    private var countsKey: String { "wenku8.shelfCounts" }
+
+    /// Loads a cached group. Returns false when nothing was cached.
+    @discardableResult
+    func loadCachedShelf(classID: Int) -> Bool {
+        guard let data = try? Data(contentsOf: cacheURL(for: classID)),
+              let entries = try? JSONDecoder().decode([ShelfEntry].self, from: data) else {
+            return false
+        }
+        remoteShelf = entries
+        remoteNovels = entries.map(\.novel)
+        return true
+    }
+
+    /// Restores what was cached from a previous launch, for the whole app to show
+    /// before the first network call returns.
+    func restoreCachedShelf() {
+        if let counts = UserDefaults.standard.dictionary(forKey: countsKey) as? [String: Int] {
+            shelfGroupCounts = Dictionary(
+                uniqueKeysWithValues: counts.compactMap { key, value in
+                    Int(key).map { ($0, value) }
+                }
+            )
+        }
+        loadCachedShelf(classID: selectedShelfClass)
     }
 
     /// Two-way sync between the device shelf and the account's.
@@ -121,16 +187,14 @@ final class AccountStore: ObservableObject {
         isSyncingShelf = true
         defer { isSyncingShelf = false }
 
-        if let groups = try? await service.remoteShelfGroups(), !groups.isEmpty {
-            shelfGroups = groups
-            if !groups.contains(where: { $0.classID == selectedShelfClass }) {
-                selectedShelfClass = groups.first?.classID ?? 0
-            }
-        }
+        // Show the cached group immediately, then replace it with the server's copy.
+        loadCachedShelf(classID: selectedShelfClass)
 
-        let shelf = (try? await service.remoteShelf(classID: selectedShelfClass)) ?? []
-        remoteShelf = shelf
-        remoteNovels = shelf.map(\.novel)
+        let page = try? await service.remoteShelfPage(classID: selectedShelfClass)
+        if let page {
+            apply(page: page, classID: selectedShelfClass)
+        }
+        let shelf = page?.entries ?? remoteShelf
 
         let cloudIDs = shelf.map(\.novel.id)
         let plan = ShelfSyncPlanner.plan(local: localIDs, cloud: cloudIDs)
@@ -143,9 +207,8 @@ final class AccountStore: ObservableObject {
         }
 
         // Re-read so the shelf reflects what the account now holds.
-        if let refreshed = try? await service.remoteShelf(classID: selectedShelfClass) {
-            remoteShelf = refreshed
-            remoteNovels = refreshed.map(\.novel)
+        if let refreshed = try? await service.remoteShelfPage(classID: selectedShelfClass) {
+            apply(page: refreshed, classID: selectedShelfClass)
         }
     }
 
@@ -153,8 +216,10 @@ final class AccountStore: ObservableObject {
     func selectShelfGroup(_ classID: Int) async {
         guard classID != selectedShelfClass else { return }
         selectedShelfClass = classID
+        // Cached contents first so switching feels instant; the fetch replaces them.
         remoteShelf = []
         remoteNovels = []
+        loadCachedShelf(classID: classID)
         await syncShelf()
     }
 

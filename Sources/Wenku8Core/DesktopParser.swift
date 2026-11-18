@@ -107,9 +107,13 @@ public enum DesktopParser {
 
     /// The groups every account has, whether or not a page could be parsed.
     ///
-    /// The site always offers 默认书架 plus 第1…5组书架, so the app shows all six
-    /// rather than degrading to an empty picker (which rendered as an ellipsis) when
-    /// the selector could not be read.
+    /// The site's shelf groups are fixed, so they are declared rather than scraped.
+    ///
+    /// Every account sees 默认书架 plus 第1…5组书架 in the same order; only the counts
+    /// change. Scraping them bought nothing and cost a parse that could silently
+    /// produce garbage (a second dropdown on the page once leaked "移到默认书架" in
+    /// as a group name). Counts are filled in at runtime from the page's "本组有 N 本"
+    /// line for whichever group was just loaded, and cached locally otherwise.
     public static let fixedShelfGroups: [ShelfGroup] = [0, 1, 2, 3, 4, 5].map { index in
         ShelfGroup(
             classID: index,
@@ -118,81 +122,20 @@ public enum DesktopParser {
         )
     }
 
-    /// The `<select name="classlist">…</select>` block, or `nil` when absent.
-    static func classlistScope(_ html: String) -> String? {
-        guard let open = html.range(of: "name=\"classlist\"") else { return nil }
-        guard let close = html.range(of: "</select>", range: open.upperBound..<html.endIndex) else {
-            return nil
-        }
-        return String(html[open.lowerBound..<close.upperBound])
+    /// The per-group count the page reports for the group it rendered, or `nil`
+    /// when the summary line is absent.
+    public static func renderedGroupCount(_ html: String) -> Int? {
+        guard let raw = firstMatch(#"本组有\s*(\d+)\s*本"#, in: html) else { return nil }
+        return Int(raw)
     }
 
-    /// Reads the group selector from the shelf page.
-    ///
-    /// ```html
-    /// <select name="classlist" onchange="…bookcase.php?classid='+this.value;">
-    ///   <option value="0" selected="selected">默认书架</option>
-    ///   <option value="1">第1组书架</option>
-    /// ```
-    ///
-    /// The per-group counts come from the summary line
-    /// （"已收藏 14 本，本组有 14 本"）, so only the selected group has a real count;
-    /// the rest report 0 rather than a guess.
-    public static func shelfGroups(_ html: String) -> [ShelfGroup] {
-        // Restrict to the `classlist` select. The page has a second dropdown that
-        // moves selected books between shelves, whose options read "移到默认书架" —
-        // scanning the whole document mixed the two lists together.
-        let scope = classlistScope(html) ?? html
-        let pattern = #"<option value="(\d+)"[^>]*>([^<]{1,20})</option>"#
-        guard let regex = try? NSRegularExpression(
-            pattern: pattern,
-            options: [.caseInsensitive]
-        ) else { return [] }
-
-        let currentTitle = currentGroupTitle(html)
-        let currentCount = currentGroupCount(html)
-
-        var groups: [ShelfGroup] = []
-        let range = NSRange(scope.startIndex..<scope.endIndex, in: scope)
-        for match in regex.matches(in: scope, range: range) {
-            guard match.numberOfRanges >= 3,
-                  let idRange = Range(match.range(at: 1), in: scope),
-                  let titleRange = Range(match.range(at: 2), in: scope),
-                  let classID = Int(scope[idRange]) else { continue }
-            var title = Markup.normalize(String(scope[titleRange]))
-            // Defensive: a move-to-shelf label must never be read as a group name.
-            if title.hasPrefix("移到") {
-                title = String(title.dropFirst(2))
-            }
-            let isCurrent = title == currentTitle
-            groups.append(ShelfGroup(
-                classID: classID,
-                title: title,
-                count: isCurrent ? currentCount : 0
-            ))
-        }
-        // The site always offers 默认书架 plus 第1…5组书架, so the app should show all
-        // six even if the markup did not parse — an empty picker rendered as an
-        // ellipsis, which looked broken rather than "no data".
-        guard !groups.isEmpty else { return fixedShelfGroups }
-        var merged = groups
-        for canonical in fixedShelfGroups
-        where !merged.contains(where: { $0.classID == canonical.classID }) {
-            merged.append(canonical)
-        }
-        return merged.sorted { $0.classID < $1.classID }
-    }
-
-    /// Name of the group the page was rendered for, from its `selected` option.
-    static func currentGroupTitle(_ html: String) -> String? {
-        firstMatchGroups(#"<option value="\d+"\s+selected="selected">([^<]{1,20})</option>"#, in: html, count: 1)
-            .map { Markup.normalize($0[0]) }
-    }
-
-    /// The "本组有 N 本" figure from the shelf summary line.
-    static func currentGroupCount(_ html: String) -> Int {
-        guard let raw = firstMatch(#"本组有\s*(\d+)\s*本"#, in: html) else { return 0 }
-        return Int(raw) ?? 0
+    /// Which group the page was rendered for, from its `selected` option.
+    public static func renderedGroupClassID(_ html: String) -> Int? {
+        guard let raw = firstMatch(
+            #"<option value="(\d+)"\s+selected="selected">"#,
+            in: html
+        ) else { return nil }
+        return Int(raw)
     }
 
     /// Extracts the signed-in user's shelf from `/modules/article/bookcase.php`.

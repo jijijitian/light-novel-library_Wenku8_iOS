@@ -494,20 +494,6 @@ public struct NovelService: Sendable {
         try await remoteShelf().map(\.novel)
     }
 
-    /// The shelf groups the site offers, with the current group's size.
-    ///
-    /// Groups are the site's own feature: `classid=0` is 默认书架, 1…5 are the extra
-    /// shelves. Reading them means the app can present the same organisation instead
-    /// of flattening every book into one list.
-    public func remoteShelfGroups() async throws -> [DesktopParser.ShelfGroup] {
-        guard client.hasSession() else { throw Wenku8Error.needLogin }
-        let html = try await client.desktop("/modules/article/bookcase.php")
-        if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
-            throw Wenku8Error.needLogin
-        }
-        return DesktopParser.shelfGroups(html)
-    }
-
     /// The signed-in user's shelf straight from the desktop page.
     ///
     /// The desktop shelf links each row through `readbookcase.php?aid=…`, never
@@ -515,6 +501,16 @@ public struct NovelService: Sendable {
     ///
     /// `classID` selects a group; `nil` reads the default shelf.
     public func remoteShelf(classID: Int? = nil) async throws -> [ShelfEntry] {
+        try await remoteShelfPage(classID: classID).entries
+    }
+
+    /// The shelf rows plus the size the page reports for that group.
+    ///
+    /// The page states "本组有 N 本", which can differ from `entries.count` when the
+    /// group is large enough to paginate; the UI shows the site's own figure.
+    public func remoteShelfPage(
+        classID: Int? = nil
+    ) async throws -> (entries: [ShelfEntry], reportedCount: Int?) {
         guard client.hasSession() else { throw Wenku8Error.needLogin }
         let path = classID.map { "/modules/article/bookcase.php?classid=\($0)" }
             ?? "/modules/article/bookcase.php"
@@ -526,7 +522,7 @@ public struct NovelService: Sendable {
         if entries.isEmpty, AccountParser.desktopAccountName(html) == nil {
             throw Wenku8Error.needLogin
         }
-        return entries
+        return (entries, DesktopParser.renderedGroupCount(html))
     }
 
     @discardableResult

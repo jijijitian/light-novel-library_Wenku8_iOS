@@ -78,7 +78,10 @@ struct ShelfView: View {
         .navigationTitle("我的书架")
         // Entering the page refreshes the cloud shelf, so the app and the website
         // agree on what is on it.
-        .task { await syncNow() }
+        .task {
+            account.restoreCachedShelf()
+            await syncNow()
+        }
         .refreshable { await syncNow() }
         .toolbar {
             if !store.saved.isEmpty {
@@ -171,7 +174,8 @@ struct ShelfView: View {
     /// One group selector chip. The selected group is tinted; the rest stay quiet.
     private func shelfGroupChip(_ group: DesktopParser.ShelfGroup) -> some View {
         let isSelected = account.selectedShelfClass == group.classID
-        let label = group.count > 0 ? "\(group.title) \(group.count)" : group.title
+        let count = account.shelfGroupCounts[group.classID] ?? group.count
+        let label = count > 0 ? "\(group.title) \(count)" : group.title
         return Button {
             Task { await account.selectShelfGroup(group.classID) }
         } label: {
