@@ -9,6 +9,8 @@ final class ReviewViewModel: ObservableObject {
 
     private let service: NovelService
     private var loaded = false
+    /// Identifies the current load, so a superseded one cannot write over its result.
+    private var generation = 0
 
     init(service: NovelService = NovelService()) {
         self.service = service
@@ -16,15 +18,23 @@ final class ReviewViewModel: ObservableObject {
 
     func load(novelID: Int, force: Bool = false) async {
         guard force || !loaded else { return }
-        guard !isLoading else { return }
+        // A pull used to be dropped while a load was in flight, so the gesture did
+        // nothing exactly when the reader was most likely to try it.
+        if isLoading && !force { return }
+        generation &+= 1
+        let mine = generation
         isLoading = true
-        defer { isLoading = false }
+        defer { if generation == mine { isLoading = false } }
         do {
-            reviews = try await service.reviews(aid: novelID)
-            error = nil
-            loaded = true
+            let result = try await service.reviews(aid: novelID)
+            if generation == mine {
+                reviews = result
+                error = nil
+                loaded = true
+            }
         } catch {
-            self.error = error
+            // Keep whatever is on screen; only an empty page becomes an error.
+            if generation == mine, reviews.isEmpty { self.error = error }
         }
     }
 }

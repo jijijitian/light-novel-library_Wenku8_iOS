@@ -241,7 +241,16 @@ final class AccountStore: ObservableObject {
     var localChapterIDs: [Int: Int] = [:]
 
     func syncWithLocalShelf(_ localIDs: [Int]) async {
-        guard isSignedIn, !isSyncingShelf else { return }
+        guard isSignedIn else { return }
+        // A pull during a running sync used to be dropped outright, so the gesture did
+        // nothing. Wait for that one to finish instead, bounded so a stuck sync cannot
+        // hang the refresh forever.
+        var waited = 0
+        while isSyncingShelf && waited < 80 {
+            try? await Task.sleep(for: .milliseconds(100))
+            waited += 1
+        }
+        guard !isSyncingShelf else { return }
         isSyncingShelf = true
         defer { isSyncingShelf = false }
 

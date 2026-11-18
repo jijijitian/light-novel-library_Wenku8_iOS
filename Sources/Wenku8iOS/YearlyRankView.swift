@@ -96,6 +96,8 @@ final class YearlyRankViewModel: ObservableObject {
 
     private let service: NovelService
     private var loadedYear: Int?
+    /// Identifies the current load, so a superseded one cannot write over its result.
+    private var generation = 0
 
     init(service: NovelService = NovelService()) {
         self.service = service
@@ -103,17 +105,29 @@ final class YearlyRankViewModel: ObservableObject {
 
     func load(year: Int, force: Bool = false) async {
         guard force || loadedYear != year else { return }
-        guard !isLoading else { return }
+        // A pull used to be dropped while a load was in flight.
+        if isLoading && !force { return }
+        let isNewYear = loadedYear != year
+        generation &+= 1
+        let mine = generation
         isLoading = true
-        defer { isLoading = false }
+        defer { if generation == mine { isLoading = false } }
         do {
             let parsed = try await service.sugoi(year: year)
+            guard generation == mine else { return }
             sections = parsed.sections
             error = sections.isEmpty ? Wenku8Error.unavailable("\(year) 年度榜单没有数据") : nil
             loadedYear = year
         } catch {
-            self.error = error
-            sections = []
+            guard generation == mine else { return }
+            if isNewYear {
+                // A different year has nothing in common with what is on screen.
+                sections = []
+                self.error = error
+            } else {
+                // Refreshing the same year keeps its list rather than blanking the page.
+                self.error = sections.isEmpty ? error : nil
+            }
         }
     }
 }

@@ -24,6 +24,11 @@ final class PagedNovelListModel: ObservableObject {
     private var seen = Set<Int>()
     /// Loads in flight; a second request for a page already being fetched is dropped.
     private var inFlight = 0
+    /// Identifies the current load, so a superseded one cannot write over its result.
+    private var generation = 0
+
+    /// Minimum time the refresh indicator stays up, matching the other screens.
+    private static let minimumRefreshDuration: Duration = .milliseconds(1000)
 
     /// Rows per screen is twelve, so the first fetch takes two pages and later fetches
     /// take one. That puts a full screen plus its successor in hand before the reader
@@ -60,20 +65,75 @@ final class PagedNovelListModel: ObservableObject {
         return toFillRow + columns * 2
     }
 
-    /// Starts a fresh list: first screen and its successor are fetched up front.
+    /// Prepares the list for a source, loading it only when it is not on screen yet.
+    ///
+    /// Returning to a screen that already has its data must not clear and refetch it: that
+    /// is what made every visit look like a reload.
     func start(_ loader: @escaping (Int) async throws -> NovelListPage) async {
         loadPage = loader
-        novels = []
-        seen = []
-        loadedPages = 0
-        totalPages = nil
-        error = nil
+        guard novels.isEmpty else { return }
+        await reload()
+    }
+
+    /// Re-fetches from the first page, replacing the list only once new data arrives.
+    ///
+    /// The old version cleared `novels` before fetching, so a pull emptied the screen and
+    /// a failed refresh left it empty. Nothing is cleared now: the pages are collected
+    /// aside and swapped in on success.
+    func reload() async {
+        guard let loadPage else { return }
+        // A refresh supersedes whatever is in flight rather than being dropped by it.
+        generation &+= 1
+        let mine = generation
         isLoading = novels.isEmpty
-        defer { isLoading = false }
+        // Hold the prefetch off while the list is being replaced: a page appended by a
+        // scroll during a refresh would be overwritten by the result anyway.
+        inFlight += 1
+        // No "正在载入列表 2/426" here: the system indicator is already spinning, and a
+        // page counter during a refresh describes work the reader did not ask to track.
+        defer {
+            inFlight -= 1
+            if generation == mine { isLoading = false }
+        }
+
+        let started = ContinuousClock.now
+        var fresh: [NovelSummary] = []
+        var freshSeen = Set<Int>()
+        var pages = 0
+        var total: Int?
+        var failure: Error?
 
         for _ in 0..<initialPages {
-            guard hasMore else { break }
-            await fetchNextPage(reporting: false)
+            if generation != mine { return }
+            if let total, pages >= total { break }
+            do {
+                let page = try await loadPage(pages + 1)
+                fresh.append(contentsOf: page.novels.filter { freshSeen.insert($0.id).inserted })
+                pages += 1
+                if let reported = page.totalPages { total = reported }
+            } catch {
+                failure = error
+                break
+            }
+        }
+
+        guard generation == mine else { return }
+        if pages > 0 {
+            novels = fresh
+            seen = freshSeen
+            loadedPages = pages
+            totalPages = total
+            error = nil
+        } else if novels.isEmpty {
+            // Only an empty screen becomes an error; a refresh that failed keeps what the
+            // reader was already reading.
+            self.error = failure
+        }
+
+        // Floor the indicator like the other screens, so a warm refresh is visible.
+        let deadline = started + Self.minimumRefreshDuration
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 

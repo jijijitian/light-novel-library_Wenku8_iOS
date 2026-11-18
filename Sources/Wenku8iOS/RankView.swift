@@ -159,7 +159,7 @@ struct RankListView: View {
         .background { AppBackground() }
         .navigationTitle(board.title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await reload() }
+        .refreshable { await model.reload() }
         .task { await reload() }
         .sheet(isPresented: $showWeb) {
             WebSheet(url: URL(string: "https://www.wenku8.net/wap/article/toplist.php?sort=\(board.rawValue)"))
@@ -201,7 +201,7 @@ struct LibraryListView: View {
         .background { AppBackground() }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await reload() }
+        .refreshable { await model.reload() }
         .task { await reload() }
     }
 

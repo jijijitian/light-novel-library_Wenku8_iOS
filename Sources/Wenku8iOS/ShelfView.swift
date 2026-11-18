@@ -305,6 +305,9 @@ struct ShelfView: View {
             uniqueKeysWithValues: store.progress.map { ($0.key, $0.value.chapterID) }
         )
         await account.syncWithLocalShelf(store.saved.map(\.id))
+        // The marks on the rows depend on what is cached, so a refresh must re-read them
+        // even when the cloud copy did not change.
+        await loadCacheStates()
     }
 
     /// Moves books left in the local list onto the account, then empties it.
