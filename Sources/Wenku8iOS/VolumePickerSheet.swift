@@ -17,8 +17,19 @@ struct VolumePickerSheet: View {
     /// Volumes already stored, so the sheet can show what a selection would add.
     var storedChapterIDs: Set<Int> = []
 
+    /// Volumes that still have something to fetch.
+    ///
+    /// A volume whose chapters are all stored has nothing to offer here, and listing it
+    /// only asks the reader to skip past it. A partly stored volume stays, because the
+    /// missing chapters are exactly what this sheet exists to fetch.
+    private var available: [Volume] {
+        volumes.filter { volume in
+            !volume.chapters.allSatisfy { storedChapterIDs.contains($0.id) }
+        }
+    }
+
     private var allSelected: Bool {
-        !volumes.isEmpty && selected.count == volumes.count
+        !available.isEmpty && selected.count == available.count
     }
 
     var body: some View {
@@ -26,7 +37,7 @@ struct VolumePickerSheet: View {
             List {
                 Section {
                     Button {
-                        selected = allSelected ? [] : Set(volumes.map(\.id))
+                        selected = allSelected ? [] : Set(available.map(\.id))
                     } label: {
                         HStack {
                             Label(
@@ -34,18 +45,24 @@ struct VolumePickerSheet: View {
                                 systemImage: allSelected ? "checkmark.circle.fill" : "circle"
                             )
                             Spacer()
-                            Text("\(volumes.count) 卷")
+                            Text("\(available.count) 卷")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(available.isEmpty)
                 } footer: {
                     Text("已选择 \(selected.count) 卷 · \(selectedChapterCount) 章")
                 }
 
                 Section {
-                    ForEach(volumes) { volume in
+                    if available.isEmpty {
+                        Text("所有分卷都已下载完成")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(available) { volume in
                         Button {
                             toggle(volume.id)
                         } label: {
@@ -72,7 +89,7 @@ struct VolumePickerSheet: View {
                 }
             }
             .onAppear {
-                if selected.isEmpty { selected = Set(volumes.map(\.id)) }
+                if selected.isEmpty { selected = Set(available.map(\.id)) }
             }
         }
     }
@@ -102,8 +119,14 @@ struct VolumePickerSheet: View {
         return stored == volume.chapters.count ? " · 已缓存" : " · 已有 \(stored) 章"
     }
 
+    /// Chapters this selection would fetch, counting only what is missing in a partly
+    /// stored volume.
     private var selectedChapterCount: Int {
-        volumes.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.chapters.count }
+        available
+            .filter { selected.contains($0.id) }
+            .reduce(0) { total, volume in
+                total + volume.chapters.filter { !storedChapterIDs.contains($0.id) }.count
+            }
     }
 
     private func toggle(_ id: String) {
