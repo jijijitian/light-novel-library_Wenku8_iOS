@@ -231,7 +231,7 @@ struct PagedReadingView: View {
                     Button {
                         onClose()
                     } label: {
-                        Text("返回书架")
+                        Text("返回")
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 20)
                             .padding(.vertical, 10)
@@ -253,14 +253,14 @@ struct PagedReadingView: View {
                         }
                     }
             )
-            // Swiping is still a way out: a forward swipe used to mean "turn the
-            // page", and here it means "leave this screen"; a backward swipe returns
-            // to the last page.
+            // Only a leftward swipe leaves this screen. It matches the page-turn
+            // direction used by the pager, where swiping left advances, and here it
+            // steps back to the last page. A rightward swipe has no meaning past the
+            // end of the book, so it is ignored.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 30)
                     .onEnded { value in
-                        let dx = value.translation.width
-                        guard abs(dx) > 40 else { return }
+                        guard value.translation.width < -40 else { return }
                         reachedBookEnd = false
                     }
             )
@@ -427,7 +427,7 @@ struct PagedReadingView: View {
     /// The native pager reports a drag past the last page.
     private func advanceChapter() {
         guard model.canGoNext else {
-            reachedBookEnd = true
+            presentBookEnd()
             return
         }
         landOnLastPage = false
@@ -439,6 +439,13 @@ struct PagedReadingView: View {
         guard model.canGoPrevious else { return }
         landOnLastPage = true
         Task { await model.goPrevious() }
+    }
+
+    /// Shows the end-of-book screen with the control panel closed: the panel has no
+    /// page to act on here, and leaving it up looked like a stuck state.
+    private func presentBookEnd() {
+        showChrome = false
+        reachedBookEnd = true
     }
 
     /// One page forward; only at the end of the chapter does this load the next.
@@ -458,7 +465,7 @@ struct PagedReadingView: View {
             landOnLastPage = false
             Task { await model.goNext() }
         } else {
-            reachedBookEnd = true
+            presentBookEnd()
         }
     }
 
