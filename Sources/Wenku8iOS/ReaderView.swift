@@ -200,7 +200,12 @@ struct ReaderView: View {
                     pageLabel: $pagedPageLabel,
                     pageCount: $pagedPageCount,
                     requestedPage: $requestedPage,
-                    onLongPressImage: { zoomedImage = ZoomedImage(url: $0) }
+                    onLongPressImage: { zoomedImage = ZoomedImage(url: $0) },
+                    onClose: {
+                        // Persist progress before leaving, same as the back button.
+                        saveProgress()
+                        dismiss()
+                    }
                 )
             }
 

@@ -33,6 +33,8 @@ struct PagedReadingView: View {
     /// is what applies it (it runs after the content update, which reset to 0).
     @State private var landOnLastPage = false
     var onLongPressImage: (URL) -> Void
+    /// Leaves the reader, used by the end-of-book screen.
+    var onClose: () -> Void
 
     /// One-shot instruction for the native pager (slider jumps only).
     @State private var jumpRequest: PagerJump?
@@ -202,29 +204,57 @@ struct PagedReadingView: View {
     }
 
     /// Shown when the reader swipes past the very last page of the book.
+    /// Shown when the reader tries to go past the last page of the book.
+    ///
+    /// Full-screen and fully opaque: at 0.97 the prose underneath stayed faintly
+    /// visible, which read as a rendering bug rather than a deliberate screen. Only
+    /// the left third steps back (to the last page), the middle and right thirds do
+    /// nothing, and the button returns to the shelf.
     private var bookEndNotice: some View {
-        ZStack {
-            theme.background.opacity(0.97)
-            VStack(spacing: 14) {
-                Image(systemName: "checkmark.seal")
-                    .font(.system(size: 34, weight: .light))
-                    .foregroundStyle(theme.text.opacity(0.55))
-                Text("已经是最后一章了")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(theme.text.opacity(0.85))
-                Text("全书已读完，感谢阅读")
-                    .font(.caption)
-                    .foregroundStyle(theme.text.opacity(0.5))
-                Button("返回") {
-                    reachedBookEnd = false
+        GeometryReader { geo in
+            ZStack {
+                // Opaque, not translucent: nothing of the previous page may show.
+                theme.background
+                    .ignoresSafeArea()
+
+                VStack(spacing: 14) {
+                    Image(systemName: "checkmark.seal")
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(theme.text.opacity(0.55))
+                    Text("已经是最后一章了")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.text.opacity(0.85))
+                    Text("全书已读完，感谢阅读")
+                        .font(.caption)
+                        .foregroundStyle(theme.text.opacity(0.5))
+
+                    Button {
+                        onClose()
+                    } label: {
+                        Text("返回书架")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                    }
+                    .prominentGlassButtonShape()
+                    .tint(AppTheme.accent)
+                    .padding(.top, 6)
                 }
-                .prominentGlassButtonShape()
-                .tint(AppTheme.accent)
-                .padding(.top, 4)
             }
+            .contentShape(Rectangle())
+            .gesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        // Only the left third leaves this screen, matching the
+                        // page-turn zones: here it steps back to the last page
+                        // instead of turning forward.
+                        if value.location.x <= geo.size.width * 0.3 {
+                            reachedBookEnd = false
+                        }
+                    }
+            )
         }
         .transition(.opacity)
-        .onTapGesture { reachedBookEnd = false }
     }
 
     /// Constant, so toggling the control panel never repaginates the chapter.
