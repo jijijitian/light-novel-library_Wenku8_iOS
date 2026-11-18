@@ -3,6 +3,7 @@ import Wenku8Core
 
 /// Lists downloaded books, with per-book size, completion and deletion.
 struct OfflineLibraryView: View {
+    @EnvironmentObject private var router: AppRouter
     @StateObject private var manager = OfflineDownloadManager.shared
     @State private var entries: [OfflineStore.Entry] = []
     @State private var totalBytes: Int64 = 0
@@ -66,9 +67,15 @@ struct OfflineLibraryView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
+                    Button {
+                        router.open(.novel(entry.novelID))
+                    } label: {
+                        Text(entry.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.plain)
                     if let author = entry.author, !author.isEmpty {
                         Text(author)
                             .font(.caption)
@@ -81,11 +88,23 @@ struct OfflineLibraryView: View {
                         manager.cancel()
                         Task { await refresh() }
                     } label: {
-                        Image(systemName: "pause.circle")
+                        Image(systemName: "pause.circle.fill")
+                            .font(.title2)
                             .foregroundStyle(.orange)
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("暂停下载")
+                } else if !entry.isComplete {
+                    // Resume moved here, beside the pause it replaces, and sized to match.
+                    Button {
+                        manager.download(novelID: entry.novelID)
+                    } label: {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("继续下载")
                 } else {
                     Image(systemName: entry.isComplete ? "checkmark.circle.fill" : "circle.dashed")
                         .foregroundStyle(entry.isComplete ? .green : .secondary)
@@ -97,13 +116,6 @@ struct OfflineLibraryView: View {
                 Text("\(live?.completed ?? entry.storedChapterIDs.count)/\(entry.chapterIDs.count) 章")
                 Text("·")
                 Text(formatBytes(entry.bytes))
-                if live == nil, !entry.isComplete {
-                    Text("·")
-                    Button("继续") {
-                        manager.download(novelID: entry.novelID)
-                    }
-                    .font(.caption)
-                }
             }
             .font(.caption)
             .foregroundStyle(.secondary)

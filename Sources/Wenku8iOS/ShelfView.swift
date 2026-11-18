@@ -6,6 +6,14 @@ struct ShelfView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
 
+    /// Which shelf books are cached, and how much of them. Read once per appearance.
+    @State private var cacheStates: [Int: CacheState] = [:]
+
+    enum CacheState {
+        case partial
+        case complete
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -38,7 +46,12 @@ struct ShelfView: View {
             // network before showing anything made every visit to this tab look like a
             // reload, even when the contents were already on disk.
             account.restoreCachedShelf()
+            await loadCacheStates()
             await syncInBackground()
+            // Metadata for shelf books is cached so they open offline; the same pass
+            // prunes books that have left both the shelf and the device.
+            await account.syncShelfMetadata(localIDs: store.saved.map(\.id))
+            await loadCacheStates()
             await migrateLegacyLocalShelf()
         }
         .refreshable { await syncNow() }
@@ -197,6 +210,26 @@ struct ShelfView: View {
         .glassCard(cornerRadius: 22)
     }
 
+    /// Offline state for a shelf book: a green tick when fully cached, a half-filled
+    /// marker when only some chapters are, nothing when nothing is.
+    @ViewBuilder
+    private func cacheBadge(for novelID: Int) -> some View {
+        if let state = cacheStates[novelID] {
+            switch state {
+            case .complete:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("已缓存")
+            case .partial:
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("部分缓存")
+            }
+        }
+    }
+
     /// One group selector chip. The selected group is tinted; the rest stay quiet.
     private func shelfGroupChip(_ group: DesktopParser.ShelfGroup) -> some View {
         let isSelected = account.selectedShelfClass == group.classID
@@ -243,9 +276,9 @@ struct ShelfView: View {
                 }
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
+            // The chevron only said "this is a button", which the row already conveys.
+            // The space now reports whether the book can be read offline.
+            cacheBadge(for: entry.novel.id)
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
@@ -286,6 +319,16 @@ struct ShelfView: View {
     /// placeholder and back.
     private func syncInBackground() async {
         await syncNow()
+    }
+
+    /// Reads which shelf books are stored on the device.
+    private func loadCacheStates() async {
+        let entries = await OfflineStore.shared.entries()
+        var states: [Int: CacheState] = [:]
+        for entry in entries where !entry.chapterIDs.isEmpty {
+            states[entry.novelID] = entry.isComplete ? .complete : .partial
+        }
+        cacheStates = states
     }
 
     private func relative(_ date: Date) -> String {

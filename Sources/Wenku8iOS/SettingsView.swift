@@ -11,6 +11,8 @@ struct SettingsView: View {
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var offlineCount = 0
     @State private var offlineBytes: Int64 = 0
+    @State private var metadataCount = 0
+    @State private var metadataBytes = "0 KB"
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
 
     var body: some View {
@@ -69,6 +71,15 @@ struct SettingsView: View {
                     } label: {
                         Label("已下载小说", systemImage: "arrow.down.circle")
                     }
+                }
+
+                // Metadata is cached separately from downloads, so it gets its own row:
+                // a reader can tell what the app holds offline even with nothing downloaded.
+                LabeledContent {
+                    Text(metadataSummary)
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label("元数据缓存", systemImage: "tray.full")
                 }
 
                 NavigationLink {
@@ -211,6 +222,12 @@ struct SettingsView: View {
         (SiteDomain(rawValue: domainRaw) ?? .net).title
     }
 
+    /// Books whose metadata is cached without any downloaded chapter.
+    private var metadataSummary: String {
+        guard metadataCount > 0 else { return "未缓存" }
+        return "\(metadataCount) 本 · \(metadataBytes)"
+    }
+
     private var offlineSummary: String {
         offlineCount == 0 ? "未下载" : "\(offlineCount) 本 · \(formatBytes(offlineBytes))"
     }
@@ -219,6 +236,10 @@ struct SettingsView: View {
         let entries = await OfflineStore.shared.entries()
         offlineCount = entries.count
         offlineBytes = await OfflineStore.shared.totalBytes()
+
+        let metadataOnly = entries.filter { $0.chapterIDs.isEmpty && $0.detail != nil }
+        metadataCount = metadataOnly.count
+        metadataBytes = formatBytes(metadataOnly.reduce(0) { $0 + $1.bytes })
     }
 
     private func formatBytes(_ bytes: Int64) -> String {

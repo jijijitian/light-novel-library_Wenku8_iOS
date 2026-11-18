@@ -180,6 +180,41 @@ final class AccountStore: ObservableObject {
         loadCachedShelf(classID: selectedShelfClass)
     }
 
+    /// Caches metadata for every book on the shelf, and drops metadata for books that
+    /// have left it.
+    ///
+    /// Shelf books should open instantly and survive an outage even when their chapters
+    /// were never downloaded, so their detail records are stored. The same pass removes
+    /// metadata for books that are on neither the shelf nor the device — otherwise the
+    /// cache would grow forever with books the reader has thrown away.
+    ///
+    /// - Parameter localIDs: books saved on the device, which keep their metadata.
+    func syncShelfMetadata(localIDs: [Int]) async {
+        guard isSignedIn else { return }
+        let shelfIDs = Set(remoteShelf.map(\.novel.id))
+        // Never touch a book that has chapters: those are downloads, not metadata.
+        let downloaded = await OfflineStore.shared.entries()
+            .filter { !$0.chapterIDs.isEmpty }
+            .map(\.novelID)
+        let keep = shelfIDs.union(localIDs).union(downloaded)
+
+        for entry in await OfflineStore.shared.entries() {
+            guard entry.chapterIDs.isEmpty else { continue }
+            if !keep.contains(entry.novelID) {
+                await OfflineStore.shared.delete(entry.novelID)
+            }
+        }
+
+        // A handful per sync keeps the relay's throttle from being starved by this.
+        let missing = shelfIDs.subtracting(
+            Set(await OfflineStore.shared.entries().map(\.novelID))
+        )
+        for aid in missing.prefix(6) {
+            guard let detail = try? await service.detail(aid: aid) else { continue }
+            await OfflineStore.shared.cacheMetadata(detail)
+        }
+    }
+
     /// Two-way sync between the device shelf and the account's.
     ///
     /// The rule that matters (and the reason this is not just "download the server's

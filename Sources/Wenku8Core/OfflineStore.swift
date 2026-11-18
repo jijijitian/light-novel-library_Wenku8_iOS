@@ -30,6 +30,14 @@ public actor OfflineStore {
         public var coverFile: String?
         public var updatedAt: Date
         public var bytes: Int64
+        /// The book's detail record, exactly as the detail screen shows it — title,
+        /// author, category, status, word count, intro, cover and recommendations. Stored
+        /// whole rather than copied field by field: every field the screen renders has to
+        /// survive, and a hand-picked subset silently loses whatever is added later.
+        ///
+        /// Optional so manifests written before this field still decode; a book without it
+        /// falls back to the title and author above.
+        public var detail: NovelDetail?
 
         public var id: Int { novelID }
         public var progress: Double {
@@ -201,6 +209,59 @@ public actor OfflineStore {
         return total
     }
 
+    /// Updates the stored detail for a book that is already cached.
+    ///
+    /// Only the metadata is replaced: the chapter list, stored chapters and byte count
+    /// describe what is actually on disk and must not be touched by a refresh.
+    public func refreshDetail(_ detail: NovelDetail) async {
+        guard var entry = entry(for: detail.id) else { return }
+        entry.detail = detail
+        entry.title = detail.title
+        entry.author = detail.author.isEmpty ? nil : detail.author
+        entry.updatedAt = Date()
+        saveManifest(entry)
+    }
+
+    /// Caches only a book's metadata, without downloading any chapter.
+    ///
+    /// Shelf books get this treatment so their detail pages and covers render offline even
+    /// when the reader has not downloaded them.
+    public func cacheMetadata(_ detail: NovelDetail, coverFile: String? = nil) {
+        if var entry = entry(for: detail.id) {
+            entry.detail = detail
+            entry.title = detail.title
+            entry.author = detail.author.isEmpty ? nil : detail.author
+            if let coverFile { entry.coverFile = coverFile }
+            entry.updatedAt = Date()
+            saveManifest(entry)
+            return
+        }
+        saveManifest(Entry(
+            novelID: detail.id,
+            title: detail.title,
+            author: detail.author.isEmpty ? nil : detail.author,
+            chapterIDs: [],
+            chapterTitles: [:],
+            storedChapterIDs: [],
+            coverFile: coverFile,
+            updatedAt: Date(),
+            bytes: 0,
+            detail: detail
+        ))
+    }
+
+    /// Books whose metadata is cached but which have no downloaded chapters.
+    public func metadataOnlyEntries() -> [Entry] {
+        entries().filter { $0.chapterIDs.isEmpty && $0.detail != nil }
+    }
+
+    /// Removes the metadata for a book while leaving its chapters alone.
+    public func dropDetail(for novelID: Int) {
+        guard var entry = entry(for: novelID) else { return }
+        entry.detail = nil
+        saveManifest(entry)
+    }
+
     /// Builds the manifest for a book that is about to be downloaded.
     public func makeEntry(
         detail: NovelDetail,
@@ -220,7 +281,8 @@ public actor OfflineStore {
             storedChapterIDs: existing?.storedChapterIDs ?? [],
             coverFile: coverFile ?? existing?.coverFile,
             updatedAt: Date(),
-            bytes: usedBytes(for: detail.id)
+            bytes: usedBytes(for: detail.id),
+            detail: detail
         )
     }
 }

@@ -375,9 +375,20 @@ public struct NovelService: Sendable {
 
     public func detail(aid: Int) async throws -> NovelDetail {
         do {
-            return try await onlineDetail(aid: aid)
+            let online = try await onlineDetail(aid: aid)
+            // A successful fetch refreshes the cached copy, so a book opened online shows
+            // current information next time it is opened offline.
+            await offline.refreshDetail(online)
+            return online
         } catch {
+            // Offline: hand back the whole record that was stored on download, not a
+            // title-and-placeholder shell. Every field the detail screen draws comes back.
             if let entry = await offline.entry(for: aid) {
+                if let cached = entry.detail {
+                    var result = cached
+                    result.coverURL = await offline.coverURL(for: aid) ?? cached.coverURL
+                    return result
+                }
                 return NovelDetail(
                     id: aid,
                     title: entry.title,

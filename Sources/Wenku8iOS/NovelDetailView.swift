@@ -137,6 +137,9 @@ struct NovelDetailView: View {
         }
         .refreshable { await model.load(novelID: novelID, force: true) }
         .task {
+            if let entry = await OfflineStore.shared.entry(for: novelID) {
+                cachedChapterIDs = entry.storedChapterIDs
+            }
             await model.load(novelID: novelID)
             await refreshOffline()
             // Ensures the bookmark shows the truth for books that are on the website's
@@ -337,11 +340,20 @@ struct NovelDetailView: View {
                                         .font(.subheadline)
                                         .multilineTextAlignment(.leading)
                                         .lineLimit(2)
-                                    Spacer(minLength: 0)
+                                    Spacer(minLength: 8)
                                     if store.progress(for: novelID)?.chapterID == chapter.id {
                                         Image(systemName: "bookmark.fill")
                                             .font(.caption2)
                                             .foregroundStyle(.tint)
+                                    }
+                                    // Green tick for a chapter held on this device. It sits
+                                    // at the trailing edge, inside the row's padding, so it
+                                    // never crosses the title.
+                                    if cachedChapterIDs.contains(chapter.id) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.green)
+                                            .accessibilityLabel("已缓存")
                                     }
                                 }
                                 .padding(.vertical, 7)
@@ -372,6 +384,9 @@ struct NovelDetailView: View {
         .padding(16)
         .glassCard(cornerRadius: 22)
     }
+
+    /// Chapters of this book that are stored on the device.
+    @State private var cachedChapterIDs = Set<Int>()
 
     /// Whether this book is on the shelf, checking the account as well.
     ///
