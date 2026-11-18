@@ -242,15 +242,26 @@ struct PagedReadingView: View {
                 }
             }
             .contentShape(Rectangle())
+            // Tap zones: the left third steps back to the last page; the middle does
+            // nothing (the menu is deliberately inert here, since there is no page to
+            // act on); the right third does nothing either.
             .gesture(
                 SpatialTapGesture()
                     .onEnded { value in
-                        // Only the left third leaves this screen, matching the
-                        // page-turn zones: here it steps back to the last page
-                        // instead of turning forward.
                         if value.location.x <= geo.size.width * 0.3 {
                             reachedBookEnd = false
                         }
+                    }
+            )
+            // Swiping is still a way out: a forward swipe used to mean "turn the
+            // page", and here it means "leave this screen"; a backward swipe returns
+            // to the last page.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 30)
+                    .onEnded { value in
+                        let dx = value.translation.width
+                        guard abs(dx) > 40 else { return }
+                        reachedBookEnd = false
                     }
             )
         }
