@@ -30,19 +30,26 @@ final class HomeViewModel: ObservableObject {
         guard !isFetching else { return }
         isFetching = true
         isLoading = true
+        rows = []
         defer {
             isLoading = false
             isFetching = false
         }
-        do {
-            let result = try await service.homeRows()
-            rows = result
-            lastUpdated = Date()
-            error = nil
-            hasLoaded = true
-        } catch {
-            self.error = error
+
+        // Rows are appended as each section arrives, top-down, so the top of the page is
+        // readable while the rest is still loading rather than after the slowest section.
+        let collected = await service.homeRowsStreaming { [weak self] row in
+            guard let self else { return }
+            await MainActor.run {
+                if !self.rows.contains(where: { $0.section == row.section }) {
+                    self.rows.append(row)
+                }
+            }
         }
+        rows = collected
+        error = rows.isEmpty ? Wenku8Error.unavailable("首页内容暂时无法载入") : nil
+        lastUpdated = Date()
+        hasLoaded = true
     }
 }
 

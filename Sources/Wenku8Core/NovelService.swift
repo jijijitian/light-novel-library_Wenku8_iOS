@@ -139,9 +139,13 @@ public struct NovelService: Sendable {
     /// the rows are built from what it returns; a board it cannot serve is simply
     /// omitted rather than quietly filled from the website.
     public func homeRows() async throws -> [HomeRow] {
-        if relayIsAvailable {
-            return await relayHomeRows()
-        }
+        // The streaming path is what the UI uses; this collects the same rows for
+        // callers that only want the finished list.
+        return await homeRowsStreaming { _ in }
+    }
+
+    /// Legacy synchronous gather, kept for the website path only.
+    private func legacyHomeRows() async throws -> [HomeRow] {
         let html = try await client.wap("/")
         let rows = WAPParser.homeSections(html)
         if rows.isEmpty {
@@ -151,14 +155,45 @@ public struct NovelService: Sendable {
     }
 
     /// Builds the home rows from the relay's boards.
-    private func relayHomeRows() async -> [HomeRow] {
-        var rows: [HomeRow] = []
-        for section in HomeSection.allCases {
-            guard let items = await relayNovelList(sort: section.board.rawValue, page: 1),
-                  !items.isEmpty else { continue }
-            rows.append(HomeRow(section: section, items: items))
+    /// The home rows, fetched one after another from the top of the page downwards.
+    ///
+    /// Each result is handed to `onRow` as soon as it arrives, so the page fills in
+    /// top-to-bottom instead of appearing all at once when the slowest section finishes.
+    /// The order matters for two reasons: the banner is built from the first section, and
+    /// the reader sees the top of the page first — so a section that is slow or fails
+    /// must not hold up the ones above it.
+    ///
+    /// A failed section is retried once; the relay occasionally answers slowly under load,
+    /// and a lost section is visible as a missing row.
+    public func homeRowsStreaming(
+        onRow: @escaping @Sendable (HomeRow) async -> Void
+    ) async -> [HomeRow] {
+        if relayIsAvailable {
+            var rows: [HomeRow] = []
+            for section in HomeSection.allCases {
+                let items = await homeSectionItems(section)
+                guard !items.isEmpty else { continue }
+                let row = HomeRow(section: section, items: items)
+                rows.append(row)
+                await onRow(row)
+            }
+            return rows
         }
+        // The website path parses one page, so it is all-or-nothing by nature.
+        let rows = (try? await homeRows()) ?? []
+        for row in rows { await onRow(row) }
         return rows
+    }
+
+    /// One section's books, retried once.
+    private func homeSectionItems(_ section: HomeSection) async -> [NovelSummary] {
+        let sort = section.board.rawValue
+        if let items = await relayNovelList(sort: sort, page: 1), !items.isEmpty {
+            return items
+        }
+        // A single retry: the relay occasionally answers too slowly under load, and one
+        // lost section is visible to the reader as a missing row.
+        return await relayNovelList(sort: sort, page: 1) ?? []
     }
 
     private func fallbackHomeRows() async throws -> [HomeRow] {
