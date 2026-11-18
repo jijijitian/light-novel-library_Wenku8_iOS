@@ -73,7 +73,7 @@ struct MetadataCacheView: View {
                                 Button(role: .destructive) {
                                     pendingClearAll = true
                                 } label: {
-                                    Label("清除全部\(kind.title)", systemImage: "trash")
+                                    Label("清除全部", systemImage: "trash")
                                 }
                             }
                         } header: {
@@ -114,7 +114,7 @@ struct MetadataCacheView: View {
         } message: {
             Text("删除后断网时将无法查看这本书的信息；下次进入书架会重新缓存。")
         }
-        .alert("清除全部其他缓存？", isPresented: $pendingClearAll) {
+        .alert("清除全部？", isPresented: $pendingClearAll) {
             Button("清除", role: .destructive) { Task { await clearOpened() } }
             Button("取消", role: .cancel) {}
         } message: {
