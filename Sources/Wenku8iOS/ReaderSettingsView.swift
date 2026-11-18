@@ -71,7 +71,11 @@ struct ReaderSettingsView: View {
                 }
 
                 Toggle(isOn: $indentFirstLine) {
-                    describe("首行缩进", detail: "每段首行缩进两个字符")
+                    describe(
+                        "首行缩进",
+                        symbol: "text.append",
+                        detail: "每段第一行缩进两个字符"
+                    )
                 }
             } header: {
                 Text("布局")
@@ -79,7 +83,11 @@ struct ReaderSettingsView: View {
 
             Section {
                 Toggle(isOn: $collapsedInfo) {
-                    describe("沉浸式标题", detail: "隐藏菜单时在顶部显示浅色章节标题")
+                    describe(
+                        "沉浸式标题",
+                        symbol: "rectangle.topthird.inset.filled",
+                        detail: "左右翻页时，收起菜单后隐藏状态栏，并在顶部显示浅色章节标题、底部显示页码"
+                    )
                 }
                 slider(
                     title: "顶部留白",
@@ -132,9 +140,9 @@ struct ReaderSettingsView: View {
     }
 
     /// Title plus a caption, used by the toggles.
-    private func describe(_ title: String, detail: String) -> some View {
+    private func describe(_ title: String, symbol: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Label(title, systemImage: "text.append")
+            Label(title, systemImage: symbol)
             Text(detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
