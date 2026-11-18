@@ -594,6 +594,9 @@ public struct NovelService: Sendable {
         guard let text = try? await relay.sendText(
             RelayAction.login(username: username, password: password)
         ) else { return false }
+        // Persist whatever the login established before reporting success: without
+        // this the session was gone by the next launch.
+        SharedCookieStore.persistRelayCookies()
         return (RelayParser.resultCode(text) ?? 0) == 1
             || text.localizedCaseInsensitiveContains("ok")
     }
@@ -603,6 +606,7 @@ public struct NovelService: Sendable {
         if relayIsAvailable {
             Task { _ = try? await relay.sendText(RelayAction.logout()) }
         }
+        SharedCookieStore.clearRelayCookies()
     }
 
     public func currentUserName() async -> String? {

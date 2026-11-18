@@ -132,11 +132,15 @@ public final class RelayClient: @unchecked Sendable {
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 45
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        // The relay issues its own cookies for bookcase/login actions.
+        // The relay issues its own cookies for bookcase/login actions, and they must
+        // survive a relaunch: with `.shared` alone the login was lost on restart and
+        // the shelf came back empty until the reader signed in again. `SharedCookieStore`
+        // additionally mirrors the relay's cookies into UserDefaults.
         config.httpCookieStorage = .shared
         config.httpShouldSetCookies = true
         config.httpCookieAcceptPolicy = .always
         self.session = URLSession(configuration: config)
+        SharedCookieStore.restoreRelayCookies()
     }
 
     public func configure(_ configuration: RelayConfiguration, provider: RelayAppVerProvider? = BuiltinAppVerProvider()) {
@@ -193,6 +197,9 @@ public final class RelayClient: @unchecked Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw RelayError.http("中转服务没有返回有效响应")
         }
+        // Any reply may carry an updated session (a login sets it, a later call may
+        // refresh it), so the mirror is updated on every response.
+        SharedCookieStore.persistRelayCookies()
         switch http.statusCode {
         case 200...299:
             return data
