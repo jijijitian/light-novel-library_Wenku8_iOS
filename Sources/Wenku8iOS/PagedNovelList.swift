@@ -22,6 +22,13 @@ final class PagedNovelListModel: ObservableObject {
     private var loadPage: ((Int) async throws -> NovelListPage)?
     /// Ids already present, so a page that overlaps the previous one does not duplicate.
     private var seen = Set<Int>()
+    /// Loads in flight; a second request for a page already being fetched is dropped.
+    private var inFlight = 0
+
+    /// Rows per screen is twelve, so the first fetch takes two pages and later fetches
+    /// take one. That puts a full screen plus its successor in hand before the reader
+    /// can scroll, rather than filling in after they arrive at the bottom.
+    private let initialPages = 2
 
     var hasMore: Bool {
         guard let totalPages else { return true }
@@ -37,7 +44,20 @@ final class PagedNovelListModel: ObservableObject {
         return "正在载入列表……"
     }
 
-    /// Starts a fresh list.
+    /// Number of placeholder cells to draw below the loaded books.
+    ///
+    /// One page of placeholders while more exists: the reader sees the shape of the next
+    /// rows immediately and they fill in as the data arrives, instead of the list ending
+    /// at the screen edge and growing only after a scroll.
+    var placeholderCount: Int {
+        guard hasMore, loadPage != nil else { return 0 }
+        // Fill out the current row first, then one more row: 12 per page, 3 per row.
+        let remainder = novels.count % 12
+        let toFillRow = remainder == 0 ? 0 : 12 - remainder
+        return max(toFillRow + 9, 9)
+    }
+
+    /// Starts a fresh list: first screen and its successor are fetched up front.
     func start(_ loader: @escaping (Int) async throws -> NovelListPage) async {
         loadPage = loader
         novels = []
@@ -45,17 +65,29 @@ final class PagedNovelListModel: ObservableObject {
         loadedPages = 0
         totalPages = nil
         error = nil
-        await loadNext()
+        isLoading = novels.isEmpty
+        defer { isLoading = false }
+
+        for _ in 0..<initialPages {
+            guard hasMore else { break }
+            await fetchNextPage(reporting: false)
+        }
     }
 
-    /// Loads the next page, if there is one and nothing is already in flight.
+    /// Loads one more page, if there is one and nothing is already in flight.
     func loadNext() async {
-        guard let loadPage, !isLoading, hasMore else { return }
-        let first = novels.isEmpty
-        if first { isLoading = true } else { isLoadingMore = true }
+        guard loadPage != nil, hasMore else { return }
+        await fetchNextPage(reporting: true)
+    }
+
+    private func fetchNextPage(reporting: Bool) async {
+        guard let loadPage, hasMore else { return }
+        if reporting { isLoadingMore = true }
+        inFlight += 1
         defer {
-            isLoading = false
+            inFlight -= 1
             isLoadingMore = false
+            isLoading = false
         }
 
         let next = loadedPages + 1
@@ -74,11 +106,18 @@ final class PagedNovelListModel: ObservableObject {
         }
     }
 
-    /// Called by the last-but-one row. Matches Android's proximity trigger.
+    /// Called by each rendered cell. Kept for the paged grids, but placeholders are what
+    /// actually drive the prefetch now, so reaching the end is no longer required.
     func loadMoreIfNeeded(currentIndex: Int) {
-        guard hasMore, !isLoading, !isLoadingMore else { return }
-        // Two rows of runway, so the next page is usually already there when reached.
-        guard currentIndex >= novels.count - 2 else { return }
+        guard hasMore, !isLoadingMore, inFlight == 0 else { return }
+        guard currentIndex >= novels.count - 3 else { return }
+        Task { await loadNext() }
+    }
+
+    /// Called when a placeholder comes into view: fetches the next page before the reader
+    /// reaches the edge of what is loaded.
+    func ensurePlaceholderTriggered() {
+        guard hasMore, inFlight == 0 else { return }
         Task { await loadNext() }
     }
 }
@@ -92,7 +131,10 @@ struct PagedNovelGrid: View {
     private let columns = [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 14)]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 16) {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+            if model.novels.isEmpty && model.isLoading {
+                ForEach(0..<12, id: \.self) { _ in PlaceholderGridCell() }
+            }
             ForEach(Array(model.novels.enumerated()), id: \.element.id) { index, novel in
                 Button {
                     open(novel.id)
@@ -101,6 +143,12 @@ struct PagedNovelGrid: View {
                 }
                 .buttonStyle(.plain)
                 .onAppear { model.loadMoreIfNeeded(currentIndex: index) }
+            }
+            // Placeholder covers occupy the next rows from the start, so the list has the
+            // shape of its continuation instead of ending at the loaded data.
+            ForEach(0..<model.placeholderCount, id: \.self) { _ in
+                PlaceholderGridCell()
+                    .onAppear { model.ensurePlaceholderTriggered() }
             }
         }
         .overlay(alignment: .bottom) {
@@ -127,6 +175,9 @@ struct PagedNovelList: View {
 
     var body: some View {
         LazyVStack(spacing: 0) {
+            if model.novels.isEmpty && model.isLoading {
+                ForEach(0..<12, id: \.self) { _ in PlaceholderRow() }
+            }
             ForEach(Array(model.novels.enumerated()), id: \.element.id) { index, novel in
                 Button {
                     open(novel.id)
@@ -147,6 +198,77 @@ struct PagedNovelList: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
             }
+            ForEach(0..<model.placeholderCount, id: \.self) { _ in
+                PlaceholderRow()
+                    .onAppear { model.ensurePlaceholderTriggered() }
+            }
         }
+    }
+}
+
+/// A cover-shaped placeholder, drawn before the book it will become.
+///
+/// Sized from the same width as `NovelGridCell` so the grid does not reflow when the
+/// real covers arrive.
+struct PlaceholderGridCell: View {
+    /// Matches `NovelGridCell`'s default cover size, not the column width.
+    ///
+    /// The real cell draws a fixed 96×136 cover inside a column that can be up to 130
+    /// wide; sizing the placeholder by the column made it a size larger than the cover
+    /// it stood in for, so the grid visibly shrank as pages arrived.
+    var width: CGFloat = 96
+
+    @State private var pulse = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.quaternary)
+                .frame(width: width, height: width * 1.42)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(.quaternary)
+                .frame(width: width, height: 10)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(.quaternary.opacity(0.6))
+                .frame(width: 48, height: 10)
+            // Holds the second title line's space so the cell is the same height as a
+            // real one with a two-line title.
+            Spacer(minLength: 0)
+                .frame(height: 10)
+        }
+        .opacity(pulse ? 0.55 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
+        .onAppear { pulse = true }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A row-shaped placeholder, for lists that present books as rows.
+struct PlaceholderRow: View {
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.quaternary)
+                .frame(width: 64, height: 90)
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.quaternary)
+                    .frame(height: 12)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.quaternary.opacity(0.7))
+                    .frame(width: 96, height: 10)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.quaternary.opacity(0.5))
+                    .frame(width: 64, height: 10)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8)
+        .opacity(pulse ? 0.55 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
+        .onAppear { pulse = true }
+        .accessibilityHidden(true)
     }
 }

@@ -48,8 +48,12 @@ struct NovelGridCell: View {
             CoverCard(url: novel.coverURL, title: novel.title, width: width, height: width * 1.42)
             Text(novel.title)
                 .font(.caption)
-                .lineLimit(2)
-                .frame(width: width, alignment: .leading)
+                // Reserves two lines whether or not the title needs them, so a
+                // one-line title does not make its cell shorter than a two-line one
+                // and push the row out of alignment.
+                .lineLimit(2, reservesSpace: true)
+                .multilineTextAlignment(.leading)
+                .frame(width: width, alignment: .topLeading)
         }
         .contentShape(Rectangle())
     }
