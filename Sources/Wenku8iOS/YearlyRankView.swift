@@ -12,6 +12,8 @@ struct YearlyRankView: View {
     @StateObject private var model = YearlyRankViewModel()
     @State private var year = SugoiParser.availableYears.first ?? 2026
     @State private var showWeb = false
+    /// Title of an unstocked entry the reader tapped, used to explain why it does not open.
+    @State private var unstockedTitle: String?
 
     var body: some View {
         ScrollView {
@@ -33,10 +35,13 @@ struct YearlyRankView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionHeader(title: section.caption, symbol: "trophy.fill")
                             NovelGrid(novels: section.novels) { novel in
-                                // An entry the library does not stock has no page to open;
-                                // it is shown so the ranking is complete, not so it can be
-                                // navigated.
-                                guard novel.id > 0 else { return }
+                                // An entry the library does not stock has no page to open.
+                                // It is shown so the ranking is complete; tapping explains
+                                // why nothing happens rather than silently doing nothing.
+                                guard novel.id > 0 else {
+                                    unstockedTitle = novel.title
+                                    return
+                                }
                                 router.open(.novel(novel.id))
                             }
                         }
@@ -50,6 +55,14 @@ struct YearlyRankView: View {
             .padding(.bottom, 28)
         }
         .background { AppBackground() }
+        .alert("文库未收录", isPresented: Binding(
+            get: { unstockedTitle != nil },
+            set: { if !$0 { unstockedTitle = nil } }
+        )) {
+            Button("好", role: .cancel) { unstockedTitle = nil }
+        } message: {
+            Text("《\(unstockedTitle ?? "")》在这一年的榜单上有名次，但文库中没有对应的书籍页面，因此没有封面也无法打开详情。")
+        }
         .navigationTitle("年度排行")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.load(year: year, force: true) }

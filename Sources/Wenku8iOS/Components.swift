@@ -43,9 +43,24 @@ struct NovelGridCell: View {
     var novel: NovelSummary
     var width: CGFloat = 96
 
+    /// A ranking can nominate a title the library does not stock. There is no cover to
+    /// load and no page to open, so the cell says so instead of looking like a failure.
+    private var isUnstocked: Bool { novel.id < 0 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             CoverCard(url: novel.coverURL, title: novel.title, width: width, height: width * 1.42)
+                .overlay(alignment: .bottom) {
+                    if isUnstocked {
+                        Text("未收录")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(.bottom, 6)
+                    }
+                }
             Text(novel.title)
                 .font(.caption)
                 // Reserves two lines whether or not the title needs them, so a
