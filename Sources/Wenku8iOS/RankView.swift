@@ -95,7 +95,7 @@ struct RankView: View {
             ("月榜", [.monthvisit, .monthvote]),
             ("总榜", [.allvisit, .allvote, .goodnum]),
             ("更新与入库", [.lastupdate, .postdate]),
-            ("其他", [.size, .anime]),
+            ("其他", [.size, .fullflag, .anime]),
         ].filter { !$0.1.isEmpty }
     }
 }

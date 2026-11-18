@@ -195,6 +195,7 @@ public enum RankBoard: String, CaseIterable, Identifiable, Codable, Sendable {
     case lastupdate
     case goodnum
     case size
+    case fullflag
     case anime
 
     public var id: String { rawValue }
@@ -213,6 +214,7 @@ public enum RankBoard: String, CaseIterable, Identifiable, Codable, Sendable {
         case .lastupdate: return "最近更新"
         case .goodnum: return "总收藏榜"
         case .size: return "字数排行"
+        case .fullflag: return "已完结作品"
         case .anime: return "动画化作品"
         }
     }
@@ -225,6 +227,7 @@ public enum RankBoard: String, CaseIterable, Identifiable, Codable, Sendable {
         case .lastupdate: return "clock.arrow.circlepath"
         case .goodnum: return "star"
         case .size: return "textformat.size"
+        case .fullflag: return "checkmark.seal"
         case .anime: return "tv"
         }
     }
