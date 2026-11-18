@@ -51,7 +51,10 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Sources/Wenku8iOS
-      - path: Support/Assets.xcassets
+      # Icon Composer document: a vector glyph over a gradient fill carrying the glass
+      # material. actool also derives the legacy PNGs older systems read from it, so this
+      # is the single source for the app icon.
+      - path: Support/AppIcon.icon
         buildPhase: resources
       - path: Support/PrivacyInfo.xcprivacy
         buildPhase: resources

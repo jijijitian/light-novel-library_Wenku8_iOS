@@ -158,7 +158,7 @@ Wenku8.app/
 │   ├── test-live.sh                  # 联网端到端校验
 │   ├── smoke/main.swift              # 联网校验的检查项
 │   ├── gen_gbk_table.py              # 重新生成 GBK 解码表
-│   └── make-icon.swift               # 重新生成 App 图标（浅色 / 深色 / 着色）
+│   └── make-glyph-svg.swift          # 生成图标用的字形轮廓 SVG
 └── .github/workflows/ios-build.yml   # CI：Linux 跑测试 + macOS 用 xcodebuild 编译
 ```
 
