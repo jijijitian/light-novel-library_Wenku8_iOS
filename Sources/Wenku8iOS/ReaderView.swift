@@ -583,8 +583,10 @@ struct ReaderView: View {
                         Image(systemName: "chevron.right")
                             .frame(width: 40, height: 40)
                     }
-                    .prominentGlassButtonShape()
-                    .tint(theme.text)
+                    // Same treatment as the previous-chapter button: the two are
+                    // peers, and the filled variant made "next" look like a primary
+                    // action while "previous" looked disabled.
+                    .secondaryGlassButtonShape(capsule: false)
                     .disabled(!model.canGoNext)
                 }
 
