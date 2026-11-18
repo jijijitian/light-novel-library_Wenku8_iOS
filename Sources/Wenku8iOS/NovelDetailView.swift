@@ -16,24 +16,51 @@ final class NovelDetailViewModel: ObservableObject {
         self.service = service
     }
 
+    /// Loads a book's page.
+    ///
+    /// Cached metadata is the whole story on a normal visit: the page renders from it and
+    /// the network is left alone. Refreshing behind the reader's back changed the page
+    /// under them for no request they made. A book with nothing cached fetches once, and
+    /// after that only an explicit pull-to-refresh reaches the network.
     func load(novelID: Int, force: Bool = false) async {
         guard force || !loaded else { return }
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
-        async let detailTask = service.detail(aid: novelID)
+
+        if !force {
+            if let cached = await service.cachedDetail(aid: novelID) {
+                detail = cached
+                loaded = true
+                // The catalogue is small and already on disk when the book is downloaded;
+                // fetching it here keeps chapter marks correct without touching metadata.
+                if let result = try? await service.volumes(aid: novelID) {
+                    volumes = result
+                }
+                isLoadingVolumes = false
+                return
+            }
+        }
+
+        async let detailTask = service.fetchDetail(aid: novelID)
         async let volumesTask = service.volumes(aid: novelID)
         do {
             detail = try await detailTask
             error = nil
             loaded = true
         } catch {
-            self.error = error
+            if detail == nil { self.error = error }
         }
         if let result = try? await volumesTask {
             volumes = result
         }
         isLoadingVolumes = false
+    }
+
+    /// A user-initiated refresh: re-reads the book from the service.
+    func refresh(novelID: Int) async {
+        loaded = false
+        await load(novelID: novelID, force: true)
     }
 }
 
@@ -135,7 +162,9 @@ struct NovelDetailView: View {
                 }
             }
         }
-        .refreshable { await model.load(novelID: novelID, force: true) }
+        // Pull-to-refresh is the only path to the network on a book that is already
+        // cached; the same system indicator as the home screen.
+        .refreshable { await model.refresh(novelID: novelID) }
         .task {
             if let entry = await OfflineStore.shared.entry(for: novelID) {
                 cachedChapterIDs = entry.storedChapterIDs

@@ -373,6 +373,25 @@ public struct NovelService: Sendable {
 
     // MARK: - Detail
 
+    /// The cached detail for a book, if one is stored. Never touches the network.
+    public func cachedDetail(aid: Int) async -> NovelDetail? {
+        guard let entry = await offline.entry(for: aid) else { return nil }
+        guard var cached = entry.detail else { return nil }
+        cached.coverURL = await offline.coverURL(for: aid) ?? cached.coverURL
+        return cached
+    }
+
+    /// Fetches a book's detail and caches it.
+    ///
+    /// Every book the reader opens is cached, not only downloaded ones: opening a book is
+    /// the clearest statement that they care about it, and it makes the second visit
+    /// instant and the offline visit possible.
+    public func fetchDetail(aid: Int) async throws -> NovelDetail {
+        let online = try await onlineDetail(aid: aid)
+        await offline.refreshDetail(online)
+        return online
+    }
+
     public func detail(aid: Int) async throws -> NovelDetail {
         do {
             let online = try await onlineDetail(aid: aid)
