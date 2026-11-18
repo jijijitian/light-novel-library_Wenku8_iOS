@@ -12,6 +12,8 @@ struct MetadataCacheView: View {
     @EnvironmentObject private var store: LibraryStore
     @State private var entries: [OfflineStore.Entry] = []
     @State private var pendingDelete: OfflineStore.Entry?
+    /// Set when the reader asks to drop the whole "其他缓存" group.
+    @State private var pendingClearAll = false
 
     /// Three kinds, in the order they matter to the reader.
     ///
@@ -65,6 +67,15 @@ struct MetadataCacheView: View {
                                 guard kind.isDeletable else { return }
                                 if let index = offsets.first { pendingDelete = items[index] }
                             }
+                            if kind.isDeletable, !items.isEmpty {
+                                // One entry per book is fine for a few, but clearing the
+                                // whole group should not require swiping them one by one.
+                                Button(role: .destructive) {
+                                    pendingClearAll = true
+                                } label: {
+                                    Label("清除全部\(kind.title)", systemImage: "trash")
+                                }
+                            }
                         } header: {
                             Text(kind.title)
                         } footer: {
@@ -103,6 +114,23 @@ struct MetadataCacheView: View {
         } message: {
             Text("删除后断网时将无法查看这本书的信息；下次进入书架会重新缓存。")
         }
+        .alert("清除全部其他缓存？", isPresented: $pendingClearAll) {
+            Button("清除", role: .destructive) { Task { await clearOpened() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只会删除既不在书架、也没下载过正文的书籍元数据，共 \(grouped[.opened]?.count ?? 0) 本。书架书籍和已下载书籍不受影响。")
+        }
+    }
+
+    /// Drops the metadata of every book that is neither on the shelf nor downloaded.
+    ///
+    /// Shelf and downloaded books are excluded by the same rule the rows use, so this can
+    /// never remove something the reader needs offline.
+    private func clearOpened() async {
+        for entry in grouped[.opened] ?? [] {
+            await OfflineStore.shared.delete(entry.novelID)
+        }
+        await refresh()
     }
 
     private func row(_ entry: OfflineStore.Entry) -> some View {
