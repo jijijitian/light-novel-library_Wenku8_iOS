@@ -58,9 +58,21 @@ final class NovelDetailViewModel: ObservableObject {
     }
 
     /// A user-initiated refresh: re-reads the book from the service.
+    /// Minimum time the refresh indicator stays up, matching the home screen.
+    private static let minimumRefreshDuration: Duration = .milliseconds(1200)
+
     func refresh(novelID: Int) async {
+        // Same floor as the home screen: a warm refresh otherwise finishes in a few
+        // hundred milliseconds and the spinner retracts before it registers, which reads
+        // as "the pull did nothing". Polled rather than a single sleep, because a
+        // cancelled sleep returns immediately.
+        let started = ContinuousClock.now
         loaded = false
         await load(novelID: novelID, force: true)
+        let deadline = started + Self.minimumRefreshDuration
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
     }
 }
 

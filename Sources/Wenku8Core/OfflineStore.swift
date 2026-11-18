@@ -214,7 +214,13 @@ public actor OfflineStore {
     /// Only the metadata is replaced: the chapter list, stored chapters and byte count
     /// describe what is actually on disk and must not be touched by a refresh.
     public func refreshDetail(_ detail: NovelDetail) async {
-        guard var entry = entry(for: detail.id) else { return }
+        // A book that was only opened has no entry yet, and returning early there meant
+        // opening a book never cached anything — the metadata list stayed empty however
+        // many books were visited.
+        guard var entry = entry(for: detail.id) else {
+            cacheMetadata(detail)
+            return
+        }
         entry.detail = detail
         entry.title = detail.title
         entry.author = detail.author.isEmpty ? nil : detail.author
