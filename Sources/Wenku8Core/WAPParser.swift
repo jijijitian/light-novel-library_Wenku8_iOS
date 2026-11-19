@@ -371,7 +371,7 @@ public enum WAPParser {
     }
 }
 
-public struct HomeRow: Identifiable, Hashable, Sendable {
+public struct HomeRow: Identifiable, Hashable, Sendable, Codable {
     public var section: HomeSection
     public var items: [NovelSummary]
 

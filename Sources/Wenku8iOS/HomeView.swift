@@ -19,6 +19,22 @@ final class HomeViewModel: ObservableObject {
     private let service: NovelService
     private var hasLoaded = false
 
+    /// Whether the page has been brought up in this process, so the one cold-start refresh
+    /// does not repeat every time the tab is revisited.
+    private static var didStartThisProcess = false
+
+    /// How old the stored page may be before a visit refreshes it.
+    ///
+    /// Cold start refreshes once by design; this covers the other case — an app that has
+    /// been alive for hours and is opened again in the evening.
+    private static let staleAfter: TimeInterval = 3 * 60 * 60
+
+    /// The stored page, so a warm start paints the home screen before any request.
+    private struct Snapshot: Codable {
+        var savedAt: Date
+        var rows: [HomeRow]
+    }
+
     init(service: NovelService = NovelService()) {
         self.service = service
     }
@@ -63,6 +79,34 @@ final class HomeViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Stored page
+
+    private static var snapshotURL: URL {
+        let base = (try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("HomeSnapshot.json")
+    }
+
+    private static func ordered(_ rows: [HomeRow]) -> [HomeRow] {
+        HomeSection.allCases.compactMap { section in
+            rows.first { $0.section == section }
+        }
+    }
+
+    private static func loadSnapshot() -> Snapshot? {
+        guard let data = try? Data(contentsOf: snapshotURL) else { return nil }
+        return try? JSONDecoder().decode(Snapshot.self, from: data)
+    }
+
+    private static func saveSnapshot(_ snapshot: Snapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: snapshotURL, options: .atomic)
+    }
+
     /// Fires a refresh a few seconds after launch and logs what each row holds, so a
     /// pull-to-refresh can be exercised and checked without driving the gesture by hand.
     ///
@@ -93,11 +137,47 @@ final class HomeViewModel: ObservableObject {
     }
     #endif
 
-    /// Starts the first load detached from the view's lifetime.
+    /// Brings the page up: stored copy first, then a refresh if one is due.
+    ///
+    /// The home screen is a view of things that change slowly — a ranking, a release list —
+    /// so re-fetching it on every visit wastes the reader's data and the relay's quota for
+    /// results that rarely differ. What is stored is painted immediately; the network is
+    /// only touched on the first visit of a process or when that stored copy has gone stale.
+    /// Pulling always refreshes.
     func startLoadingIfNeeded() {
-        guard !hasLoaded, !isFetching else { return }
+        guard !hasStarted else {
+            // A later visit in the same process normally does nothing — that is what makes
+            // a warm start quiet. An app left running for hours is the exception: the page
+            // it is showing has gone stale, so the visit refreshes it.
+            guard let lastUpdated,
+                  Date().timeIntervalSince(lastUpdated) > Self.staleAfter,
+                  !isFetching else { return }
+            loadTask = Task { await reload() }
+            return
+        }
+        hasStarted = true
+
+        if let snapshot = Self.loadSnapshot() {
+            rows = Self.ordered(snapshot.rows)
+            lastUpdated = snapshot.savedAt
+            isLoading = false
+            hasLoaded = true
+        }
+
+        let firstVisit = !Self.didStartThisProcess
+        let isStale = lastUpdated.map { Date().timeIntervalSince($0) > Self.staleAfter } ?? true
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["WENKU8_AUTO_REFRESH"] != nil {
+            let age = lastUpdated.map { Int(Date().timeIntervalSince($0)) } ?? -1
+            print("[home] start cached=\(rows.count) rows first=\(firstVisit) stale=\(isStale) age=\(age)s")
+        }
+        #endif
+        guard rows.isEmpty || firstVisit || isStale else { return }
+        Self.didStartThisProcess = true
         loadTask = Task { await reload() }
     }
+
+    private var hasStarted = false
 
     /// Reloads the page.
     ///
@@ -154,6 +234,8 @@ final class HomeViewModel: ObservableObject {
         error = rows.isEmpty ? Wenku8Error.unavailable("首页内容暂时无法载入") : nil
         lastUpdated = Date()
         hasLoaded = true
+        // Stored last, so a failed refresh never replaces a good copy with an empty one.
+        if !rows.isEmpty { Self.saveSnapshot(Snapshot(savedAt: Date(), rows: Self.ordered(rows))) }
     }
 }
 
