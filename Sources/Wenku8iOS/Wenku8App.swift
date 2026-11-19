@@ -22,8 +22,18 @@ struct Wenku8App: App {
         #endif
     }
 
+    /// Seeds the cover-tint switch from `WENKU8_COVER_TINT=1|0` once, so a debug launch can
+    /// show the tinted detail page without driving Settings by hand.
+    private static func seedCoverTintFromEnvironment() {
+        #if DEBUG
+        guard let raw = ProcessInfo.processInfo.environment["WENKU8_COVER_TINT"] else { return }
+        UserDefaults.standard.set(raw == "1", forKey: CoverPalette.storageKey)
+        #endif
+    }
+
     init() {
         Self.seedAppearanceFromEnvironment()
+        Self.seedCoverTintFromEnvironment()
         Self.configureRelay()
         Self.restoreDomain()
         Self.applyReaderOverrides()

@@ -132,6 +132,8 @@ struct NovelDetailView: View {
     @StateObject private var downloadManager = OfflineDownloadManager.shared
     @State private var offlineEntry: OfflineStore.Entry?
     @State private var showVolumePicker = false
+    @AppStorage(CoverPalette.storageKey) private var coverTint = false
+    @State private var palette: CoverPalette?
 
     var body: some View {
         ScrollView {
@@ -145,7 +147,11 @@ struct NovelDetailView: View {
                 }
             }
         }
-        .background { AppBackground() }
+        .background {
+            // Tinted by the cover when the reader asked for it; the plain backdrop
+            // otherwise, so the switch has a visible effect either way.
+            TintedBackground(palette: coverTint ? palette : nil)
+        }
         .navigationTitle(model.detail?.title ?? "小说信息")
         .sheet(isPresented: $showVolumePicker) {
             VolumePickerSheet(
@@ -249,8 +255,12 @@ struct NovelDetailView: View {
             if let entry = await OfflineStore.shared.entry(for: novelID) {
                 cachedChapterIDs = entry.storedChapterIDs
             }
+            await loadPalette()
             await model.load(novelID: novelID)
             await refreshOffline()
+            // The cover URL is only known once the book has loaded; the first pass could
+            // rely on the stored image alone.
+            if palette == nil { await loadPalette() }
             // Ensures the bookmark shows the truth for books that are on the website's
             // shelf but were never added on this device.
             if account.remoteShelf.isEmpty {
@@ -326,6 +336,17 @@ struct NovelDetailView: View {
         .padding(.horizontal, 18)
         .padding(.top, 8)
         .padding(.bottom, 30)
+    }
+
+    /// Reads the cover's colours, using the stored image so opening a book does not fetch
+    /// the cover again just to look at it.
+    private func loadPalette() async {
+        guard coverTint else {
+            palette = nil
+            return
+        }
+        let remote = model.detail?.coverURL
+        palette = await CoverPalette.palette(for: novelID, remoteURL: remote)
     }
 
     private func refreshOffline() async {

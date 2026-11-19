@@ -3,6 +3,7 @@ import SwiftUI
 /// App-level appearance: light / dark / follow the system.
 struct AppearanceSettingsView: View {
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
+    @AppStorage(CoverPalette.storageKey) private var coverTint = false
 
     private var appearance: AppAppearance {
         AppAppearance(rawValue: appearanceRaw) ?? .system
@@ -23,6 +24,15 @@ struct AppearanceSettingsView: View {
                 Text("外观模式")
             } footer: {
                 Text("影响书架、设置等界面。阅读器有自己的纸张配色，不受此处影响。")
+                    .font(.footnote)
+            }
+
+            Section {
+                Toggle(isOn: $coverTint) {
+                    Label("封面取色", systemImage: "paintpalette")
+                }
+            } footer: {
+                Text("开启后，书籍详情页的背景会取自该书封面的主色调。默认关闭。")
                     .font(.footnote)
             }
         }
