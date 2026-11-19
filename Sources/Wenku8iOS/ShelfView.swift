@@ -14,6 +14,9 @@ struct ShelfView: View {
 
     /// Which shelf books are cached, and how much of them. Read once per appearance.
     @State private var cacheStates: [Int: CacheState] = [:]
+    /// Cover files stored on this device, keyed by book.
+    @State private var localCovers: [Int: URL] = [:]
+    @State private var showLogin = false
 
     enum CacheState {
         case partial
@@ -27,7 +30,10 @@ struct ShelfView: View {
                 // local list was rendered underneath it as a separate "2 本收藏" block,
                 // so a book added here appeared twice and the counts disagreed. The
                 // local list is only the shelf when there is no account.
-                if account.isSignedIn {
+                // The account's shelf stays on screen after the session ends. The books
+                // are still the reader's; showing an empty page because a cookie expired
+                // threw away the only thing they came here for.
+                if account.isSignedIn || !account.remoteNovels.isEmpty {
                     cloudShelfSection
                 } else if store.saved.isEmpty {
                     emptyState
@@ -64,10 +70,15 @@ struct ShelfView: View {
             // Metadata for shelf books is cached so they open offline; the same pass prunes
             // books that have left both the shelf and the device.
             await account.syncShelfMetadata(localIDs: store.saved.map(\.id))
+            // Covers last: the rows can use them from the next visit on.
+            await account.cacheShelfCovers()
             await loadCacheStates()
             await migrateLegacyLocalShelf()
         }
         .refreshable { await syncNow() }
+        .sheet(isPresented: $showLogin) {
+            LoginView()
+        }
         .toolbar {
             // The menu listed the *local* list while the screen shows the account's
             // shelf, so signed in it offered books that were not on screen — leftovers
@@ -185,6 +196,22 @@ struct ShelfView: View {
                 }
             }
 
+            if !account.isSignedIn {
+                HStack(spacing: 8) {
+                    Image(systemName: "wifi.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("离线显示，登录后可同步")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button("登录") { showLogin = true }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AppTheme.accent)
+                }
+            }
+
             // Six Chinese labels do not fit a segmented control at phone width, and
             // SwiftUI silently truncates each segment to an ellipsis. A scrollable
             // chip row keeps every title readable instead.
@@ -270,7 +297,14 @@ struct ShelfView: View {
     /// One cloud-shelf row: cover, title, and the site's recorded latest chapter.
     private func cloudShelfRow(_ entry: ShelfEntry) -> some View {
         HStack(spacing: 12) {
-            CoverCard(url: entry.novel.coverURL, title: entry.novel.title, width: 44, height: 62)
+            // The stored file when there is one: the shelf is a wall of small covers, and
+            // fetching each of them on every visit was the reason they flickered in.
+            CoverCard(
+                url: localCovers[entry.novel.id] ?? entry.novel.coverURL,
+                title: entry.novel.title,
+                width: 44,
+                height: 62
+            )
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.novel.title)
                     .font(.subheadline.weight(.semibold))
@@ -307,6 +341,7 @@ struct ShelfView: View {
         // Unstructured: a cancelled refresh task would abort the sync halfway.
         let localIDs = store.saved.map(\.id)
         await Task { await account.syncWithLocalShelf(localIDs) }.value
+        await account.cacheShelfCovers()
         // The marks on the rows depend on what is cached, so a refresh must re-read them
         // even when the cloud copy did not change.
         await loadCacheStates()
@@ -350,6 +385,16 @@ struct ShelfView: View {
             states[entry.novelID] = state == .complete ? .complete : .partial
         }
         cacheStates = states
+
+        // Covers are cached per book without a manifest entry, so they are looked up on the
+        // shelf's own books rather than from `entries`.
+        var covers: [Int: URL] = [:]
+        for novel in account.remoteNovels {
+            if let url = await OfflineStore.shared.storedCoverURL(for: novel.id) {
+                covers[novel.id] = url
+            }
+        }
+        localCovers = covers
     }
 
     private func relative(_ date: Date) -> String {

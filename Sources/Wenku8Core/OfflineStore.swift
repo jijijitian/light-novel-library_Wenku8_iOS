@@ -208,6 +208,18 @@ public actor OfflineStore {
         try? data.write(to: path, options: .atomic)
     }
 
+    /// The stored cover file for a book, found on disk even when no manifest records it.
+    ///
+    /// Shelf books get their covers cached without a full download entry, so the manifest
+    /// cannot be the only way to find them.
+    public func storedCoverURL(for aid: Int) -> URL? {
+        let dir = directory(for: aid)
+        guard let names = try? fileManager.contentsOfDirectory(atPath: dir.path) else { return nil }
+        guard let name = names.first(where: { $0.hasPrefix("cover.") }) else { return nil }
+        let url = dir.appendingPathComponent(name)
+        return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+
     public func saveCover(_ data: Data, for aid: Int, remote: URL) -> String? {
         let ext = remote.pathExtension.isEmpty ? "jpg" : remote.pathExtension
         let name = "cover.\(ext)"

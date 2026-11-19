@@ -422,6 +422,16 @@ public struct NovelService: Sendable {
         return data
     }
 
+    /// Saves a book's cover image if it is not already on disk.
+    ///
+    /// Used for shelf books, whose rows showed a remote image every single time.
+    @discardableResult
+    public func cacheCover(aid: Int, coverURL: URL?) async -> Bool {
+        if await offline.storedCoverURL(for: aid) != nil { return true }
+        guard let coverURL, let data = try? await fetchImage(coverURL) else { return false }
+        return await offline.saveCover(data, for: aid, remote: coverURL) != nil
+    }
+
     /// Caches a book's cover if it is missing, leaving everything else alone.
     ///
     /// A book cached before covers were stored shows a remote image every time it is

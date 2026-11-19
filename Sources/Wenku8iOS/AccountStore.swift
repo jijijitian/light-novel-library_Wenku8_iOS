@@ -111,8 +111,10 @@ final class AccountStore: ObservableObject {
         case .signedOut:
             service.signOut()
             setUserName(nil)
-            remoteNovels = []
-            remoteShelf = []
+            // Keep what the shelf showed. The books are still known and still on the
+            // account; only the session is gone, and a reader who cannot sign in right now
+            // should still see their shelf rather than an empty page.
+            restoreCachedShelf()
             sessionExpiredNotice = true
         case .unknown:
             // Could not ask. Keep whatever was known rather than guess.
@@ -157,11 +159,28 @@ final class AccountStore: ObservableObject {
             // failed request.
             return .valid(userName ?? "")
         case .signedOut:
-            // Drop the name rather than leave the app claiming a session it does not have.
+            // Drop the name rather than leave the app claiming a session it does not have,
+            // but keep the shelf it described: the books did not vanish with the session.
             setUserName(nil)
-            remoteNovels = []
-            remoteShelf = []
+            restoreCachedShelf()
             return .expired
+        }
+    }
+
+    /// Saves the shelf's cover images so its rows stop fetching them every time.
+    ///
+    /// The shelf is a list of small covers, and each one used to be requested from the
+    /// network on every visit. A bounded pass per sync fills the cache in; rows fall back to
+    /// the remote image only until their turn comes.
+    func cacheShelfCovers(limit: Int = 16) async {
+        guard isSignedIn else { return }
+        var saved = 0
+        for entry in remoteShelf where saved < limit {
+            let aid = entry.novel.id
+            if await OfflineStore.shared.storedCoverURL(for: aid) != nil { continue }
+            if await service.cacheCover(aid: aid, coverURL: entry.novel.coverURL) {
+                saved += 1
+            }
         }
     }
 
