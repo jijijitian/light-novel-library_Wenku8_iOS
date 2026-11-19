@@ -47,17 +47,51 @@ final class HomeViewModel: ObservableObject {
         generation &+= 1
         isFetching = false
 
-        // The system spinner is bound to this closure and retracts the moment it returns, so
-        // the fetch is awaited here and then held for a floor by polling. A single
-        // `Task.sleep` would not do: a cancelled sleep returns immediately, which is what
-        // made the spinner flash and the page spring back before anything had happened.
+        // The fetch must not inherit this task's cancellation. `.refreshable` runs its
+        // closure in a task SwiftUI cancels when the control retracts, and retracting is
+        // what happens as soon as the content is rebuilt — which this refresh causes by
+        // publishing rows. The sections then hit `Task.isCancelled` and returned nothing,
+        // so the spinner turned while the page kept its old books.
+        //
+        // An unstructured `Task` does not inherit cancellation, so the work finishes.
         let started = ContinuousClock.now
-        await reload()
+        let work = Task { await self.reload() }
+        await work.value
         let deadline = started + Self.minimumRefreshDuration
         while ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(50))
         }
     }
+
+    /// Fires a refresh a few seconds after launch and logs what each row holds, so a
+    /// pull-to-refresh can be exercised and checked without driving the gesture by hand.
+    ///
+    ///     --environment-variables '{"WENKU8_AUTO_REFRESH":"1"}'
+    ///
+    /// Declared unconditionally so the modifier that calls it needs no compile-time guard;
+    /// the body is empty outside debug builds.
+    func debugAutoRefreshIfRequested() async {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["WENKU8_AUTO_REFRESH"] != nil else { return }
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        logRows("before")
+        // Reproduce what SwiftUI does to a `.refreshable` closure: cancel its task while it
+        // is running. If the fetch inherited that cancellation, no row would be delivered.
+        let pull = Task { await refresh() }
+        pull.cancel()
+        await pull.value
+        logRows("after cancelled refresh")
+        #endif
+    }
+
+    #if DEBUG
+    private func logRows(_ label: String) {
+        let summary = rows.map { row in
+            "\(row.section.rawValue):" + row.items.prefix(3).map { "\($0.id)" }.joined(separator: ",")
+        }.joined(separator: " | ")
+        print("[home] \(label) -> \(summary)")
+    }
+    #endif
 
     /// Starts the first load detached from the view's lifetime.
     func startLoadingIfNeeded() {
@@ -103,6 +137,11 @@ final class HomeViewModel: ObservableObject {
             await MainActor.run {
                 // Replace the existing row for this section, or append it. Replacing
                 // keeps the page in its canonical order as sections come back.
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["WENKU8_AUTO_REFRESH"] != nil {
+                    print("[home] delivered \(row.section.rawValue) \(row.items.count) items")
+                }
+                #endif
                 if let index = self.rows.firstIndex(where: { $0.section == row.section }) {
                     self.rows[index] = row
                 } else {
@@ -160,6 +199,7 @@ struct HomeView: View {
         // cancelling it left 今日热榜 — and the banner built from it — permanently empty
         // until a manual refresh.
         .onAppear { model.startLoadingIfNeeded() }
+        .task { await model.debugAutoRefreshIfRequested() }
     }
 
     /// The banner, or its placeholder while the first section is on its way.

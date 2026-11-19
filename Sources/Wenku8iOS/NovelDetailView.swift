@@ -105,9 +105,13 @@ final class NovelDetailViewModel: ObservableObject {
         // hundred milliseconds and the spinner retracts before it registers, which reads
         // as "the pull did nothing". Polled rather than a single sleep, because a
         // cancelled sleep returns immediately.
+        // Outside this task's cancellation: `.refreshable` cancels its closure when the
+        // control retracts, and a cancelled task cannot finish a fetch. An unstructured
+        // task does not inherit that cancellation.
         let started = ContinuousClock.now
         loaded = false
-        await load(novelID: novelID, force: true)
+        let work = Task { await self.load(novelID: novelID, force: true) }
+        await work.value
         let deadline = started + Self.minimumRefreshDuration
         while ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(50))

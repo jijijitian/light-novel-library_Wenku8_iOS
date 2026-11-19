@@ -81,6 +81,13 @@ final class PagedNovelListModel: ObservableObject {
     /// a failed refresh left it empty. Nothing is cleared now: the pages are collected
     /// aside and swapped in on success.
     func reload() async {
+        // `.refreshable` cancels its closure when the control retracts; the pages are
+        // fetched in an unstructured task so a cancelled runner cannot abort them.
+        let work = Task { await self.performReload() }
+        await work.value
+    }
+
+    private func performReload() async {
         guard let loadPage else { return }
         // A refresh supersedes whatever is in flight rather than being dropped by it.
         generation &+= 1

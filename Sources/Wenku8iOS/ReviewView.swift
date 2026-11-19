@@ -96,7 +96,8 @@ struct ReviewListView: View {
         .background { AppBackground() }
         .navigationTitle("书评")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.load(novelID: novelID, force: true) }
+        // Unstructured, so the retracting refresh control cannot cancel the fetch.
+        .refreshable { await Task { await model.load(novelID: novelID, force: true) }.value }
         .task { await model.load(novelID: novelID) }
         .sheet(item: $selected) { review in
             ReviewDetailSheet(review: review)

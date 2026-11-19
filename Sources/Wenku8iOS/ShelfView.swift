@@ -304,7 +304,9 @@ struct ShelfView: View {
         account.localChapterIDs = Dictionary(
             uniqueKeysWithValues: store.progress.map { ($0.key, $0.value.chapterID) }
         )
-        await account.syncWithLocalShelf(store.saved.map(\.id))
+        // Unstructured: a cancelled refresh task would abort the sync halfway.
+        let localIDs = store.saved.map(\.id)
+        await Task { await account.syncWithLocalShelf(localIDs) }.value
         // The marks on the rows depend on what is cached, so a refresh must re-read them
         // even when the cloud copy did not change.
         await loadCacheStates()

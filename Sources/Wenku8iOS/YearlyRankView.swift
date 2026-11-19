@@ -65,7 +65,8 @@ struct YearlyRankView: View {
         }
         .navigationTitle("年度排行")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.load(year: year, force: true) }
+        // Unstructured, so the retracting refresh control cannot cancel the fetch.
+        .refreshable { await Task { await model.load(year: year, force: true) }.value }
         .task { await model.load(year: year) }
         .onChange(of: year) { _, newValue in
             Task { await model.load(year: newValue, force: true) }
