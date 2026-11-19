@@ -8,8 +8,8 @@ struct LoginView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var showPassword = false
-    @State private var showWeb = false
     @State private var localError: String?
+    @State private var showRegister = false
     @FocusState private var focus: Field?
 
     private enum Field { case username, password }
@@ -90,14 +90,6 @@ struct LoginView: View {
                     .tint(AppTheme.accent)
                     .disabled(!canSubmit)
 
-                    Button {
-                        showWeb = true
-                    } label: {
-                        Label("在网页版登录", systemImage: "safari")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .secondaryGlassButtonShape()
-
                     footer
                 }
                 .padding(.horizontal, 20)
@@ -112,8 +104,9 @@ struct LoginView: View {
                     Button("关闭") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showWeb) {
-                WebSheet(url: URL(string: "https://www.wenku8.net/login.php"))
+            // The register page follows the selected mirror, like every other web link.
+            .sheet(isPresented: $showRegister) {
+                WebSheet(url: SiteDomain.current.webURL("/register.php"))
             }
             .onAppear { focus = .username }
         }
@@ -134,14 +127,20 @@ struct LoginView: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("还没有账号？可以在文库网页版免费注册。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Link(destination: URL(string: "https://www.wenku8.net/register.php")!) {
-                Text("前往注册")
-                    .font(.caption.weight(.medium))
+            Button {
+                showRegister = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.badge.plus")
+                    Text("注册新账号")
+                }
+                .frame(maxWidth: .infinity)
             }
+            .secondaryGlassButtonShape()
         }
         .padding(.top, 4)
     }

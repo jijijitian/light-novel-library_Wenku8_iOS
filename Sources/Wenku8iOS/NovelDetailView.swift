@@ -234,7 +234,7 @@ struct NovelDetailView: View {
                     }
 
                     Button {
-                        webItem = WebSheetItem(url: URL(string: "https://www.wenku8.net/book/\(novelID).htm"))
+                        webItem = WebSheetItem(url: SiteDomain.current.webURL("/book/\(novelID).htm"))
                     } label: {
                         Label("在网页版打开", systemImage: "safari")
                     }

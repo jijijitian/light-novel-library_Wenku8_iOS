@@ -9,7 +9,7 @@ struct WebSheet: UIViewControllerRepresentable {
         let configuration = SFSafariViewController.Configuration()
         configuration.entersReaderIfAvailable = false
         let controller = SFSafariViewController(
-            url: url ?? URL(string: "https://www.wenku8.net/wap/")!,
+            url: url ?? SiteDomain.current.webURL("/"),
             configuration: configuration
         )
         controller.preferredControlTintColor = UIColor(AppTheme.accent)

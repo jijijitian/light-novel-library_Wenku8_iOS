@@ -153,7 +153,7 @@ struct SettingsView: View {
         .background { AppBackground() }
         .navigationTitle("设置")
         .sheet(isPresented: $showWeb) {
-            WebSheet(url: URL(string: "https://www.wenku8.net/wap/"))
+            WebSheet(url: SiteDomain.current.webURL("/"))
         }
         .sheet(isPresented: $showLicense) {
             LicenseSheet()

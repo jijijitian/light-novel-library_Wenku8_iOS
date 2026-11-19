@@ -26,6 +26,23 @@ public enum SiteDomain: String, CaseIterable, Identifiable, Sendable {
         case .cc: return "https://www.wenku8.cc"
         }
     }
+
+    /// Where the site is stored in preferences.
+    public static let storageKey = "site.domain"
+
+    /// The mirror the app is currently pointed at, for links that leave the app.
+    ///
+    /// Web sheets must follow it: a hard-coded host sent a reader who had chosen one mirror
+    /// to the other.
+    public static var current: SiteDomain {
+        SiteDomain(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "")
+            ?? .net
+    }
+
+    /// A link on the site, in this mirror.
+    public func webURL(_ path: String) -> URL {
+        URL(string: host + path) ?? URL(string: host)!
+    }
 }
 
 public struct SiteEndpoints: Sendable {

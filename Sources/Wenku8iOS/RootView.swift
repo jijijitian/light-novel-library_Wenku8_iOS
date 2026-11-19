@@ -66,6 +66,15 @@ struct RootView: View {
         .sheet(isPresented: $showLogin) {
             LoginView()
         }
+        .task {
+            #if DEBUG
+            // `WENKU8_SHOW_LOGIN=1` opens the login sheet on launch, so it can be looked at
+            // without driving the UI.
+            if ProcessInfo.processInfo.environment["WENKU8_SHOW_LOGIN"] != nil {
+                showLogin = true
+            }
+            #endif
+        }
     }
 
     @available(iOS 18.0, *)

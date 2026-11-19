@@ -163,7 +163,7 @@ struct RankListView: View {
         .task { await reload() }
         .task { await debugAutoReloadIfRequested() }
         .sheet(isPresented: $showWeb) {
-            WebSheet(url: URL(string: "https://www.wenku8.net/wap/article/toplist.php?sort=\(board.rawValue)"))
+            WebSheet(url: SiteDomain.current.webURL("/toplist.php?sort=\(board.rawValue)"))
         }
     }
 
