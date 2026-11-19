@@ -173,7 +173,7 @@ final class AccountStore: ObservableObject {
     /// network on every visit. A bounded pass per sync fills the cache in; rows fall back to
     /// the remote image only until their turn comes.
     func cacheShelfCovers(limit: Int = 16) async {
-        guard isSignedIn else { return }
+        // Covers come from the public image host, so a signed-out shelf can cache them too.
         var saved = 0
         for entry in remoteShelf where saved < limit {
             let aid = entry.novel.id
@@ -181,6 +181,36 @@ final class AccountStore: ObservableObject {
             if await service.cacheCover(aid: aid, coverURL: entry.novel.coverURL) {
                 saved += 1
             }
+        }
+    }
+
+    /// Refreshes what the shelf rows show: title, author and cover.
+    ///
+    /// A book's page is public, so this works without a session — an expired login should
+    /// not freeze the information on the shelf. A few books per refresh, rotating through
+    /// the shelf, keeps a pull from turning into thirty requests; repeated pulls walk the
+    /// whole list.
+    func refreshShelfBookInfo(limit: Int = 4) async {
+        guard !remoteShelf.isEmpty else { return }
+        var updated = remoteShelf
+        var touched = 0
+        var visited = 0
+        while visited < updated.count, touched < limit {
+            let index = (shelfRefreshCursor + visited) % updated.count
+            visited += 1
+            let aid = updated[index].novel.id
+            guard let detail = await service.refreshBookInfo(aid: aid) else { continue }
+            if updated[index].novel.title != detail.title
+                || updated[index].novel.author != (detail.author.isEmpty ? nil : detail.author) {
+                updated[index].novel.title = detail.title
+                updated[index].novel.author = detail.author.isEmpty ? nil : detail.author
+                touched += 1
+            }
+        }
+        shelfRefreshCursor = (shelfRefreshCursor + visited) % max(updated.count, 1)
+        if touched > 0 {
+            remoteShelf = updated
+            remoteNovels = updated.map(\.novel)
         }
     }
 
@@ -251,6 +281,9 @@ final class AccountStore: ObservableObject {
     /// True when the group currently shown came from the cache and has not been
     /// replaced by a fresh fetch yet.
     @Published private(set) var isShowingCachedShelf = false
+
+    /// Where the next shelf-info refresh starts, so repeated pulls cover the whole shelf.
+    private var shelfRefreshCursor = 0
 
     /// Loads a cached group. Returns false when nothing was cached.
     @discardableResult

@@ -422,6 +422,21 @@ public struct NovelService: Sendable {
         return data
     }
 
+    /// Re-reads one book's public information — title, author, blurb, cover.
+    ///
+    /// One request, unlike `fetchDetail`, which also pulls the catalogue: a shelf refresh
+    /// only needs what the row shows.
+    @discardableResult
+    public func refreshBookInfo(aid: Int) async -> NovelDetail? {
+        guard let detail = try? await onlineDetail(aid: aid) else { return nil }
+        await offline.refreshDetail(detail)
+        if let cover = detail.coverURL, let data = try? await fetchImage(cover) {
+            let file = await offline.saveCover(data, for: aid, remote: cover)
+            await offline.attachCover(file, for: aid)
+        }
+        return detail
+    }
+
     /// Saves a book's cover image if it is not already on disk.
     ///
     /// Used for shelf books, whose rows showed a remote image every single time.

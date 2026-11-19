@@ -338,10 +338,21 @@ struct ShelfView: View {
         account.localChapterIDs = Dictionary(
             uniqueKeysWithValues: store.progress.map { ($0.key, $0.value.chapterID) }
         )
-        // Unstructured: a cancelled refresh task would abort the sync halfway.
-        let localIDs = store.saved.map(\.id)
-        await Task { await account.syncWithLocalShelf(localIDs) }.value
-        await account.cacheShelfCovers()
+        // What the rows show — covers, titles, authors — is public, so it refreshes whether
+        // or not a session is alive. Everything here goes through an unstructured task: a
+        // cancelled refresh would abort it halfway.
+        await Task {
+            await account.cacheShelfCovers()
+            await account.refreshShelfBookInfo()
+        }.value
+
+        if account.isSignedIn {
+            let localIDs = store.saved.map(\.id)
+            await Task { await account.syncWithLocalShelf(localIDs) }.value
+            // The sync may have added books whose covers are not cached yet.
+            await account.cacheShelfCovers()
+        }
+
         // The marks on the rows depend on what is cached, so a refresh must re-read them
         // even when the cloud copy did not change.
         await loadCacheStates()
