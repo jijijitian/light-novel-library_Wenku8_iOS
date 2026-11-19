@@ -161,6 +161,7 @@ struct RankListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.reload() }
         .task { await reload() }
+        .task { await debugAutoReloadIfRequested() }
         .sheet(isPresented: $showWeb) {
             WebSheet(url: URL(string: "https://www.wenku8.net/wap/article/toplist.php?sort=\(board.rawValue)"))
         }
@@ -170,6 +171,22 @@ struct RankListView: View {
         await model.start { page in
             try await NovelService().rankPage(board, page: page)
         }
+    }
+
+    /// Fires a reload whose runner is cancelled mid-flight, the way SwiftUI cancels a
+    /// `.refreshable` closure, and logs what the list holds before and after.
+    ///
+    ///     --environment-variables '{"WENKU8_AUTO_REFRESH":"1"}'
+    func debugAutoReloadIfRequested() async {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["WENKU8_AUTO_REFRESH"] != nil else { return }
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        print("[rank] before -> \(model.novels.prefix(3).map { $0.id })")
+        let pull = Task { await model.reload() }
+        pull.cancel()
+        await pull.value
+        print("[rank] after cancelled reload -> \(model.novels.prefix(3).map { $0.id })")
+        #endif
     }
 
     /// The yearly-board selector, shown only when the yearly list is displayed.

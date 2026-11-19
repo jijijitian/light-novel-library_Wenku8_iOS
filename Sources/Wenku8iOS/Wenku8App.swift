@@ -117,6 +117,13 @@ final class AppRouter: ObservableObject {
            let cid = Int(raw[raw.index(after: colon)...]) {
             homePath = [.reader(novelID: aid, chapters: [ChapterLink(id: cid, title: "")], startIndex: 0)]
         }
+        // `WENKU8_OPEN_BOARD=dayvisit` opens a ranking directly, so its list and its
+        // refresh can be exercised without driving the UI by hand.
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_BOARD"],
+           let board = RankBoard(rawValue: raw) {
+            self.tab = .rank
+            rankPath = [.rankList(board)]
+        }
         // `WENKU8_OPEN_NOVEL=aid` opens a book's detail page directly, so the catalogue
         // can be inspected without driving the UI by hand.
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_NOVEL"],
