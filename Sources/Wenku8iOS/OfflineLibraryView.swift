@@ -95,6 +95,9 @@ struct OfflineLibraryView: View {
     private func deleteBook() {
         guard let entry = pendingDeleteBook else { return }
         pendingDeleteBook = nil
+        // The row leaves in this one update; deleting first made the list animate once when
+        // the alert closed and again when the reload landed.
+        entries.removeAll { $0.novelID == entry.novelID }
         Task {
             await manager.delete(entry.novelID)
             await refresh()

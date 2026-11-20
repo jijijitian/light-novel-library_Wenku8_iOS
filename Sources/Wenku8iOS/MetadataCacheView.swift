@@ -11,7 +11,9 @@ struct MetadataCacheView: View {
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var store: LibraryStore
     @State private var entries: [OfflineStore.Entry] = []
-    @State private var pendingDelete: OfflineStore.Entry?
+    /// The entry just removed, kept so the deletion can be taken back.
+    @State private var undoEntry: OfflineStore.Entry?
+    @State private var undoToken = UUID()
     /// Set when the reader asks to drop the whole "其他缓存" group.
     @State private var pendingClearAll = false
     /// Cover files stored on this device, keyed by book.
@@ -74,7 +76,7 @@ struct MetadataCacheView: View {
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         if kind.isDeletable {
                                             Button(role: .destructive) {
-                                                pendingDelete = entry
+                                                delete(entry)
                                             } label: {
                                                 Label("删除", systemImage: "trash")
                                             }
@@ -108,26 +110,27 @@ struct MetadataCacheView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if let undoEntry {
+                HStack(spacing: 12) {
+                    Text("已删除「\(undoEntry.title)」")
+                        .font(.footnote)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Button("撤销") { undoDelete() }
+                        .font(.footnote.weight(.semibold))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .navigationTitle("元数据缓存")
         .navigationBarTitleDisplayMode(.inline)
         .task { await refresh() }
-        .alert("删除这本书的元数据？", isPresented: Binding(
-            get: { pendingDelete != nil },
-            set: { if !$0 { pendingDelete = nil } }
-        )) {
-            Button("删除", role: .destructive) {
-                if let entry = pendingDelete {
-                    Task {
-                        await OfflineStore.shared.delete(entry.novelID)
-                        await refresh()
-                    }
-                }
-                pendingDelete = nil
-            }
-            Button("取消", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text("删除后断网时将无法查看这本书的信息；下次进入书架会重新缓存。")
-        }
         .alert("清除全部？", isPresented: $pendingClearAll) {
             Button("清除", role: .destructive) { Task { await clearOpened() } }
             Button("取消", role: .cancel) {}
@@ -218,6 +221,57 @@ struct MetadataCacheView: View {
 
     private var totalLabel: String {
         formatBytes(entries.reduce(0) { $0 + $1.bytes })
+    }
+
+    /// Removes a row without the bounce the alert used to cause.
+    ///
+    /// Two animations were fighting: the alert closing, and the list removing the row it
+    /// was showing. The row slid up, was put back by the other animation, and slid up
+    /// again. So the alert is allowed to finish closing first, and the list is then changed
+    /// in a single step with no animation of its own — the rows below settle once, in place.
+    /// Removes a row straight from the swipe, keeping it for undo.
+    ///
+    /// This used to ask first, in an alert, and that alert is what made the list bounce: it
+    /// is modal, and dismissing it while the list removed the row underneath ran two
+    /// animations over the same pixels — the rows below jumped up and dropped back, whatever
+    /// the list itself did, and the bounce survived removing the animation and delaying the
+    /// change.
+    ///
+    /// The deletion is cheap and self-healing — the book is cached again the next time its
+    /// shelf loads — so it does not need a question, it needs a way back. The undo bar is
+    /// that, and nothing here is modal.
+    private func delete(_ entry: OfflineStore.Entry) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            entries.removeAll { $0.novelID == entry.novelID }
+        }
+        Task {
+            await OfflineStore.shared.delete(entry.novelID)
+            await refresh()
+        }
+        withAnimation(.easeOut(duration: 0.2)) { undoEntry = entry }
+        scheduleUndoExpiry()
+    }
+
+    /// Puts a removed entry back exactly as it was.
+    private func undoDelete() {
+        guard let entry = undoEntry else { return }
+        undoEntry = nil
+        OfflineStore.shared.saveManifest(entry)
+        entries.append(entry)
+        Task { await refresh() }
+    }
+
+    /// Drops the undo bar after a few seconds, so it does not sit there forever.
+    private func scheduleUndoExpiry() {
+        let token = UUID()
+        undoToken = token
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            guard undoToken == token else { return }
+            withAnimation(.easeIn(duration: 0.2)) { undoEntry = nil }
+        }
     }
 
     private func refresh() async {
