@@ -274,28 +274,32 @@ public struct NovelService: Sendable {
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
-            return try await rankedFallback(board, page: page)
+            return try await rankedFallback(board, page: page, needsLogin: true)
         }
         let items = WAPParser.linksIn(html).uniquedByID()
         if items.isEmpty {
-            return try await rankedFallback(board, page: page)
+            return try await rankedFallback(board, page: page, needsLogin: false)
         }
         return items
     }
 
-    /// The WAP ranking needs a session and the desktop ranking serves a shutdown
-    /// notice to anonymous clients, so fall back to the yearly Sugoi ranking,
-    /// which is a static page and still lists real books.
-    private func rankedFallback(_ board: RankBoard, page: Int) async throws -> [NovelSummary] {
+    /// The desktop ranking, or a message saying why there is none.
+    ///
+    /// The yearly ranking used to be substituted here, which made an unreadable board look
+    /// like a board — the wrong books under the wrong title. It is now the same rule the
+    /// relay follows: a board that cannot be read says so.
+    private func rankedFallback(
+        _ board: RankBoard,
+        page: Int,
+        needsLogin: Bool
+    ) async throws -> [NovelSummary] {
         if let items = try? await desktopRank(board, page: page), !items.isEmpty {
             return items
         }
-        let year = SugoiParser.availableYears[max(0, min(page - 1, SugoiParser.availableYears.count - 1))]
-        let books = try await sugoi(year: year).allBooks
-        guard !books.isEmpty else {
-            throw Wenku8Error.unavailable("排行榜暂时无法访问，请稍后再试")
+        if needsLogin {
+            throw Wenku8Error.unavailable("排行榜需要登录文库账号后才能查看，请先登录。")
         }
-        return books
+        throw Wenku8Error.unavailable("排行榜暂时无法访问，请稍后再试")
     }
 
     public func desktopRank(_ board: RankBoard, page: Int = 1) async throws -> [NovelSummary] {
