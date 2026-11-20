@@ -237,10 +237,39 @@ public final class Wenku8Client: @unchecked Sendable {
         throw lastError ?? Wenku8Error.unavailable("无法获取验证码")
     }
 
+    /// The origin that actually serves the chosen mirror.
+    ///
+    /// `cc` and `com` answer every request with a 301 to `net`, and following a 301 turns a
+    /// POST into a GET — the body is dropped. A login form posted to an alias therefore
+    /// arrived with no credentials, and the app reported 登录未生效. Asking where the page
+    /// really lives first, and posting there, keeps the body.
+    private func resolvedOrigin(wap: Bool) async -> String {
+        let bases = wap ? endpoints.wapHosts : endpoints.hosts
+        let suffix = wap ? "/" : "/login.php"
+        for base in bases {
+            guard let url = URL(string: base + suffix) else { continue }
+            var request = URLRequest(url: url)
+            // The agent matters: the site answers the same path differently for the mobile
+            // and desktop clients, and resolving with the wrong one found no redirect at all.
+            request.setValue(
+                wap ? Self.wapUserAgent : Self.desktopUserAgent,
+                forHTTPHeaderField: "User-Agent"
+            )
+            guard let response = try? await send(request) else { continue }
+            if let final = response.finalURL, let scheme = final.scheme, let host = final.host {
+                return "\(scheme)://\(host)"
+            }
+        }
+        return endpoints.primaryHost
+    }
+
     /// POSTs a WML form to the mobile site, trying each mirror in turn.
     public func wapPost(_ path: String, fields: [String: String]) async throws -> String {
         var lastError: Error?
-        for host in endpoints.wapHosts {
+        // The resolved origin comes first: posting to an alias loses the body to a 301.
+        let origin = await resolvedOrigin(wap: true) + "/wap"
+        let bases = [origin] + endpoints.wapHosts.filter { $0 != origin }
+        for host in bases {
             guard let url = URL(string: host + path) else { continue }
             do {
                 var request = URLRequest(url: url)
@@ -270,7 +299,10 @@ public final class Wenku8Client: @unchecked Sendable {
         captcha: String
     ) async throws -> String {
         var lastError: Error?
-        for host in endpoints.hosts {
+        // Same reason as `wapPost`: the alias would drop the body.
+        let origin = await resolvedOrigin(wap: false)
+        let bases = [origin] + endpoints.hosts.filter { $0 != origin }
+        for host in bases {
             guard let url = URL(string: host + "/login.php?do=submit") else { continue }
             do {
                 var request = URLRequest(url: url)
