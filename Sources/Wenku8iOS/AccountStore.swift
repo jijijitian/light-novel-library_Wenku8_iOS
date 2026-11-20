@@ -72,6 +72,35 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /// Fetches a fresh captcha for the website login form.
+    func loginCaptcha() async throws -> Data {
+        try await service.loginCaptcha()
+    }
+
+    /// Signs in to the website with a captcha the reader read off the image.
+    ///
+    /// Used when the relay is off: it is the only way into the desktop pages now that their
+    /// form is captcha-guarded.
+    func signInToSite(username: String, password: String, captcha: String) async -> Bool {
+        guard !isSigningIn else { return false }
+        isSigningIn = true
+        lastError = nil
+        defer { isSigningIn = false }
+        do {
+            let session = try await service.signInToSite(
+                username: username,
+                password: password,
+                captcha: captcha
+            )
+            setUserName(session.userName)
+            await syncShelf()
+            return true
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return false
+        }
+    }
+
     func signOut() {
         service.signOut()
         setUserName(nil)

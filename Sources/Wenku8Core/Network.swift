@@ -180,6 +180,31 @@ public final class Wenku8Client: @unchecked Sendable {
     /// POSTs an HTML form to the desktop site. Login and bookcase mutations live
     /// there: `login.php?do=submit` answers with an error page on bad credentials
     /// and a redirect on success, so the caller compares cookies afterwards.
+    /// Fetches the login captcha image, plus the cookies that go with it.
+    ///
+    /// The captcha is bound to the session cookie it is issued with, so the same client must
+    /// fetch the image and submit the answer — otherwise the code is checked against a
+    /// different session and always fails.
+    public func captchaImage() async throws -> Data {
+        var lastError: Error?
+        for host in endpoints.hosts {
+            guard let url = URL(string: host + "/checkcode.php") else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.setValue(Self.desktopUserAgent, forHTTPHeaderField: "User-Agent")
+                request.setValue("image/png,image/*;q=0.8", forHTTPHeaderField: "Accept")
+                let response = try await send(request)
+                guard response.status == 200, !response.data.isEmpty else {
+                    throw Wenku8Error.unavailable("验证码图片为空")
+                }
+                return response.data
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? Wenku8Error.unavailable("无法获取验证码")
+    }
+
     /// POSTs a WML form to the mobile site, trying each mirror in turn.
     public func wapPost(_ path: String, fields: [String: String]) async throws -> String {
         var lastError: Error?
@@ -194,6 +219,48 @@ public final class Wenku8Client: @unchecked Sendable {
                     .map { "\(TextDecoding.formEncode($0.key))=\(TextDecoding.formEncode($0.value))" }
                     .joined(separator: "&")
                 request.httpBody = Data(body.utf8)
+                let response = try await send(request)
+                return TextDecoding.decode(response.data)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? Wenku8Error.unavailable("无法连接文库站点")
+    }
+
+    /// POSTs the desktop login form, which is guarded by an image captcha.
+    ///
+    /// Separate from `desktopPost` only in what it returns on failure: the caller needs the
+    /// page to read the site's own message, not a thrown error.
+    public func desktopLoginPost(
+        username: String,
+        password: String,
+        captcha: String
+    ) async throws -> String {
+        var lastError: Error?
+        for host in endpoints.hosts {
+            guard let url = URL(string: host + "/login.php?do=submit") else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                request.setValue(
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    forHTTPHeaderField: "Accept"
+                )
+                request.setValue(Self.desktopUserAgent, forHTTPHeaderField: "User-Agent")
+                request.setValue(host + "/login.php", forHTTPHeaderField: "Referer")
+                let fields = [
+                    "action": "login",
+                    "usecookie": "315360000",
+                    "username": username,
+                    "password": password,
+                    "checkcode": captcha,
+                ]
+                request.httpBody = Data(fields
+                    .sorted { $0.key < $1.key }
+                    .map { "\(TextDecoding.formEncode($0.key))=\(TextDecoding.formEncode($0.value))" }
+                    .joined(separator: "&").utf8)
                 let response = try await send(request)
                 return TextDecoding.decode(response.data)
             } catch {

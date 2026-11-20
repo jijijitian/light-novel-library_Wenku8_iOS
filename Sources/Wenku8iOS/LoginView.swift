@@ -10,13 +10,20 @@ struct LoginView: View {
     @State private var showPassword = false
     @State private var localError: String?
     @State private var showRegister = false
+    /// Whether the website's captcha is required: only when the relay is off, since the
+    /// relay has none and the app reads from whichever source is enabled.
+    private var needsCaptcha: Bool { !RelayCredentialStore.shared.isEnabled }
+    @State private var captcha = ""
+    @State private var captchaImage: Data?
+    @State private var isLoadingCaptcha = false
     @FocusState private var focus: Field?
 
-    private enum Field { case username, password }
+    private enum Field { case username, password, captcha }
 
     private var canSubmit: Bool {
         !username.trimmingCharacters(in: .whitespaces).isEmpty
             && !password.isEmpty
+            && (!needsCaptcha || !captcha.trimmingCharacters(in: .whitespaces).isEmpty)
             && !account.isSigningIn
     }
 
@@ -57,6 +64,19 @@ struct LoginView: View {
                         .textContentType(.password)
                         .submitLabel(.go)
                         .onSubmit { submit() }
+
+                        if needsCaptcha {
+                            Divider()
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 12) {
+                                    TextField("验证码", text: $captcha)
+                                        .textInputAutocapitalization(.characters)
+                                        .autocorrectionDisabled()
+                                        .focused($focus, equals: .captcha)
+                                    captchaImageButton
+                                }
+                            }
+                        }
 
                         Toggle(isOn: $showPassword) {
                             Label("显示密码", systemImage: showPassword ? "eye.slash" : "eye")
@@ -109,7 +129,36 @@ struct LoginView: View {
                 WebSheet(url: SiteDomain.current.webURL("/register.php"))
             }
             .onAppear { focus = .username }
+            .task { await loadCaptcha() }
         }
+    }
+
+    /// The captcha image, tappable to fetch another.
+    @ViewBuilder
+    private var captchaImageButton: some View {
+        Button {
+            Task { await loadCaptcha() }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.12))
+                if let captchaImage, let image = UIImage(data: captchaImage) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .interpolation(.none)
+                        .scaledToFit()
+                        .padding(4)
+                } else if isLoadingCaptcha {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 108, height: 40)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("刷新验证码")
     }
 
     private var header: some View {
@@ -179,13 +228,37 @@ struct LoginView: View {
         focus = nil
         localError = nil
         Task {
-            let ok = await account.signIn(username: username, password: password)
+            let ok: Bool
+            if needsCaptcha {
+                ok = await account.signInToSite(
+                    username: username,
+                    password: password,
+                    captcha: captcha
+                )
+            } else {
+                ok = await account.signIn(username: username, password: password)
+            }
             if ok {
                 dismiss()
             } else {
                 localError = account.lastError ?? "登录失败"
                 password = ""
+                // A captcha is single-use, so a failed attempt needs a new one.
+                if needsCaptcha { captcha = ""; await loadCaptcha() }
             }
+        }
+    }
+
+    /// Loads a captcha image, replacing whatever was shown.
+    private func loadCaptcha() async {
+        guard needsCaptcha else { return }
+        isLoadingCaptcha = true
+        defer { isLoadingCaptcha = false }
+        do {
+            captchaImage = try await account.loginCaptcha()
+        } catch {
+            captchaImage = nil
+            localError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 }

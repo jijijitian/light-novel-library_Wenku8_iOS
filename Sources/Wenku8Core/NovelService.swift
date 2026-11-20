@@ -740,13 +740,6 @@ public struct NovelService: Sendable {
         await desktopAccountName()
     }
 
-    /// Reads the signed-in name from the desktop site's header, which is where the
-    /// desktop login actually writes its session.
-    ///
-    /// A book page is used rather than `/index.php` or `/login.php`: the former
-    /// redirects anonymous visitors to the login form, and the latter serves the
-    /// form itself, so neither reliably carries the header. Book pages render it
-    /// for anonymous and signed-in visitors alike.
     /// What the site says about the current session, distinguishing "signed out" from
     /// "could not ask".
     ///
@@ -849,6 +842,13 @@ public struct NovelService: Sendable {
         return .signedOut
     }
 
+    /// Reads the signed-in name from the desktop site's header, which is where the
+    /// desktop login actually writes its session.
+    ///
+    /// A book page is used rather than `/index.php` or `/login.php`: the former
+    /// redirects anonymous visitors to the login form, and the latter serves the
+    /// form itself, so neither reliably carries the header. Book pages render it
+    /// for anonymous and signed-in visitors alike.
     public func desktopAccountName(aid: Int = 1614) async -> String? {
         guard let html = try? await client.desktop("/book/\(aid).htm") else { return nil }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return nil }
@@ -916,14 +916,7 @@ public struct NovelService: Sendable {
             ?? AccountParser.loginErrorMessage(html) {
             throw Wenku8Error.login(message)
         }
-        guard let cookieName = client.sessionUserName() else {
-            throw Wenku8Error.login("登录未生效，请稍后重试")
-        }
-        // Confirm against the desktop header; the cookie alone would not catch a session
-        // that failed to attach. Falling back to the cookie is fine — the mobile session is
-        // what the app's own requests use.
-        let headerName = await desktopAccountName()
-        return Session(userName: headerName ?? cookieName, isRemote: true)
+        return try await confirmSiteSession()
     }
 
     /// Turns relay bookshelf ids into the same rows the desktop page produces.
@@ -1012,6 +1005,58 @@ public struct NovelService: Sendable {
             return .success(name)
         }
         return .unreachable("中转未响应账号查询")
+    }
+
+    /// Confirms a website sign-in and returns the name to show for it.
+    ///
+    /// The only proof is the header of a page served with the session in place. A cookie
+    /// proves nothing — `jieqiUserInfo` is written even when the password is rejected, so
+    /// reading it reported a failed sign-in as a success.
+    private func confirmSiteSession() async throws -> Session {
+        // The website is always asked here, whatever the relay believes: this confirms a
+        // submission to the website's own form.
+        guard let html = try? await client.desktop("/book/1614.htm") else {
+            throw Wenku8Error.login("无法确认登录状态，请检查网络后重试")
+        }
+        if let name = AccountParser.desktopAccountName(html) {
+            return Session(userName: name, isRemote: true)
+        }
+        throw Wenku8Error.login("登录未生效，请稍后重试")
+    }
+
+    /// The login captcha, for the website form that requires one.
+    public func loginCaptcha() async throws -> Data {
+        try await client.captchaImage()
+    }
+
+    /// Signs in to the website with the captcha the reader read off the image.
+    ///
+    /// The desktop form is the only one that asks for a captcha, and it is also the one that
+    /// gives a real session to the desktop pages, so it is used whenever the reader supplies
+    /// a code.
+    public func signInToSite(
+        username: String,
+        password: String,
+        captcha: String
+    ) async throws -> Session {
+        let name = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = captcha.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !password.isEmpty else {
+            throw Wenku8Error.login("请填写账号与密码")
+        }
+        guard !code.isEmpty else {
+            throw Wenku8Error.login("请填写验证码")
+        }
+
+        let html = try await client.desktopLoginPost(
+            username: name,
+            password: password,
+            captcha: code
+        )
+        if let message = AccountParser.loginErrorMessage(html) {
+            throw Wenku8Error.login(message)
+        }
+        return try await confirmSiteSession()
     }
 
     /// Signs the relay in, reporting only whether it worked.
