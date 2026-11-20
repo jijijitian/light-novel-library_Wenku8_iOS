@@ -880,52 +880,50 @@ public struct NovelService: Sendable {
         }
         client.clearSessionCookies()
 
-        // The desktop form now demands 验证码 — an image the app cannot solve — so the
-        // sign-in goes to the mobile form, which still asks only for the account and the
-        // password and sets the same session cookie.
-        var siteError: String?
-        var siteName: String?
+        // Only the source the app actually reads from is signed in, the same rule the
+        // session check follows. With the relay on, that is the relay — which never asks
+        // for a captcha; the site's own forms now do.
+        if relayIsAvailable {
+            switch await relaySignIn(username: name, password: password) {
+            case .success(let displayName):
+                return Session(userName: displayName, isRemote: true)
+            case .unknownAccount:
+                throw Wenku8Error.login("账号不存在")
+            case .wrongPassword:
+                throw Wenku8Error.login("密码错误")
+            case .unreachable(let reason):
+                throw Wenku8Error.login("中转服务登录失败：\(reason)")
+            }
+        }
+
+        // Relay off: the website is the source. Its desktop form demands an image captcha
+        // the app cannot solve, but the mobile form still asks only for the account and
+        // password and sets the same cookie.
+        let html: String
         do {
-            let html = try await client.wapPost("/login.php", fields: [
+            html = try await client.wapPost("/login.php", fields: [
                 "action": "login",
                 "jumpurl": "",
                 "username": name,
                 "password": password,
             ])
-            if let message = AccountParser.wapLoginMessage(html)
-                ?? AccountParser.loginErrorMessage(html) {
-                siteError = message
-            } else if let cookieName = client.sessionUserName() {
-                // Confirm against the desktop header; the cookie alone would not catch a
-                // session that failed to attach. Falling back to the cookie is fine — the
-                // mobile session is what the app's own requests use.
-                siteName = await desktopAccountName() ?? cookieName
-            } else {
-                siteError = "登录未生效，请稍后重试"
-            }
         } catch {
-            siteError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            throw Wenku8Error.login(
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
         }
-
-        // The relay signs in the same account server-side and never asks for a captcha, so
-        // it is the way back in when the site's own forms refuse. With the relay enabled it
-        // serves everything the app reads, which makes a relay-only session a working one.
-        var relayName: String?
-        if relayIsAvailable, await signInToRelay(username: name, password: password) {
-            if case .signedIn(let relayed) = await relaySessionState(), !relayed.isEmpty {
-                relayName = relayed
-            } else {
-                relayName = name
-            }
+        if let message = AccountParser.wapLoginMessage(html)
+            ?? AccountParser.loginErrorMessage(html) {
+            throw Wenku8Error.login(message)
         }
-
-        if let siteName {
-            return Session(userName: siteName, isRemote: true)
+        guard let cookieName = client.sessionUserName() else {
+            throw Wenku8Error.login("登录未生效，请稍后重试")
         }
-        if let relayName {
-            return Session(userName: relayName, isRemote: true)
-        }
-        throw Wenku8Error.login(siteError ?? "登录失败，请检查账号与密码")
+        // Confirm against the desktop header; the cookie alone would not catch a session
+        // that failed to attach. Falling back to the cookie is fine — the mobile session is
+        // what the app's own requests use.
+        let headerName = await desktopAccountName()
+        return Session(userName: headerName ?? cookieName, isRemote: true)
     }
 
     /// Turns relay bookshelf ids into the same rows the desktop page produces.
@@ -972,11 +970,51 @@ public struct NovelService: Sendable {
         )
     }
 
-    /// Signs the relay in with the same credentials, ignoring failure.
+    /// What a relay sign-in attempt concluded.
     ///
-    /// A relay that rejects the login is not fatal: the desktop session still works,
-    /// and `bookshelf` calls fall back to it. Returns whether it succeeded, for callers
-    /// that want to report it.
+    /// The relay answers with a bare code: 1 accepted, 2 no such account, 3 wrong password.
+    public enum RelaySignInResult: Sendable, Equatable {
+        case success(String)
+        case unknownAccount
+        case wrongPassword
+        case unreachable(String)
+    }
+
+    public func relaySignIn(username: String, password: String) async -> RelaySignInResult {
+        guard relayIsAvailable else { return .unreachable("中转服务未启用") }
+        let text: String
+        do {
+            text = try await relay.sendText(RelayAction.login(username: username, password: password))
+        } catch {
+            return .unreachable(
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+        // Persist whatever the login established before reporting success: without this the
+        // session was gone by the next launch.
+        SharedCookieStore.persistRelayCookies()
+
+        switch RelayParser.resultCode(text) {
+        case 2: return .unknownAccount
+        case 3: return .wrongPassword
+        default: break
+        }
+
+        // A reply code alone is not proof: a login that answers "success" without issuing a
+        // cookie leaves every later call unauthenticated. Confirm by asking for the account.
+        if let info = try? await relay.sendText(RelayAction.userInfo()) {
+            let trimmed = info.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != "4" else {
+                return .unreachable("中转未建立会话")
+            }
+            SharedCookieStore.persistRelayCookies()
+            let name = RelayParser.userName(trimmed) ?? username
+            return .success(name)
+        }
+        return .unreachable("中转未响应账号查询")
+    }
+
+    /// Signs the relay in, reporting only whether it worked.
     @discardableResult
     public func signInToRelay(username: String, password: String) async -> Bool {
         guard relayIsAvailable else { return false }
