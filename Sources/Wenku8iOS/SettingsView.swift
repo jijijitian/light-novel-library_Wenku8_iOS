@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var showWeb = false
     @State private var showLicense = false
     @State private var showLogin = false
+    @State private var showDataSource = false
     @State private var accountMessage: String?
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var offlineCount = 0
@@ -151,7 +152,19 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background { AppBackground() }
+        .navigationDestination(isPresented: $showDataSource) {
+            DataSourceSettingsView()
+        }
         .navigationTitle("设置")
+        .task {
+            #if DEBUG
+            // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
+            // check can be looked at without driving the UI.
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_DATA_SOURCE"] != nil {
+                showDataSource = true
+            }
+            #endif
+        }
         .sheet(isPresented: $showWeb) {
             WebSheet(url: SiteDomain.current.webURL("/"))
         }

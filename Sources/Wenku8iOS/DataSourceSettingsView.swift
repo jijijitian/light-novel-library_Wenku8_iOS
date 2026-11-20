@@ -12,6 +12,9 @@ struct DataSourceSettingsView: View {
     /// Set when the switch left the app signed out, so the section offers a way back in.
     @State private var needsLogin = false
     @State private var showLogin = false
+    /// Results of the last connectivity run, one row per source that was asked.
+    @State private var checks: [NovelService.Connectivity] = []
+    @State private var isChecking = false
 
     private let relayStore = RelayCredentialStore.shared
 
@@ -64,6 +67,31 @@ struct DataSourceSettingsView: View {
                 """)
                 .font(.footnote)
             }
+            Section {
+                Button {
+                    Task { await runConnectivityChecks() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if isChecking {
+                            ProgressView().controlSize(.small)
+                            Text("正在检测…")
+                        } else {
+                            Label("检测连接", systemImage: "waveform.path.ecg")
+                        }
+                    }
+                }
+                .disabled(isChecking)
+
+                ForEach(checks, id: \.target) { check in
+                    connectivityRow(check)
+                }
+            } header: {
+                Text("连接检测")
+            } footer: {
+                Text("检测本机能否连上所选站点与中转服务。中转服务对每个请求限速约 1.2 秒，因此它的响应时间里包含这段等待。")
+                    .font(.footnote)
+            }
+
             if let sessionMessage {
                 Section {
                     Label(
@@ -120,6 +148,49 @@ struct DataSourceSettingsView: View {
     }
 
     /// Re-checks the login after the data source changed and reports what happened.
+    /// Asks each source in use whether it answers, and how quickly.
+    private func runConnectivityChecks() async {
+        isChecking = true
+        defer { isChecking = false }
+
+        let service = NovelService()
+        var results: [NovelService.Connectivity] = []
+        // Sequential on purpose: the relay paces requests, so running both at once would
+        // charge the site's timing to the relay's queue.
+        results.append(await service.checkSiteConnectivity())
+        if relayEnabled {
+            results.append(await service.checkRelayConnectivity())
+        }
+        checks = results
+    }
+
+    private func connectivityRow(_ check: NovelService.Connectivity) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(check.isReachable ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text(check.target == .site ? "站点" : "中转服务")
+                Spacer(minLength: 0)
+                if let latency = check.latency {
+                    Text(String(format: "%.2f 秒", latency))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else {
+                    Text(check.isReachable ? "可达" : "不可达")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(check.detail)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(2)
+        }
+        .padding(.vertical, 2)
+    }
+
     private func verifySession() {
         Task {
             switch await account.verifySessionAfterSourceChange() {

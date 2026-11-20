@@ -769,6 +769,70 @@ public struct NovelService: Sendable {
         return .signedIn(RelayParser.userName(trimmed) ?? "")
     }
 
+    /// The outcome of asking one source whether it answers at all.
+    ///
+    /// Distinct from the login check: this says nothing about an account, only whether the
+    /// reader's phone can reach the site or the relay right now — the question a reader has
+    /// when a page stays empty and they do not know whether to change mirror or wait.
+    public struct Connectivity: Sendable, Equatable {
+        public enum Target: String, Sendable, CaseIterable {
+            case site
+            case relay
+        }
+
+        public var target: Target
+        public var isReachable: Bool
+        /// Round trip in seconds, when a request completed.
+        public var latency: TimeInterval?
+        /// One short line: what answered, or why it did not.
+        public var detail: String
+    }
+
+    /// Requests the site's mobile home page and reports how long it took.
+    public func checkSiteConnectivity() async -> Connectivity {
+        let started = Date()
+        do {
+            let html = try await client.wap("/")
+            let elapsed = Date().timeIntervalSince(started)
+            guard !html.isEmpty else {
+                return Connectivity(target: .site, isReachable: false, latency: nil,
+                                    detail: "站点返回了空页面")
+            }
+            return Connectivity(target: .site, isReachable: true, latency: elapsed,
+                                detail: "已连接 \(SiteDomain.current.title)")
+        } catch {
+            return Connectivity(target: .site, isReachable: false, latency: nil,
+                                detail: (error as? LocalizedError)?.errorDescription
+                                    ?? error.localizedDescription)
+        }
+    }
+
+    /// Requests a small relay listing and reports how long it took.
+    ///
+    /// The relay paces every call at roughly 1.2s, so a success is never faster than that;
+    /// the figure reported here is therefore an upper bound on the network time.
+    public func checkRelayConnectivity() async -> Connectivity {
+        guard relayIsAvailable else {
+            return Connectivity(target: .relay, isReachable: false, latency: nil,
+                                detail: "中转服务未启用")
+        }
+        let started = Date()
+        do {
+            let text = try await relay.sendText(RelayAction.sorts())
+            let elapsed = Date().timeIntervalSince(started)
+            guard !text.isEmpty else {
+                return Connectivity(target: .relay, isReachable: false, latency: nil,
+                                    detail: "中转返回了空响应")
+            }
+            return Connectivity(target: .relay, isReachable: true, latency: elapsed,
+                                detail: "已连接中转服务")
+        } catch {
+            return Connectivity(target: .relay, isReachable: false, latency: nil,
+                                detail: (error as? LocalizedError)?.errorDescription
+                                    ?? error.localizedDescription)
+        }
+    }
+
     public func sessionState() async -> SessionState {
         // The two sources hold separate sessions, and only the active one is consulted:
         // with the relay on every request goes there, so the website's state is irrelevant
