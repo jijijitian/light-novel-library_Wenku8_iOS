@@ -42,7 +42,7 @@ struct DataSourceSettingsView: View {
             } header: {
                 Text("站点域名")
             } footer: {
-                Text("三个域名是同一个站。cc 和 com 现在都会跳到 net，换域名不会掉登录。")
+                Text("当前数据源不可用时，可切换数据源以重试。")
                     .font(.footnote)
             }
 
