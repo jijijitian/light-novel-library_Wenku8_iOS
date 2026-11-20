@@ -165,6 +165,12 @@ public final class RelayClient: @unchecked Sendable {
     /// `request` must already be the composed action string, for example
     /// `"action=book&do=info&aid=1305&t=0"`.
     public func send(_ request: String) async throws -> Data {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil {
+            let action = request.split(separator: "&").first.map(String.init) ?? request
+            print("[net] RELAY \(action)")
+        }
+        #endif
         guard configuration.isEnabled, let provider else {
             throw RelayError.notConfigured
         }

@@ -31,7 +31,18 @@ struct Wenku8App: App {
         #endif
     }
 
+    /// Seeds the relay switch from `WENKU8_RELAY=1|0` once, so a debug launch can reproduce
+    /// the paths that only run with the relay on or off.
+    private static func seedRelayFromEnvironment() {
+        #if DEBUG
+        guard let raw = ProcessInfo.processInfo.environment["WENKU8_RELAY"] else { return }
+        let store = RelayCredentialStore.shared
+        store.setEnabled(raw == "1")
+        #endif
+    }
+
     init() {
+        Self.seedRelayFromEnvironment()
         Self.seedAppearanceFromEnvironment()
         Self.seedCoverTintFromEnvironment()
         Self.configureRelay()

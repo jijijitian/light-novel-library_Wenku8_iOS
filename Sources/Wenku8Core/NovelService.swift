@@ -31,6 +31,27 @@ public struct SearchQuery: Hashable, Sendable {
     }
 }
 
+/// Keeps concurrent metadata fetches for the same book from running twice.
+///
+/// More than one caller asks for a book's catalogue at launch — the shelf's own refresh and
+/// its metadata pass both walk the shelf — and on the website path a catalogue costs one
+/// request per page. Without this, every launch downloaded each missing book's catalogue
+/// twice over.
+actor MetadataFetchRegistry {
+    static let shared = MetadataFetchRegistry()
+
+    private var inFlight: Set<Int> = []
+
+    /// Returns true when the caller is the one that should do the work.
+    func begin(_ aid: Int) -> Bool {
+        inFlight.insert(aid).inserted
+    }
+
+    func end(_ aid: Int) {
+        inFlight.remove(aid)
+    }
+}
+
 public struct NovelService: Sendable {
     private let client: Wenku8Client
     private let relay: RelayClient
@@ -194,7 +215,11 @@ public struct NovelService: Sendable {
             }
         }
         // The website path parses one page, so it is all-or-nothing by nature.
-        let rows = (try? await homeRows()) ?? []
+        //
+        // This must be `legacyHomeRows`, not `homeRows`: the latter is a wrapper around this
+        // same function, so calling it here recursed until the heap was exhausted — every
+        // launch with the relay off was killed by Jetsam a second in.
+        let rows = (try? await legacyHomeRows()) ?? []
         for row in rows { await onRow(row) }
         return rows
     }
@@ -465,6 +490,12 @@ public struct NovelService: Sendable {
     /// paced at one request every 1.2s, so re-fetching a record that is already on disk
     /// would starve every other request for no gain.
     public func cacheDetailFully(aid: Int) async {
+        guard await MetadataFetchRegistry.shared.begin(aid) else { return }
+        await performCacheDetail(aid: aid)
+        await MetadataFetchRegistry.shared.end(aid)
+    }
+
+    private func performCacheDetail(aid: Int) async {
         let stored = await offline.entry(for: aid)
 
         let detail: NovelDetail

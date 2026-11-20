@@ -114,8 +114,19 @@ public final class Wenku8Client: @unchecked Sendable {
         public var text: String { TextDecoding.decode(data) }
     }
 
+    /// Prints every request when `WENKU8_NET_LOG` is set, so a debug launch can show which
+    /// host the app is actually talking to.
+    private static func logRequest(_ request: URLRequest) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil else { return }
+        let method = request.httpMethod ?? "GET"
+        print("[net] \(method) \(request.url?.absoluteString ?? "-")")
+        #endif
+    }
+
     public func send(_ request: URLRequest) async throws -> Response {
         var request = request
+        Self.logRequest(request)
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
             request.setValue(Self.wapUserAgent, forHTTPHeaderField: "User-Agent")
         }
