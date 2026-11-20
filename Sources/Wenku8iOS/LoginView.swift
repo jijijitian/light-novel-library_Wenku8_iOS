@@ -65,24 +65,22 @@ struct LoginView: View {
                         .submitLabel(.go)
                         .onSubmit { submit() }
 
-                        if needsCaptcha {
-                            Divider()
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 12) {
-                                    TextField("验证码", text: $captcha)
-                                        .textInputAutocapitalization(.characters)
-                                        .autocorrectionDisabled()
-                                        .focused($focus, equals: .captcha)
-                                    captchaImageButton
-                                }
-                            }
-                        }
-
                         Toggle(isOn: $showPassword) {
                             Label("显示密码", systemImage: showPassword ? "eye.slash" : "eye")
                                 .font(.caption)
                         }
                         .tint(AppTheme.accent)
+
+                        if needsCaptcha {
+                            Divider()
+                            HStack(spacing: 12) {
+                                TextField("验证码", text: $captcha)
+                                    .textInputAutocapitalization(.characters)
+                                    .autocorrectionDisabled()
+                                    .focused($focus, equals: .captcha)
+                                captchaImageButton
+                            }
+                        }
                     }
                     .padding(18)
                     .glassCard(cornerRadius: 24)
