@@ -5,11 +5,13 @@ import FoundationNetworking
 
 /// Which mirror the app talks to.
 ///
-/// `net` and `cc` serve the same content; users in some networks reach one but
-/// not the other, so the choice is exposed in Settings.
+/// The three names serve the same content, and `cc` and `com` answer every request with a 301
+/// to `net` — see `redirectsToNet` — so the choice is about reachability rather than content:
+/// a network that cannot resolve or reach one name can still reach another.
 public enum SiteDomain: String, CaseIterable, Identifiable, Sendable {
     case net
     case cc
+    case com
 
     public var id: String { rawValue }
 
@@ -17,6 +19,16 @@ public enum SiteDomain: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .net: return "wenku8.net"
         case .cc: return "wenku8.cc"
+        case .com: return "wenku8.com"
+        }
+    }
+
+    /// Short form for a segmented control, where the full name does not fit.
+    public var shortTitle: String {
+        switch self {
+        case .net: return ".net"
+        case .cc: return ".cc"
+        case .com: return ".com"
         }
     }
 
@@ -24,8 +36,17 @@ public enum SiteDomain: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .net: return "https://www.wenku8.net"
         case .cc: return "https://www.wenku8.cc"
+        case .com: return "https://www.wenku8.com"
         }
     }
+
+    /// Whether this mirror is an alias that redirects to `net`.
+    ///
+    /// Measured: both `/` and `/wap/` answer 301 with `Location: https://www.wenku8.net/...`.
+    /// It matters for two reasons — the request ends up on `net` anyway, and the session the
+    /// site sets is therefore a `net` cookie, which is why switching mirrors does not sign the
+    /// reader out.
+    public var redirectsToNet: Bool { self != .net }
 
     /// Where the site is stored in preferences.
     public static let storageKey = "site.domain"
@@ -57,11 +78,11 @@ public struct SiteEndpoints: Sendable {
         self.wapHosts = wapHosts
     }
 
-    /// Primary domain first, then the other one as a fallback.
+    /// The chosen mirror first, then the others as fallbacks.
     public init(domain: SiteDomain) {
-        let other: SiteDomain = domain == .net ? .cc : .net
-        self.hosts = [domain.host, other.host]
-        self.wapHosts = ["\(domain.host)/wap", "\(other.host)/wap"]
+        let order = [domain] + SiteDomain.allCases.filter { $0 != domain }
+        self.hosts = order.map(\.host)
+        self.wapHosts = order.map { "\($0.host)/wap" }
     }
 
     public static let `default` = SiteEndpoints()

@@ -132,11 +132,26 @@ final class DesktopAccountTests: XCTestCase {
     func testDomainEndpointsPutTheChosenMirrorFirst() {
         let net = SiteEndpoints(domain: .net)
         XCTAssertEqual(net.primaryHost, "https://www.wenku8.net")
-        XCTAssertEqual(net.hosts.last, "https://www.wenku8.cc")
+        // Every mirror is a fallback, in the order the rest of them are declared.
+        XCTAssertEqual(net.hosts.count, SiteDomain.allCases.count)
+        XCTAssertEqual(Set(net.hosts).count, SiteDomain.allCases.count)
+
         let cc = SiteEndpoints(domain: .cc)
         XCTAssertEqual(cc.primaryHost, "https://www.wenku8.cc")
-        XCTAssertEqual(cc.hosts.last, "https://www.wenku8.net")
         XCTAssertEqual(cc.primaryWAP, "https://www.wenku8.cc/wap")
+        XCTAssertFalse(cc.hosts.dropFirst().contains("https://www.wenku8.cc"))
+
+        let com = SiteEndpoints(domain: .com)
+        XCTAssertEqual(com.primaryHost, "https://www.wenku8.com")
+        XCTAssertEqual(com.primaryWAP, "https://www.wenku8.com/wap")
+    }
+
+    func testOnlyNetServesPagesDirectly() {
+        // Measured: both aliases answer 301 to net, so a reader switching between them keeps
+        // the session — the cookie belongs to net whichever name was used.
+        XCTAssertFalse(SiteDomain.net.redirectsToNet)
+        XCTAssertTrue(SiteDomain.cc.redirectsToNet)
+        XCTAssertTrue(SiteDomain.com.redirectsToNet)
     }
 
     func testClientSwitchesDomain() {

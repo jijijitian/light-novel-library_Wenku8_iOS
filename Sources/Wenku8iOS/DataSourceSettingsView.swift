@@ -26,20 +26,23 @@ struct DataSourceSettingsView: View {
                     set: { newValue in
                         domainRaw = newValue
                         Wenku8Client.shared.use(domain: SiteDomain(rawValue: newValue) ?? .net)
-                        // The session lives in domain-scoped cookies, so the new domain
-                        // starts out signed out. Check once and repair if possible.
+                        // The session survives the switch: cc and com both redirect to net,
+                        // so the cookie the site sets belongs to net whichever name was
+                        // used. The check is still run, because that is a property of the
+                        // site rather than a promise, and it also re-points the login state
+                        // at the new source.
                         verifySession()
                     }
                 )) {
                     ForEach(SiteDomain.allCases) { domain in
-                        Text(domain.title).tag(domain.rawValue)
+                        Text(domain.shortTitle).tag(domain.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
             } header: {
                 Text("站点域名")
             } footer: {
-                Text("两个域名内容一致；某个域名访问不通时可以切换到另一个。网页版数据走这个域名。")
+                Text("三个域名是同一个站。cc 和 com 现在都会跳到 net，换域名不会掉登录。")
                     .font(.footnote)
             }
 
@@ -88,7 +91,7 @@ struct DataSourceSettingsView: View {
             } header: {
                 Text("连接检测")
             } footer: {
-                Text("检测本机能否连上所选站点与中转服务。中转服务对每个请求限速约 1.2 秒，因此它的响应时间里包含这段等待。")
+                Text("检测本机能否连上所选站点与中转服务。中转服务两次请求之间至少间隔 1.2 秒，连续检测时它的响应时间里会包含这段等待。")
                     .font(.footnote)
             }
 
