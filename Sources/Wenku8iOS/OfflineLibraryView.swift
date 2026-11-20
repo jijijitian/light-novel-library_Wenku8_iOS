@@ -40,9 +40,16 @@ struct OfflineLibraryView: View {
                 Section {
                     ForEach(entries) { entry in
                         bookRow(entry)
-                    }
-                    .onDelete { offsets in
-                        if let index = offsets.first { pendingDeleteBook = entries[index] }
+                            // The delete is confirmed by an alert first, so the row must
+                            // stay put until the data changes: `onDelete` would animate the
+                            // row away immediately and the list would snap back.
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    pendingDeleteBook = entry
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
                     }
                 } footer: {
                     Text("共 \(entries.count) 本 · \(formatBytes(totalBytes))")
@@ -126,16 +133,20 @@ struct OfflineLibraryView: View {
         )) {
             ForEach(stored) { volume in
                 volumeRow(entry: entry, volume: volume)
-            }
-            .onDelete { offsets in
-                guard let index = offsets.first, stored.indices.contains(index) else { return }
-                let volume = stored[index]
-                let held = volume.chapters.filter { entry.storedChapterIDs.contains($0.id) }
-                pendingDeleteVolume = PendingVolume(
-                    novelID: entry.novelID,
-                    title: volume.title,
-                    chapterIDs: Set(held.map(\.id))
-                )
+                    // Same reason as the book rows above: the alert confirms first, so the
+                    // row itself must not be removed by the swipe.
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            let held = volume.chapters.filter { entry.storedChapterIDs.contains($0.id) }
+                            pendingDeleteVolume = PendingVolume(
+                                novelID: entry.novelID,
+                                title: volume.title,
+                                chapterIDs: Set(held.map(\.id))
+                            )
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
             }
         } label: {
             bookHeader(entry, live: live)

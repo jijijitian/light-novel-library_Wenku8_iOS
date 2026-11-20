@@ -64,10 +64,22 @@ struct MetadataCacheView: View {
                         Section {
                             ForEach(items) { entry in
                                 row(entry)
-                            }
-                            .onDelete { offsets in
-                                guard kind.isDeletable else { return }
-                                if let index = offsets.first { pendingDelete = items[index] }
+                                    // A confirmed delete must not be `onDelete`: that
+                                    // removes the row itself as soon as the swipe ends,
+                                    // without waiting for the data. The rows below slid up
+                                    // into the gap and dropped back when the list redrew
+                                    // with the entry still present. `swipeActions` only
+                                    // arms the button, so nothing moves until the delete
+                                    // actually happens.
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        if kind.isDeletable {
+                                            Button(role: .destructive) {
+                                                pendingDelete = entry
+                                            } label: {
+                                                Label("删除", systemImage: "trash")
+                                            }
+                                        }
+                                    }
                             }
                             if kind.isDeletable, !items.isEmpty {
                                 // One entry per book is fine for a few, but clearing the
