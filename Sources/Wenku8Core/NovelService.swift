@@ -880,34 +880,52 @@ public struct NovelService: Sendable {
         }
         client.clearSessionCookies()
 
-        let html = try await client.desktopPost("/login.php?do=submit", fields: [
-            "action": "login",
-            "usecookie": "315360000",
-            "username": name,
-            "password": password,
-        ])
-
-        if let message = AccountParser.loginErrorMessage(html) {
-            throw Wenku8Error.login(message)
+        // The desktop form now demands 验证码 — an image the app cannot solve — so the
+        // sign-in goes to the mobile form, which still asks only for the account and the
+        // password and sets the same session cookie.
+        var siteError: String?
+        var siteName: String?
+        do {
+            let html = try await client.wapPost("/login.php", fields: [
+                "action": "login",
+                "jumpurl": "",
+                "username": name,
+                "password": password,
+            ])
+            if let message = AccountParser.wapLoginMessage(html)
+                ?? AccountParser.loginErrorMessage(html) {
+                siteError = message
+            } else if let cookieName = client.sessionUserName() {
+                // Confirm against the desktop header; the cookie alone would not catch a
+                // session that failed to attach. Falling back to the cookie is fine — the
+                // mobile session is what the app's own requests use.
+                siteName = await desktopAccountName() ?? cookieName
+            } else {
+                siteError = "登录未生效，请稍后重试"
+            }
+        } catch {
+            siteError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
 
-        // The login sets `jieqiUserInfo`; if it is absent the credentials were
-        // accepted by the form but no session was created.
-        guard let cookieName = client.sessionUserName() else {
-            throw Wenku8Error.login("登录未生效，请稍后重试")
-        }
-        // Confirm against the desktop header as well, since the cookie alone
-        // would not catch a server-side session that failed to attach.
-        let headerName = await desktopAccountName()
-
-        // The relay keeps a session of its own. It takes the same account as the
-        // website, so signing in here signs in there too; otherwise every relay
-        // bookshelf call answers "not signed in" and looks like an expired login.
-        if relayIsAvailable {
-            _ = await signInToRelay(username: name, password: password)
+        // The relay signs in the same account server-side and never asks for a captcha, so
+        // it is the way back in when the site's own forms refuse. With the relay enabled it
+        // serves everything the app reads, which makes a relay-only session a working one.
+        var relayName: String?
+        if relayIsAvailable, await signInToRelay(username: name, password: password) {
+            if case .signedIn(let relayed) = await relaySessionState(), !relayed.isEmpty {
+                relayName = relayed
+            } else {
+                relayName = name
+            }
         }
 
-        return Session(userName: headerName ?? cookieName, isRemote: true)
+        if let siteName {
+            return Session(userName: siteName, isRemote: true)
+        }
+        if let relayName {
+            return Session(userName: relayName, isRemote: true)
+        }
+        throw Wenku8Error.login(siteError ?? "登录失败，请检查账号与密码")
     }
 
     /// Turns relay bookshelf ids into the same rows the desktop page produces.

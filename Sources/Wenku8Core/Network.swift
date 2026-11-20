@@ -180,6 +180,29 @@ public final class Wenku8Client: @unchecked Sendable {
     /// POSTs an HTML form to the desktop site. Login and bookcase mutations live
     /// there: `login.php?do=submit` answers with an error page on bad credentials
     /// and a redirect on success, so the caller compares cookies afterwards.
+    /// POSTs a WML form to the mobile site, trying each mirror in turn.
+    public func wapPost(_ path: String, fields: [String: String]) async throws -> String {
+        var lastError: Error?
+        for host in endpoints.wapHosts {
+            guard let url = URL(string: host + path) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                request.setValue(Self.wapUserAgent, forHTTPHeaderField: "User-Agent")
+                let body = fields
+                    .map { "\(TextDecoding.formEncode($0.key))=\(TextDecoding.formEncode($0.value))" }
+                    .joined(separator: "&")
+                request.httpBody = Data(body.utf8)
+                let response = try await send(request)
+                return TextDecoding.decode(response.data)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? Wenku8Error.unavailable("无法连接文库站点")
+    }
+
     public func desktopPost(_ path: String, fields: [String: String]) async throws -> String {
         var lastError: Error?
         for host in endpoints.hosts {
