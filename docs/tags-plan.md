@@ -1,91 +1,115 @@
 # 标签（Tag）功能方案
 
-目标：详情页显示书籍标签，点击标签查看包含该标签的所有书籍。
+目标：书籍显示标签，点击标签查看包含它的所有书籍。
+
+本文档的结论都来自登录后对站点的实测（2026-11-21），不是推测。
 
 ---
 
-## 1. 现状核实
+## 1. 站点提供了什么
 
-### 已实测
+### 标签书单页
 
-**中转的列表接口已经带标签。** `action=novellist` 每条 `<item>` 里都有：
+```
+https://www.wenku8.net/modules/article/tags.php?t=<GBK 编码的标签>&page=<页码>&v=<排序>
+```
+
+实测 `t=校园`（GBK `%D0%A3%D4%B0`）：
+
+```html
+<table class="grid" ...>
+  <caption>Tags含有 校园 的轻小说</caption>
+  <th>按更新查看 | <a href="tags.php?t=校园&v=1">按热门查看</a> |
+      <a href="tags.php?t=校园&v=2">只看已完结</a> |
+      <a href="tags.php?t=校园&v=3">只看动画化</a></th>
+  <tr><td>
+    <div style="width:373px;height:136px;...">
+      <div style="width:95px;float:left;">
+        <a href="/book/4535.htm" title="绝不选择你">
+          <img src="http://img.wenku8.com/image/4/4535/4535s.jpg" height="130" width="90"/>
+        </a>
+      </div>
+      <div style="margin-top:2px;">
+        <b><a style="font-size:13px;" href="/book/4535.htm" title="绝不选择你">绝不选择你</a></b>
+        <p>作者:白鸟かおる/分类:角川文库</p>
+        <p>更新:2026-11-21/字数:91K/连载中</p>
+        <p>Tags:<span style="font-weight:bold;color: #1b74bc;">穿越 校园 音乐 青春 恋爱</span></p>
+        <p>简介:如果人生能够重来一次，你会选择……</p>
+      </div>
+    </div>
+  </td></tr>
+</table>
+
+<div class="pagelink"><em id="pagestats">1/60</em>
+  <a href="tags.php?t=%D0%A3%D4%B0&page=2">2</a> ...
+```
+
+- **20 条/页**，总页数在 `<em id="pagestats">当前/总数</em>`
+- `v=0` 按更新（默认）、`v=1` 按热门、`v=2` 只看已完结、`v=3` 只看动画化
+- 每张卡片**自带 Tags 行**
+
+### 标签云页
+
+```
+https://www.wenku8.net/modules/article/tags.php
+```
+
+列出站上全部标签，按类别分组（恋爱系、幻想系、黑深残、人物属性、特殊属性），
+链接形如 `<a href=tags.php?t=青春>青春</a>`。
+
+### 三个必须注意的事实
+
+**① 标签参数必须 GBK 编码。** 实测对比：
+
+| 参数 | 结果 |
+| --- | --- |
+| `%D0%A3%D4%B0`（GBK「校园」） | 20 条，标题「Tags含有 校园 的轻小说」 |
+| `%E6%A0%A1%E5%9B%AD`（UTF-8「校园」） | **0 条**，标题还被解成乱码「鏍″洯」 |
+
+**② 两个页面都需要登录。** 匿名访问返回 302：
+
+```
+location: /login.php?jumpurl=...modules/article/tags.php...
+```
+
+**③ 书籍详情页没有标签。** 登录后抓 `/book/4536.htm`，全文没有 `Tags:` 行，也没有 `tags.php?t=` 链接。
+标签只存在于**列表页与标签页的卡片里**。
+
+### 中转侧已具备的
+
+`action=novellist`（首页/排行/文库/搜索）每条都带：
 
 ```xml
-<item aid='4536'>
-  <data name='Title'><![CDATA[你好，我是诱惑魔王大人的圣女]]></data>
-  <data name='Author' value='虎月ゆめ'/>
-  <data name='BookStatus' value='已完结'/>
-  <data name="Tags" value='奇幻 冒险 百合 女性视角'/>
-</item>
+<data name="Tags" value='奇幻 冒险 百合 女性视角'/>
 ```
 
-**中转的书籍详情也带标签。** `action=book&do=bookinfo&aid=4536`：
+`action=book&do=bookinfo&aid=4536` 也带同样的 `Tags` 字段。
+（本 App 现在用的 `book&do=info` 没有，需要改用 `bookinfo` 或两者合并。）
 
-```xml
-<data name="Tags" value="奇幻 冒险 百合 女性视角"/>
-```
-
-> 注意是本 App 现在用的 `book&do=info` **没有** `Tags`，`book&do=bookinfo` 才有。
-> 两者返回的字段并不完全一致（例如 BookStatus 一个写「已完成」一个写别的），接入时要留意。
-
-**标签是空格分隔的单个字符串。** 上游 Android 客户端的单元测试也是这么断言的：
-`"校园 青春 女性视角"`、`"穿越 校园 青春"`。中文标签内部不含空格，所以按空白切分是安全的。
-
-**中转不支持按标签过滤。** 试过三种写法，多传的参数被直接忽略、返回的是完整列表：
-
-```
-action=novellist&sort=lastupdate&tag=校园&page=1&t=0        → 返回 num=437 的全量列表
-action=novellist&sort=lastupdate&searchtype=tag&...        → 同上
-action=taglist&tag=校园                                    → Bad request.
-```
-
-**中转的搜索不接受标签类型：**
-
-```
-action=search&searchtype=tag&searchkey=校园  → Bad request.
-```
-
-### 未验证（需要一次确认）
-
-- **站点标签列表页的 URL**。网页端点击标签会跳到一个书单页，但我无法在未登录状态下拿到它：
-  - `/modules/article/search.php?searchtype=tag&searchkey=…` → **302 跳登录**
-  - `/search.php?searchtype=tag&…` → 200，但只是搜索表单
-  - `/modules/article/taglist.php`、`/tag/…` → 404
-- **标签是否只在登录后出现**。匿名抓 `/book/4536.htm` 的完整 HTML 里没有「标签」二字。
-
-> 这一条决定二期能不能做。确认方法：在网页端登录后打开任意书籍页，长按一个标签复制链接，或截图给我。
+中转**不能**按标签列书：多传 `tag=` / `searchtype=tag` 会被忽略，返回全量列表；
+`action=taglist` 直接 Bad request。
 
 ---
 
-## 2. 结论：分两期做，一期不依赖任何未确认的信息
+## 2. 能力矩阵
 
-| | 一期（现在就能做） | 二期（需要确认标签列表页） |
-| --- | --- | --- |
-| 详情页显示标签 | ✅ 中转开启时可用 | 网页版数据源也可用 |
-| 点击标签 → 全部书籍 | ❌ 只能看本地已收录 | ✅ 完整书单 |
-| 依赖 | 无 | 标签列表页 URL |
-
-### 为什么一期不能做完整的「全部书籍」
-
-中转不给按标签筛选，站点搜索又要登录。剩下的办法只有**把整站爬一遍建索引**：
-
-```
-437 页 × 20 本 ≈ 8700 本，每页间隔 1.2 秒 ≈ 9 分钟
-```
-
-这既不合规（中转有配额），也不可靠（新书会漏）。所以一期只做**本地索引**：把用户实际浏览过的书登记下来。
+| 能力 | 中转开启 | 网页版 + 已登录 | 网页版 + 未登录 |
+| --- | --- | --- | --- |
+| 列表卡片带标签 | ✅ | ✅ | — |
+| 详情页显示标签 | ✅（bookinfo） | ❌ 站点书页无标签 | ❌ |
+| 标签书单（全部书籍） | ❌ | ✅ | ❌ 需登录 |
+| 标签云（浏览全部标签） | ❌ | ✅ | ❌ 需登录 |
 
 ---
 
-## 3. 一期设计
+## 3. 实现方案
 
 ### 3.1 数据层
 
 ```swift
-// Sources/Wenku8Core/Models.swift
-public struct NovelTag: Hashable, Sendable {
-    public var name: String          // 展示用原文
-    public var key: String           // 归一化：去空白、小写化后用于去重
+public struct NovelTag: Hashable, Sendable, Codable {
+    public var name: String          // 展示原文，如「校园」
+    public var key: String           // 归一化键，用于去重与比较
 }
 
 public struct NovelSummary {
@@ -96,122 +120,111 @@ public struct NovelSummary {
 
 解析：
 
-```swift
-// RelayParser
-case "Tags":
-    info.tags = value("Tags")?.split(whereSeparator: \.isWhitespace).map(NovelTag.init) ?? []
-```
+- `RelayParser`：读 `Tags` 属性，按空白切分
+- `DesktopParser`：读卡片里的 `<p>Tags:<span ...>穿越 校园 音乐</span></p>`
+- 新增 `DesktopParser.tagCloud(in:)`：读标签云页的全部标签
 
-`RelayParser.summaries` 与 `bookinfo` 两条路径都要接。
+### 3.2 GBK 编码
 
-### 3.2 本地标签索引
-
-新增 `TagIndex`（`Sources/Wenku8Core/TagIndex.swift`），落盘在 `Application Support/TagIndex.json`：
+站点标签页要求 GBK，`TextDecoding` 已有 GBK 表，加一个反向编码：
 
 ```swift
-struct TagIndex: Codable {
-    var books: [Int: [String]]       // aid → 标签
-    var updatedAt: [Int: Date]       // aid → 最后登记时间
+// TextDecoding.swift
+public static func formEncodeGBK(_ value: String) -> String? {
+    // 用 GBK 表反查每个字符的字节，再做百分号编码；表里没有的字符返回 nil
 }
 ```
 
-写入时机（**零额外请求**）：任何一次列表或详情返回时，顺手登记它带来的标签。
+调用处若返回 nil（如含生僻字或假名的标签），退回 UTF-8 并按失败处理。
+
+### 3.3 服务层
 
 ```swift
-await TagIndex.shared.record(novel)         // 来自列表
-await TagIndex.shared.record(detail)        // 来自详情
+public struct TagPage: Sendable {
+    public var tag: String
+    public var novels: [NovelSummary]
+    public var page: Int
+    public var totalPages: Int
+}
+
+/// 某个标签下的书。仅网页版可用。
+public func novels(tag: String, page: Int = 1) async throws -> TagPage
+
+/// 全部标签。仅网页版可用。
+public func tagCloud() async throws -> [String]
+
+/// 书籍详情连同标签。中转开启时走 bookinfo。
+public func detail(aid: Int) async throws -> NovelDetail   // 增加 tags 字段
 ```
 
-读取：`TagIndex.shared.novels(tag: "校园")` → `[Int]`，再和已有缓存的书目信息拼接。
-
-### 3.3 界面
-
-**详情页**（`NovelDetailView`）：简介下方一行标签胶囊。
-
-```
-奇幻  冒险  百合  女性视角
-```
-
-- 点击 → 打开标签书单页
-- 中转关闭且网页版拿不到标签时，这一行整个不显示（不显示空行）
-
-**标签书单页**（新文件 `TagNovelListView`）：复用现有 `PagedNovelList` 的网格与骨架屏。
-
-```
-┌──────────────────────────────┐
-│ ← 校园                        │
-│   已收录 12 本                │
-│                              │
-│ [封面] [封面] [封面]          │
-└──────────────────────────────┘
-```
-
-**空态要讲清楚为什么空**，不能让人以为站上没书：
-
-> 中转服务不提供按标签筛选，这里只显示本机已收录的书籍。
-> 关闭中转并登录后，可查看完整书单。
-
-### 3.4 与数据源规则的关系
-
-现在的硬规则是「中转开启只走中转，关闭只走网页版」。标签是**随数据一起来的**，不额外发请求，因此不违反这条规则：
-
-- 中转开启 → 标签来自中转的列表/详情
-- 中转关闭 → 标签来自站点页面（如果拿得到）
-
-二期如果要用站点的标签列表页，那是**新的请求**，必须遵守同一规则：中转开启时不偷偷去打站点。
-
----
-
-## 4. 二期设计（待确认后）
-
-先确认标签列表页的 URL，再决定接入方式。两种可能：
-
-**情况 A：标签页是普通 GET 页面**（如 `/tag/xxx` 或 `searchtype=tag`）
+数据源规则照旧：
 
 ```swift
-public func novels(tag: String, page: Int) async throws -> [NovelSummary] {
-    if relayIsAvailable {
-        // 中转不支持 → 明确拒绝，不混用
+public func novels(tag: String, page: Int) async throws -> TagPage {
+    guard !relayIsAvailable else {
         throw Wenku8Error.unavailable("中转服务不支持按标签浏览，请关闭中转后重试")
     }
-    let html = try await client.desktop("/<确认后的路径>?tag=…&page=\(page)")
-    return DesktopParser.novelCards(html)
+    guard await isSignedIn else { throw Wenku8Error.needLogin }
+    let encoded = TextDecoding.formEncodeGBK(tag) ?? tag
+    let html = try await client.desktop(
+        "/modules/article/tags.php?t=\(encoded)&page=\(page)"
+    )
+    ...
 }
 ```
 
-**情况 B：必须登录才有结果**
+### 3.4 界面
 
-那么标签书单只在中转关闭且已登录时可用；未登录时按钮变成提示「登录后可查看该标签的全部书籍」。
+**详情页**：简介下方一行标签胶囊（仅当标签非空时显示）。
 
-两种情况都能落到现有结构里：`PagedNovelList` + 一个 `TagNovelListModel`。
+```
+[奇幻] [冒险] [百合] [女性视角]
+```
+
+**标签书单页** `TagNovelListView`：复用现有 `PagedNovelList` 的网格与骨架。
+
+```
+← 校园                     共 60 页
+  [封面] [封面] [封面]
+```
+
+**标签云页**（可选，二期）：按站点分组展示全部标签，作为「按标签找书」的入口。
+
+### 3.5 各数据源下的用户流程
+
+| 场景 | 行为 |
+| --- | --- |
+| 中转开启，点标签 | 提示「中转不支持按标签浏览，关闭中转并登录后可查看」 |
+| 网页版 + 已登录 | 直接进标签书单页 |
+| 网页版 + 未登录 | 提示登录 |
+| 网页版详情页 | 没有标签（站点书页本身就没有），标签行不显示 |
 
 ---
 
-## 5. 工作量估计
+## 4. 分期
 
-| 阶段 | 内容 | 规模 |
+| 阶段 | 内容 | 依赖 |
 | --- | --- | --- |
-| 一期 A | 解析 `Tags`（列表 + bookinfo） | 半天 |
-| 一期 B | `TagIndex` 落盘与登记 | 半天 |
-| 一期 C | 详情页标签行 + 标签书单页 | 1 天 |
-| 二期 | 标签列表页接入（取决于确认结果） | 1–2 天 |
+| 一期 | `Tags` 解析（中转列表 + bookinfo）、详情页标签行、`NovelSummary.tags` | 无 |
+| 二期 | GBK 编码器、标签书单页 | 网页版登录 |
+| 三期 | 标签云页、标签排序（更新/热门/完结/动画化） | 同上 |
+
+一期不增加任何请求：标签随已有的列表与详情一起到达。
 
 ---
 
-## 6. 风险
+## 5. 风险
 
-| 风险 | 影响 | 应对 |
-| --- | --- | --- |
-| 标签格式变化（改用逗号/竖线分隔） | 标签被切错 | 先按空白切；如果出现单字标签异常，检查原始 `Tags` 值 |
-| 本地索引越积越多 | 存储膨胀 | 索引用 aid 做键、只存标签字符串，8700 本约 300KB，可接受 |
-| 本地索引与站点不同步 | 标签页显示的书已下架 | 展示时以本地书目缓存为准，打不开的条目自动跳过 |
-| 二期标签页需要登录 | 未登录不可用 | 明确提示，不做静默降级 |
+| 风险 | 应对 |
+| --- | --- |
+| 标签页要求登录 | 明确提示，不做静默降级 |
+| GBK 编码失败（生僻标签） | 退回 UTF-8 并提示「该标签暂时无法打开」 |
+| 站点改版 | 解析集中在 `DesktopParser`，只需改一处 |
+| 中转的 `bookinfo` 与 `info` 字段差异 | 统一走 `bookinfo`，或两者合并后取并集 |
 
 ---
 
-## 7. 需要你确认的两件事
+## 6. 下一步
 
-1. **标签列表页的 URL**：网页端登录后，点一个标签，把地址栏那串发我（或长按标签复制链接）。
-2. **标签在书页上的位置**：是正文上方、简介下方，还是侧栏？这决定详情页把它放在哪。
-
-有这两条，二期就能一次做对；没有也能先把一期落地。
+按一期先落地：解析 `Tags` + 详情页展示。这一步没有风险，也不依赖登录。
+确认无误后，再做标签书单页。
