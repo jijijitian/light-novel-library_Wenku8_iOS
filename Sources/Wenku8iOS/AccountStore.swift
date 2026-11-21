@@ -327,6 +327,29 @@ final class AccountStore: ObservableObject {
         return true
     }
 
+    /// Every book known to be on the account's shelf, across every group that has been
+    /// fetched and cached.
+    ///
+    /// `remoteShelf` only holds the group currently selected, so anything that needs shelf
+    /// membership without the shelf screen — the metadata list, which labels entries as
+    /// shelf or merely opened — has to look at all the cached groups. It reads from disk, so
+    /// it works before any sync has run this launch.
+    func knownShelfBookIDs() -> Set<Int> {
+        var ids = Set(remoteShelf.map(\.novel.id))
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        for file in files where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file),
+                  let entries = try? JSONDecoder().decode([ShelfEntry].self, from: data) else {
+                continue
+            }
+            ids.formUnion(entries.map(\.novel.id))
+        }
+        return ids
+    }
+
     /// Restores what was cached from a previous launch, for the whole app to show
     /// before the first network call returns.
     func restoreCachedShelf() {

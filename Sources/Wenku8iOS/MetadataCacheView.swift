@@ -16,6 +16,9 @@ struct MetadataCacheView: View {
     @State private var undoToken = UUID()
     /// Books whose detail panel is open, so a single piece of their cache can be dropped.
     @State private var expanded: Set<Int> = []
+    /// Books known to be on the account's shelf. Read once per refresh rather than in the
+    /// body: it comes from disk, and the body runs many times per frame.
+    @State private var shelfIDs: Set<Int> = []
     /// Set when the reader asks to drop the whole "其他缓存" group.
     @State private var pendingClearAll = false
     /// Cover files stored on this device, keyed by book.
@@ -132,7 +135,12 @@ struct MetadataCacheView: View {
         }
         .navigationTitle("元数据缓存")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await refresh() }
+        .task {
+            // Puts the cached shelf in memory before the rows are classified, so the list
+            // is right on first sight rather than after a visit to the shelf tab.
+            account.restoreCachedShelf()
+            await refresh()
+        }
         .alert("清除全部？", isPresented: $pendingClearAll) {
             Button("清除", role: .destructive) { Task { await clearOpened() } }
             Button("取消", role: .cancel) {}
@@ -292,7 +300,10 @@ struct MetadataCacheView: View {
     /// A book can be both on the shelf and downloaded; it is reported once, as downloaded,
     /// because that is the stronger claim about what is on the device.
     private var grouped: [Kind: [OfflineStore.Entry]] {
-        let shelfIDs = Set(account.remoteShelf.map(\.novel.id)).union(store.saved.map(\.id))
+        // The shelf only holds the selected group, and only after its screen has run, so
+        // membership is read from every cached group instead: otherwise a fresh launch
+        // listed shelf books as merely opened. `shelfIDs` is filled in `refresh()`.
+        let shelfIDs = self.shelfIDs
         var result: [Kind: [OfflineStore.Entry]] = [:]
         for entry in entries {
             let kind: Kind
@@ -367,6 +378,7 @@ struct MetadataCacheView: View {
         // Metadata-only: a downloaded book has its own screen.
         // Downloads appear here too: their metadata is part of the same cache, and hiding
         // them made the counts disagree with Settings.
+        shelfIDs = account.knownShelfBookIDs().union(store.saved.map(\.id))
         entries = await OfflineStore.shared.entries().filter { $0.detail != nil }
         var covers: [Int: URL] = [:]
         for entry in entries {
