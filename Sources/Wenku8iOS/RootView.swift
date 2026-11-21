@@ -18,7 +18,7 @@ struct RootView: View {
             case .home: return "首页"
             case .rank: return "探索"
             case .search: return "搜索"
-            case .shelf: return "我的书架"
+            case .shelf: return "书架"
             case .settings: return "设置"
             }
         }
