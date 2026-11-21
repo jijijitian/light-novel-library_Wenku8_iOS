@@ -17,19 +17,19 @@ final class RelayTests: XCTestCase {
 
     func testAppVerMatchesKnownVectors() {
         // Vectors cross-checked against an independent Python HMAC-SHA256.
-        XCTAssertEqual(RelayAppVer.token(unixSeconds: 1_700_000_000), "1.30-digital-bento-1eb0572a")
-        XCTAssertEqual(RelayAppVer.token(unixSeconds: 1_763_484_360), "1.30-digital-bento-9e8d91dd")
-        XCTAssertEqual(RelayAppVer.token(unixSeconds: 1_793_000_000), "1.30-digital-bento-a12060d2")
+        XCTAssertEqual(RelayAppVer.magicVersion(unixSeconds: 1_700_000_000), "1.30-digital-bento-1eb0572a")
+        XCTAssertEqual(RelayAppVer.magicVersion(unixSeconds: 1_763_484_360), "1.30-digital-bento-9e8d91dd")
+        XCTAssertEqual(RelayAppVer.magicVersion(unixSeconds: 1_793_000_000), "1.30-digital-bento-a12060d2")
     }
 
     func testAppVerIsStableWithinAMinuteWindow() {
         let base: Int64 = 1_700_000_040
-        XCTAssertEqual(RelayAppVer.token(unixSeconds: base), RelayAppVer.token(unixSeconds: base + 19))
-        XCTAssertNotEqual(RelayAppVer.token(unixSeconds: base), RelayAppVer.token(unixSeconds: base + 60))
+        XCTAssertEqual(RelayAppVer.magicVersion(unixSeconds: base), RelayAppVer.magicVersion(unixSeconds: base + 19))
+        XCTAssertNotEqual(RelayAppVer.magicVersion(unixSeconds: base), RelayAppVer.magicVersion(unixSeconds: base + 60))
     }
 
     func testAppVerShape() {
-        let token = RelayAppVer.token(unixSeconds: 1_700_000_000)
+        let token = RelayAppVer.magicVersion(unixSeconds: 1_700_000_000)
         XCTAssertTrue(token.hasPrefix("1.30-digital-bento-"), token)
         let parts = token.split(separator: "-")
         // "digital-bento" contains a hyphen itself, so the split yields 4 parts.

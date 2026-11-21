@@ -1,24 +1,25 @@
 import Foundation
 
-/// Computes the relay's `appver` credential.
+/// The relay's `appver` credential.
 ///
-/// Recovered from the official Android client's native library
-/// (`native-lib.cpp`, `Java_..._getMagicVersionCpp`) using the DWARF debug info
-/// that shipped inside the APK. The derivation is:
+/// The official Android client keeps this in its native library, so its source shows only
+/// the call — `getMagicVersionCpp()` — and never the recipe. This is the Swift equivalent:
+/// one entry point, the pieces private, and the derivation written up in
+/// `docs/relay-api.md` instead of here.
 ///
-///     window  = time() / 60                       // seconds → minute window
-///     payload = "1.30|digital-bento|<window>"
-///     digest  = HMAC-SHA256(key: "digital-bento", message: payload).hex
-///     appver  = "1.30-digital-bento-" + digest[12..<20]
-///
-/// The client also carries 1.23/1.32 variants, but the relay only accepts the
-/// 1.30 form, so only that one is implemented.
+/// Note that this is parity of shape, not of secrecy. Swift has no native boundary to hide
+/// behind — the constants end up in the binary as strings either way, and the project is
+/// GPL — so the point is that there is a single place to look, not that it is hidden.
 public enum RelayAppVer {
-    public static let version = "1.30"
-    public static let codeName = "digital-bento"
+    private static let version = "1.30"
+    private static let codeName = "digital-bento"
 
+    /// The token for the minute containing `unixSeconds`.
+    ///
     /// - Parameter unixSeconds: wall-clock seconds; defaults to now.
-    public static func token(unixSeconds: Int64 = Int64(Date().timeIntervalSince1970)) -> String {
+    public static func magicVersion(
+        unixSeconds: Int64 = Int64(Date().timeIntervalSince1970)
+    ) -> String {
         let window = unixSeconds / 60
         let payload = "\(version)|\(codeName)|\(window)"
         let digest = SHA256.hmac(key: Array(codeName.utf8), message: Array(payload.utf8))

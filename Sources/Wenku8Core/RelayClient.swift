@@ -20,7 +20,7 @@ public struct BuiltinAppVerProvider: RelayAppVerProvider {
     public init() {}
 
     public func appVer(for token: RelayToken) async -> String? {
-        RelayAppVer.token(unixSeconds: token.timestampMilliseconds / 1000)
+        RelayAppVer.magicVersion(unixSeconds: token.timestampMilliseconds / 1000)
     }
 
     public func invalidate() async {}
