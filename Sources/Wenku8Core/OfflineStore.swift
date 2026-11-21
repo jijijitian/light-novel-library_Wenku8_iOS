@@ -53,9 +53,11 @@ public actor OfflineStore {
         /// until the review list has been opened at least once.
         public var reviews: [NovelReview]?
 
-        /// How many pages the review list had when it was cached, so the stored first page
-        /// can still say "还有更多" without asking the site.
+        /// How many pages the review list had when it was cached, and how far down it has
+        /// been read. Together they let a cached list say "还有更多" and know which page to
+        /// ask for next.
         public var reviewsTotalPages: Int?
+        public var reviewsPage: Int?
 
         public var id: Int { novelID }
         public var progress: Double {
@@ -372,9 +374,15 @@ public actor OfflineStore {
 
     /// The stored catalogue for a book, when one was cached.
     /// Stores the first page of a book's reviews.
-    public func cacheReviews(_ reviews: [NovelReview], for aid: Int, totalPages: Int = 1) {
+    public func cacheReviews(
+        _ reviews: [NovelReview],
+        for aid: Int,
+        page: Int = 1,
+        totalPages: Int = 1
+    ) {
         guard var entry = entry(for: aid) else { return }
         entry.reviews = reviews
+        entry.reviewsPage = page
         entry.reviewsTotalPages = totalPages
         entry.updatedAt = Date()
         saveManifest(entry)
@@ -382,6 +390,11 @@ public actor OfflineStore {
 
     public func cachedReviewPages(for aid: Int) -> Int? {
         entry(for: aid)?.reviewsTotalPages
+    }
+
+    /// How many review pages have been read and stored so far.
+    public func cachedReviewPage(for aid: Int) -> Int {
+        entry(for: aid)?.reviewsPage ?? 1
     }
 
     public func cachedReviews(for aid: Int) -> [NovelReview]? {
@@ -394,6 +407,7 @@ public actor OfflineStore {
         guard var entry = entry(for: aid) else { return }
         entry.reviews = nil
         entry.reviewsTotalPages = nil
+        entry.reviewsPage = nil
         saveManifest(entry)
     }
 

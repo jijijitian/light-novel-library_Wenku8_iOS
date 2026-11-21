@@ -38,16 +38,20 @@ final class ReviewViewModel: ObservableObject {
             let result = try await service.reviews(aid: novelID, page: 1, force: force)
             guard generation == mine else { return }
             reviews = result.reviews
-            page = 1
+            // A stored list may already cover several pages, and it knows which one it
+            // reached — starting again from one would re-fetch what is already here.
+            page = result.page
             totalPages = result.totalPages
-            hasMore = result.totalPages > 1
+            hasMore = result.page < result.totalPages
             error = nil
             loaded = true
 
             // A stored page carries the page count it was written with, which an older
             // manifest does not have. Refresh behind the list so the count — and the rows —
             // become current without making the reader wait.
-            if result.isCached {
+            // Only a one-page cache is refreshed behind the list: a deeper one already holds
+            // everything read so far, and replacing its first page would drop the rest.
+            if result.isCached, result.page == 1 {
                 Task { await self.revalidate(novelID: novelID, generation: mine) }
             }
         } catch {

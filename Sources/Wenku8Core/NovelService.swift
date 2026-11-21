@@ -829,9 +829,19 @@ public struct NovelService: Sendable {
     public func reviews(aid: Int, page: Int = 1, force: Bool = false) async throws -> ReviewPage {
         // Cached first, like the blurb and the catalogue: the stored page appears at once
         // and only a deliberate refresh goes to the site.
-        if page == 1, !force, let cached = await offline.cachedReviews(for: aid) {
+        if !force, let cached = await offline.cachedReviews(for: aid) {
             let total = await offline.cachedReviewPages(for: aid) ?? 1
-            return ReviewPage(reviews: cached, page: 1, totalPages: total, isCached: true)
+            let stored = await offline.cachedReviewPage(for: aid)
+            // Page one is always worth showing; a deeper page is only useful when it is the
+            // one being asked for.
+            if page == 1 || page == stored {
+                return ReviewPage(
+                    reviews: cached,
+                    page: stored,
+                    totalPages: total,
+                    isCached: true
+                )
+            }
         }
         do {
             let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
@@ -842,12 +852,20 @@ public struct NovelService: Sendable {
             let pagination = WAPParser.reviewPagination(html)
             // The first page joins the book's metadata, so a book opened offline still
             // says what readers made of it.
-            if page == 1, !reviews.isEmpty {
-                await offline.cacheReviews(
-                    reviews,
-                    for: aid,
-                    totalPages: pagination?.total ?? 1
-                )
+            // Every page that is fetched joins the stored list, so what was read stays
+            // readable: a page-one-only cache meant scrolling loaded pages that were thrown
+            // away the next time the list opened.
+            if !reviews.isEmpty {
+                let total = pagination?.total ?? page
+                let stored = await offline.cachedReviews(for: aid) ?? []
+                let merged: [NovelReview]
+                if page == 1 {
+                    merged = reviews
+                } else {
+                    let known = Set(stored.map(\.id))
+                    merged = stored + reviews.filter { !known.contains($0.id) }
+                }
+                await offline.cacheReviews(merged, for: aid, page: page, totalPages: total)
             }
             return ReviewPage(
                 reviews: reviews,
