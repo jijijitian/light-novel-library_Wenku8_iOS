@@ -134,6 +134,8 @@ struct NovelDetailView: View {
     @State private var showVolumePicker = false
     @AppStorage(CoverPalette.storageKey) private var coverTint = false
     @State private var palette: CoverPalette?
+    /// Set when a tag is tapped in relay-only mode, where no list can be fetched.
+    @State private var tagUnavailable: String?
 
     var body: some View {
         ScrollView {
@@ -299,6 +301,9 @@ struct NovelDetailView: View {
     private func content(_ detail: NovelDetail) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             header(detail)
+            if let tags = detail.tags, !tags.isEmpty {
+                tagsRow(tags)
+            }
             introCard(detail)
             reviewsCard
             if !model.volumes.isEmpty {
@@ -505,6 +510,38 @@ struct NovelDetailView: View {
     }
 
     /// Entry to this book's review list.
+    /// The book's tags, each one opening the site's list for it.
+    @ViewBuilder
+    private func tagsRow(_ tags: [NovelTag]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(tags) { tag in
+                    Button {
+                        openTag(tag)
+                    } label: {
+                        TagChip(text: tag.name, systemImage: "number")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    /// Opens a tag's book list, or explains why it cannot be opened.
+    ///
+    /// Only the website can list books by tag: the relay publishes a book's tags but ignores
+    /// a filter. In relay-only mode the tap says so, because a list that quietly never
+    /// loaded would look like the tag has no books.
+    private func openTag(_ tag: NovelTag) {
+        let store = RelayCredentialStore.shared
+        if store.isEnabled, !store.isHybridEnabled {
+            tagUnavailable = tag.name
+            return
+        }
+        router.open(.tag(tag.name))
+    }
+
     private var reviewsCard: some View {
         Button {
             router.open(.reviews(novelID))

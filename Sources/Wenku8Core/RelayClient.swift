@@ -255,6 +255,11 @@ public enum RelayAction {
         "action=book&do=info&aid=\(aid)&t=0"
     }
 
+    /// Carries the book's tags, which `meta` does not.
+    public static func bookInfo(aid: Int) -> String {
+        "action=book&do=bookinfo&aid=\(aid)"
+    }
+
     public static func meta(aid: Int) -> String {
         "action=book&do=meta&aid=\(aid)&t=0"
     }

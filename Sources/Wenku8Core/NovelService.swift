@@ -363,6 +363,43 @@ public struct NovelService: Sendable {
         return parsed
     }
 
+    // MARK: - Tags
+
+    /// A tag's book list.
+    ///
+    /// The relay publishes a book's tags but has no way to list books by one — its list call
+    /// ignores the filter — so this is a website feature. In relay-only mode it says so
+    /// instead of returning an empty list, which would read as "nothing carries this tag".
+    /// Hybrid may use it, because there the website is already signed in and in use.
+    public func novels(tag: String, page: Int = 1) async throws -> NovelListPage {
+        guard !relayIsAvailable || isHybrid else {
+            throw Wenku8Error.unavailable("中转服务不提供按标签浏览，关闭中转后可以查看。")
+        }
+        let name = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw Wenku8Error.unavailable("标签为空") }
+        guard let encoded = TextDecoding.formEncodeGBK(name) else {
+            throw Wenku8Error.unavailable("这个标签无法打开，请稍后再试")
+        }
+        let html = try await client.desktop("/modules/article/tags.php?t=\(encoded)&page=\(page)")
+        if AccountParser.isDesktopLoginPage(html) {
+            throw Wenku8Error.needLogin
+        }
+        let parsed = DesktopParser.tagPage(html)
+        return NovelListPage(novels: parsed.novels, totalPages: parsed.totalPages)
+    }
+
+    /// Every tag the site publishes, from its tag cloud.
+    public func tagCloud() async throws -> [String] {
+        guard !relayIsAvailable || isHybrid else {
+            throw Wenku8Error.unavailable("中转服务不提供标签浏览，关闭中转后可以查看。")
+        }
+        let html = try await client.desktop("/modules/article/tags.php")
+        if AccountParser.isDesktopLoginPage(html) {
+            throw Wenku8Error.needLogin
+        }
+        return DesktopParser.tagCloud(html)
+    }
+
     public func library(_ category: Int, page: Int = 1) async throws -> [NovelSummary] {
         let sort = category == 0 ? "all" : "\(category)"
         if relayIsAvailable {
@@ -619,6 +656,15 @@ public struct NovelService: Sendable {
         if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
             let full = RelayParser.intro(TextDecoding.decode(introData))
             if !full.isEmpty { parsed.intro = full }
+        }
+        // `meta` has no tags; `bookinfo` does. Once they are stored with the book, later
+        // opens read them instead of paying for another throttled request.
+        if parsed.tags == nil {
+            parsed.tags = await offline.entry(for: aid)?.detail?.tags
+            if parsed.tags == nil,
+               let infoData = try? await relay.send(RelayAction.bookInfo(aid: aid)) {
+                parsed.tags = RelayParser.tags(TextDecoding.decode(infoData))
+            }
         }
         return parsed
     }

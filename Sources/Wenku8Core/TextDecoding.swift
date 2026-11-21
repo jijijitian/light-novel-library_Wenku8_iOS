@@ -33,6 +33,27 @@ public enum TextDecoding {
             || lowered.contains("charset=\"gb2312\"")
     }
 
+    /// Percent-encodes a string in GBK, for the parts of the site that still require it.
+    ///
+    /// The tag pages take their argument in GBK: the same tag sent as UTF-8 comes back as an
+    /// empty list with a garbled heading, which is easy to mistake for "no such tag".
+    /// Returns nil when a character has no GBK form.
+    public static func formEncodeGBK(_ value: String) -> String? {
+        var output = ""
+        for scalar in value.unicodeScalars {
+            if scalar.isASCII {
+                guard let byte = String(scalar).addingPercentEncoding(
+                    withAllowedCharacters: .alphanumerics
+                ) else { return nil }
+                output += byte
+                continue
+            }
+            guard let bytes = GBKTable.bytes(for: scalar) else { return nil }
+            output += bytes.map { String(format: "%%%02X", $0) }.joined()
+        }
+        return output
+    }
+
     public static func decodeGBK(_ data: Data) -> String {
         let table = GBKTable.scalars
         guard !table.isEmpty else {
@@ -112,6 +133,25 @@ private final class BundleToken {}
 
 enum GBKTable {
     static let columns = 190
+
+    /// scalar → its two GBK bytes, built once by walking the decode table.
+    private static let encoding: [UInt32: (UInt8, UInt8)] = {
+        var map: [UInt32: (UInt8, UInt8)] = [:]
+        for (index, scalar) in scalars.enumerated() where scalar != 0 {
+            let lead = 0x81 + index / columns
+            let offset = index % columns
+            guard lead <= 0xFE, offset < columns else { continue }
+            let trail = offset < 0x3F ? 0x40 + offset : 0x41 + offset
+            guard trail <= 0xFE else { continue }
+            map[UInt32(scalar)] = (UInt8(lead), UInt8(trail))
+        }
+        return map
+    }()
+
+    static func bytes(for scalar: Unicode.Scalar) -> [UInt8]? {
+        guard let pair = encoding[scalar.value] else { return nil }
+        return [pair.0, pair.1]
+    }
 
     static let scalars: [UInt16] = {
         guard let url = CoreResources.bundle.url(forResource: "gbk-table", withExtension: "bin"),

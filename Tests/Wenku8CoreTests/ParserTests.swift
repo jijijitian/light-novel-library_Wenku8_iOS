@@ -182,3 +182,40 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(merged[1].id, "1")
     }
 }
+
+
+final class TagPageTests: XCTestCase {
+    func testTagPageReadsCardsTheirTagsAndPageCount() {
+        let html = """
+        <table class="grid" width="100%"><caption>Tags含有 校园 的轻小说</caption>
+        <tr><td><div style="width:373px;height:136px;float:left;">
+          <a href="/book/4535.htm" title="绝不选择你"><img src="x"/></a>
+          <p>Tags:<span style="font-weight:bold;">穿越 校园 音乐</span></p>
+        </div></td></tr>
+        <tr><td><div style="width:373px;height:136px;float:left;">
+          <a href="/book/4358.htm" title="魔法使之夜"><img src="y"/></a>
+          <p>Tags:<span style="font-weight:bold;">校园 奇幻</span></p>
+        </div></td></tr>
+        </table>
+        <div class="pagelink"><em id="pagestats">1/60</em></div>
+        """
+        let parsed = DesktopParser.tagPage(html)
+        XCTAssertEqual(parsed.novels.count, 2)
+        XCTAssertEqual(parsed.totalPages, 60)
+        XCTAssertEqual(parsed.novels[0].id, 4535)
+        XCTAssertEqual(parsed.novels[0].title, "绝不选择你")
+        XCTAssertEqual(parsed.novels[0].tags?.map(\.name), ["穿越", "校园", "音乐"])
+        XCTAssertEqual(parsed.novels[1].tags?.map(\.name), ["校园", "奇幻"])
+    }
+
+    func testTagCloudReadsUnquotedLinks() {
+        let html = "<li><a href=tags.php?t=校园>校园</a> <a href=tags.php?t=青春>青春</a></li>"
+        XCTAssertEqual(DesktopParser.tagCloud(html), ["校园", "青春"])
+    }
+
+    func testTagNamesEncodeAsGBK() {
+        // The tag pages take GBK; the same tag as UTF-8 comes back empty.
+        XCTAssertEqual(TextDecoding.formEncodeGBK("校园"), "%D0%A3%D4%B0")
+        XCTAssertEqual(TextDecoding.formEncodeGBK("JK"), "JK")
+    }
+}

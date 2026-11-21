@@ -1,16 +1,46 @@
 import Foundation
 
+/// One of a book's tags, as the source spells it.
+public struct NovelTag: Hashable, Codable, Sendable, Identifiable {
+    public var name: String
+
+    public var id: String { name }
+
+    public init(_ name: String) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Splits the source's space-separated tag string.
+    ///
+    /// Both the relay and the website send tags as one string — `奇幻 冒险 百合` — and no tag
+    /// contains a space, so splitting on whitespace is what they intend.
+    public static func split(_ raw: String?) -> [NovelTag]? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let names = raw.split(whereSeparator: \.isWhitespace).map(String.init)
+        return names.isEmpty ? nil : names.map(NovelTag.init)
+    }
+}
+
 public struct NovelSummary: Identifiable, Hashable, Codable, Sendable {
     public var id: Int
     public var title: String
     public var author: String?
     public var coverURL: URL?
+    /// Optional so a stored summary written before tags existed still decodes.
+    public var tags: [NovelTag]?
 
-    public init(id: Int, title: String, author: String? = nil, coverURL: URL? = nil) {
+    public init(
+        id: Int,
+        title: String,
+        author: String? = nil,
+        coverURL: URL? = nil,
+        tags: [NovelTag]? = nil
+    ) {
         self.id = id
         self.title = title
         self.author = author
         self.coverURL = coverURL
+        self.tags = tags
     }
 }
 
@@ -48,6 +78,9 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
     public var coverURL: URL?
     public var latestChapter: ChapterLink?
     public var recommendations: [NovelSummary]
+    /// Absent when the source does not publish tags for a book — the website's book page
+    /// never does, and the relay only in its `bookinfo` payload.
+    public var tags: [NovelTag]?
 
     public init(
         id: Int,
@@ -60,7 +93,8 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
         intro: String = "",
         coverURL: URL? = nil,
         latestChapter: ChapterLink? = nil,
-        recommendations: [NovelSummary] = []
+        recommendations: [NovelSummary] = [],
+        tags: [NovelTag]? = nil
     ) {
         self.id = id
         self.title = title
@@ -73,6 +107,7 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
         self.coverURL = coverURL
         self.latestChapter = latestChapter
         self.recommendations = recommendations
+        self.tags = tags
     }
 }
 

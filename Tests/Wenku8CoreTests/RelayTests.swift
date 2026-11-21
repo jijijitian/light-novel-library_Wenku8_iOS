@@ -13,6 +13,36 @@ final class RelayTests: XCTestCase {
         return TextDecoding.decode(try Data(contentsOf: url))
     }
 
+    // MARK: - tags
+
+    func testRelayTagsReadFromBookInfo() {
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <metadata>
+        <data name="Title" aid="4536"><![CDATA[你好]]></data>
+        <data name="Tags" value="奇幻 冒险 百合 女性视角"/>
+        </metadata>
+        """
+        // `bookinfo` puts its fields directly under `<metadata>`, not inside an `<item>`.
+        XCTAssertEqual(RelayParser.tags(xml)?.map(\.name), ["奇幻", "冒险", "百合", "女性视角"])
+    }
+
+    func testRelayListRowsCarryTags() {
+        let xml = """
+        <result>
+        <page num='437'/>
+        <item aid='4536'>
+        <data name='Title'><![CDATA[你好]]></data>
+        <data name="Author" value='虎月ゆめ'/>
+        <data name="Tags" value='奇幻 冒险 百合'/>
+        </item>
+        </result>
+        """
+        let rows = RelayParser.summaries(xml)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.tags?.map(\.name), ["奇幻", "冒险", "百合"])
+    }
+
     // MARK: - reviews
 
     private let reviewListXML = """

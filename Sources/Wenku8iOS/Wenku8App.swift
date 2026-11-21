@@ -183,6 +183,10 @@ final class AppRouter: ObservableObject {
            let aid = Int(raw) {
             homePath = [.novel(aid)]
         }
+        // `WENKU8_OPEN_TAG=校园` opens a tag's book list directly.
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_TAG"], !raw.isEmpty {
+            homePath = [.tag(raw)]
+        }
         // `WENKU8_OPEN_REVIEWS=aid` opens a book's review list directly, the same way.
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_REVIEWS"],
            let aid = Int(raw) {
@@ -207,6 +211,7 @@ final class AppRouter: ObservableObject {
         case reviews(Int)
         case rankList(RankBoard)
         case library(Int, String)
+        case tag(String)
     }
 
     func open(_ route: Route) {

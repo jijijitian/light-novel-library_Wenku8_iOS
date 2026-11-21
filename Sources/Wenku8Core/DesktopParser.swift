@@ -29,6 +29,69 @@ public enum DesktopParser {
         return results
     }
 
+    /// A tag's book list (`/modules/article/tags.php?t=…`).
+    ///
+    /// Each card carries its own `Tags:` line, so the rows come back with their tags; the
+    /// page count sits in `<em id="pagestats">1/60</em>`.
+    public static func tagPage(_ html: String) -> (novels: [NovelSummary], totalPages: Int) {
+        var totalPages = 1
+        if let stats = firstMatch(#"id="pagestats">\d+/(\d+)<"#, in: html), let value = Int(stats) {
+            totalPages = max(1, value)
+        }
+
+        // Cards are laid out at a fixed width; splitting on it keeps each book's tags with
+        // that book instead of matching across neighbours.
+        let cards = html.components(separatedBy: "width:373px")
+        let regex = try? NSRegularExpression(
+            pattern: #"<a href="/book/(\d+)\.htm" title="([^"]*)""#,
+            options: [.dotMatchesLineSeparators]
+        )
+        var novels: [NovelSummary] = []
+        var seen = Set<Int>()
+        for card in cards.dropFirst() {
+            let range = NSRange(card.startIndex..<card.endIndex, in: card)
+            guard let match = regex?.firstMatch(in: card, range: range),
+                  let idRange = Range(match.range(at: 1), in: card),
+                  let titleRange = Range(match.range(at: 2), in: card),
+                  let id = Int(card[idRange]),
+                  seen.insert(id).inserted else { continue }
+            let title = Markup.normalize(Markup.decodeEntities(String(card[titleRange])))
+            guard !title.isEmpty else { continue }
+            var tags: [NovelTag]?
+            if let rawTags = firstMatch(#"Tags:<span[^>]*>([^<]*)</span>"#, in: card) {
+                tags = NovelTag.split(Markup.decodeEntities(rawTags))
+            }
+            novels.append(NovelSummary(
+                id: id,
+                title: title,
+                coverURL: CoverURL.image(for: id),
+                tags: tags
+            ))
+        }
+        return (novels, totalPages)
+    }
+
+    /// The tag names listed on the site's tag cloud page.
+    ///
+    /// Its links are written without quotes — `<a href=tags.php?t=青春>青春</a>` — so the
+    /// visible text is what gets read rather than the href.
+    public static func tagCloud(_ html: String) -> [String] {
+        let regex = try? NSRegularExpression(
+            pattern: #"<a href=tags\.php\?t=[^>]*>([^<]+)</a>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        var names: [String] = []
+        var seen = Set<String>()
+        for match in regex?.matches(in: html, range: range) ?? [] {
+            guard let textRange = Range(match.range(at: 1), in: html) else { continue }
+            let name = Markup.normalize(Markup.decodeEntities(String(html[textRange])))
+            guard !name.isEmpty, seen.insert(name).inserted else { continue }
+            names.append(name)
+        }
+        return names
+    }
+
     public static func novelDetail(_ html: String, aid: Int) -> NovelDetail {
         var detail = NovelDetail(id: aid, title: "")
         if let title = firstMatch(#"<b>([^<]+)</b>\[\s*<a"#, in: html) {

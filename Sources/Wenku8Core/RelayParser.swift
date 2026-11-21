@@ -230,10 +230,33 @@ public enum RelayParser {
                 id: aid,
                 title: title,
                 author: author.isEmpty ? nil : author,
-                coverURL: CoverURL.image(for: aid)
+                coverURL: CoverURL.image(for: aid),
+                tags: NovelTag.split(item.value("Tags") ?? item.elementValue("Tags"))
             ))
         }
         return results.uniquedByID()
+    }
+
+    /// The `Tags` field of an `action=book&do=bookinfo` payload.
+    ///
+    /// The metadata call the app uses for a book's page (`do=meta`) does not carry tags;
+    /// this one does, which is why the detail screen asks for it separately.
+    public static func tags(_ xml: String) -> [NovelTag]? {
+        // `bookinfo` puts its fields straight under `<metadata>` rather than inside an
+        // `<item>`, so this walks the tree instead of using the item helper.
+        var found: [NovelTag]?
+        func walk(_ records: [Record]) {
+            for record in records where found == nil {
+                if record.name == "data", record.attributes["name"] == "Tags",
+                   let value = record.attributes["value"] {
+                    found = NovelTag.split(value)
+                    return
+                }
+                walk(record.children)
+            }
+        }
+        walk(parse(xml))
+        return found
     }
 
     /// `action=articlelist` returns bare `<item aid='…'/>` rows without titles, so

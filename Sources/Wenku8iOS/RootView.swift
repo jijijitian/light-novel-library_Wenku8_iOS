@@ -177,6 +177,8 @@ struct RouteView: View {
             RankListView(board: board)
         case .library(let id, let name):
             LibraryListView(categoryID: id, title: name)
+        case .tag(let name):
+            TagNovelListView(tag: name)
         }
     }
 }

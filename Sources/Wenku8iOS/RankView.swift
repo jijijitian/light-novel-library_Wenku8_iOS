@@ -30,6 +30,15 @@ struct RankView: View {
                             boardRow(title: "年度排行", symbol: "trophy")
                         }
                         .buttonStyle(.plain)
+
+                        // Tags belong with browsing rather than with search: the site
+                        // publishes them as a cloud, and each one opens a book list.
+                        NavigationLink {
+                            TagCloudView()
+                        } label: {
+                            boardRow(title: "标签", symbol: "number")
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     ForEach(Self.groupedBoards, id: \.title) { group in
