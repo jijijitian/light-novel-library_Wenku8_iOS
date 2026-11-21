@@ -14,6 +14,8 @@ struct MetadataCacheView: View {
     /// The entry just removed, kept so the deletion can be taken back.
     @State private var undoEntry: OfflineStore.Entry?
     @State private var undoToken = UUID()
+    /// Books whose detail panel is open, so a single piece of their cache can be dropped.
+    @State private var expanded: Set<Int> = []
     /// Set when the reader asks to drop the whole "其他缓存" group.
     @State private var pendingClearAll = false
     /// Cover files stored on this device, keyed by book.
@@ -151,39 +153,126 @@ struct MetadataCacheView: View {
     }
 
     private func row(_ entry: OfflineStore.Entry) -> some View {
-        Button {
-            router.open(.novel(entry.novelID))
-        } label: {
-            HStack(spacing: 12) {
-                // The stored file, not the remote URL: this screen is about what is held
-                // offline, and loading the thumbnail over the network showed a picture the
-                // app did not actually have.
-                CoverCard(
-                    url: localCovers[entry.novelID] ?? entry.detail?.coverURL,
-                    title: entry.title,
-                    width: 40,
-                    height: 56
-                )
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    if let author = entry.author, !author.isEmpty {
-                        Text(author)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Text(cachedSummary(entry))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Button {
+                    router.open(.novel(entry.novelID))
+                } label: {
+                    rowLabel(entry)
                 }
-                Spacer(minLength: 0)
+                .buttonStyle(.plain)
+
+                // A separate control from the row itself: the row opens the book, this
+                // opens what is cached for it.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        if expanded.contains(entry.novelID) {
+                            expanded.remove(entry.novelID)
+                        } else {
+                            expanded.insert(entry.novelID)
+                        }
+                    }
+                } label: {
+                    Image(systemName: expanded.contains(entry.novelID) ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expanded.contains(entry.novelID) ? "收起缓存详情" : "展开缓存详情")
             }
-            .contentShape(Rectangle())
+
+            if expanded.contains(entry.novelID) {
+                cachedDetail(for: entry)
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    private func rowLabel(_ entry: OfflineStore.Entry) -> some View {
+        HStack(spacing: 12) {
+            // The stored file, not the remote URL: this screen is about what is held
+            // offline, and loading the thumbnail over the network showed a picture the
+            // app did not actually have.
+            CoverCard(
+                url: localCovers[entry.novelID] ?? entry.detail?.coverURL,
+                title: entry.title,
+                width: 40,
+                height: 56
+            )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if let author = entry.author, !author.isEmpty {
+                    Text(author)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text(cachedSummary(entry))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// What is stored for this book, and what can be dropped from it.
+    @ViewBuilder
+    private func cachedDetail(for entry: OfflineStore.Entry) -> some View {
+        let reviews = entry.reviews ?? []
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Text("书评")
+                    .font(.caption.weight(.medium))
+                Spacer(minLength: 0)
+                Text(reviews.isEmpty ? "未缓存" : "\(reviews.count) 条")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if !reviews.isEmpty {
+                    Button(role: .destructive) {
+                        deleteReviews(entry)
+                    } label: {
+                        Text("删除")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                }
+            }
+            Divider().opacity(0.4)
+            detailLine("简介", value: (entry.detail?.intro.isEmpty == false) ? "已缓存" : "未缓存")
+            detailLine("目录", value: (entry.volumes?.isEmpty == false)
+                ? "\(entry.volumes?.count ?? 0) 卷"
+                : "未缓存")
+            detailLine("封面", value: entry.coverFile == nil ? "未缓存" : "已缓存")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func detailLine(_ name: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(name)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Text(value)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Drops a book's cached reviews, leaving the rest of its metadata in place.
+    private func deleteReviews(_ entry: OfflineStore.Entry) {
+        Task {
+            await OfflineStore.shared.dropReviews(for: entry.novelID)
+            await refresh()
+        }
     }
 
     /// What this entry actually holds: a description of its metadata, plus chapters when

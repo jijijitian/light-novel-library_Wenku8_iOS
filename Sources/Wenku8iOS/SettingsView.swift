@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var showLicense = false
     @State private var showLogin = false
     @State private var showDataSource = false
+    @State private var showMetadataCache = false
     @State private var accountMessage: String?
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var offlineCount = 0
@@ -155,6 +156,9 @@ struct SettingsView: View {
         .navigationDestination(isPresented: $showDataSource) {
             DataSourceSettingsView()
         }
+        .navigationDestination(isPresented: $showMetadataCache) {
+            MetadataCacheView()
+        }
         .navigationTitle("设置")
         .task {
             #if DEBUG
@@ -162,6 +166,9 @@ struct SettingsView: View {
             // check can be looked at without driving the UI.
             if ProcessInfo.processInfo.environment["WENKU8_OPEN_DATA_SOURCE"] != nil {
                 showDataSource = true
+            }
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_METADATA"] != nil {
+                showMetadataCache = true
             }
             #endif
         }

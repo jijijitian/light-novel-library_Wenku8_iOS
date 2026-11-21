@@ -827,17 +827,31 @@ public struct NovelService: Sendable {
     /// The list is paged — a popular book runs to hundreds of pages — so the page count
     /// comes back with the rows and the caller decides when to ask for the next one.
     public func reviews(aid: Int, page: Int = 1) async throws -> ReviewPage {
-        let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
-        if WAPParser.requiresLogin(html) {
-            throw Wenku8Error.needLogin
+        do {
+            let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
+            if WAPParser.requiresLogin(html) {
+                throw Wenku8Error.needLogin
+            }
+            let reviews = WAPParser.reviews(html)
+            let pagination = WAPParser.reviewPagination(html)
+            // The first page joins the book's metadata, so a book opened offline still
+            // says what readers made of it.
+            if page == 1, !reviews.isEmpty {
+                await offline.cacheReviews(reviews, for: aid)
+            }
+            return ReviewPage(
+                reviews: reviews,
+                page: page,
+                totalPages: pagination?.total ?? page
+            )
+        } catch {
+            // Offline, or the site refused: the stored first page is better than an empty
+            // screen, and the reader can still see what was said.
+            if page == 1, let cached = await offline.cachedReviews(for: aid) {
+                return ReviewPage(reviews: cached, page: 1, totalPages: 1)
+            }
+            throw error
         }
-        let reviews = WAPParser.reviews(html)
-        let pagination = WAPParser.reviewPagination(html)
-        return ReviewPage(
-            reviews: reviews,
-            page: page,
-            totalPages: pagination?.total ?? page
-        )
     }
 
     /// One page of a review thread.

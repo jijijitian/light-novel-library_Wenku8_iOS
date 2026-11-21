@@ -46,6 +46,13 @@ public actor OfflineStore {
         /// table of contents. Optional so older manifests still decode.
         public var volumes: [Volume]?
 
+        /// The first page of the book's reviews.
+        ///
+        /// Cached with the rest of the metadata so a book opened offline still shows what
+        /// readers said about it. Optional so older manifests still decode, and absent
+        /// until the review list has been opened at least once.
+        public var reviews: [NovelReview]?
+
         public var id: Int { novelID }
         public var progress: Double {
             guard !chapterIDs.isEmpty else { return 0 }
@@ -360,6 +367,26 @@ public actor OfflineStore {
     }
 
     /// The stored catalogue for a book, when one was cached.
+    /// Stores the first page of a book's reviews.
+    public func cacheReviews(_ reviews: [NovelReview], for aid: Int) {
+        guard var entry = entry(for: aid) else { return }
+        entry.reviews = reviews
+        entry.updatedAt = Date()
+        saveManifest(entry)
+    }
+
+    public func cachedReviews(for aid: Int) -> [NovelReview]? {
+        guard let entry = entry(for: aid), let reviews = entry.reviews else { return nil }
+        return reviews.isEmpty ? nil : reviews
+    }
+
+    /// Removes the cached reviews, leaving the rest of the book's metadata in place.
+    public func dropReviews(for aid: Int) {
+        guard var entry = entry(for: aid) else { return }
+        entry.reviews = nil
+        saveManifest(entry)
+    }
+
     public func cachedVolumes(for aid: Int) -> [Volume]? {
         guard let entry = entry(for: aid), let volumes = entry.volumes else { return nil }
         return volumes.isEmpty ? nil : volumes
