@@ -677,6 +677,14 @@ public struct NovelService: Sendable {
             let desktop = try await client.desktop("/book/\(aid).htm")
             detail = DesktopParser.novelDetail(desktop, aid: aid)
         }
+        // The mobile page carries no tags; the desktop book page does. They are read once
+        // and then kept with the book, so only the first open pays for the extra request.
+        if detail.tags == nil {
+            detail.tags = await offline.entry(for: aid)?.detail?.tags
+            if detail.tags == nil, let book = try? await client.desktop("/book/\(aid).htm") {
+                detail.tags = DesktopParser.tags(book)
+            }
+        }
         return detail
     }
 

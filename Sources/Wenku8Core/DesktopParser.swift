@@ -71,6 +71,15 @@ public enum DesktopParser {
         return (novels, totalPages)
     }
 
+    /// The `作品Tags` line on a book's page.
+    ///
+    /// It reads `<b>作品Tags：校园 斗智 青春</b>`; the line is absent on pages the site serves
+    /// without it, so a nil result is normal rather than an error.
+    public static func tags(_ html: String) -> [NovelTag]? {
+        guard let raw = firstMatch(#"作品Tags：([^<]*)<"#, in: html) else { return nil }
+        return NovelTag.split(Markup.decodeEntities(raw))
+    }
+
     /// The tag names listed on the site's tag cloud page.
     ///
     /// Its links are written without quotes — `<a href=tags.php?t=青春>青春</a>` — so the

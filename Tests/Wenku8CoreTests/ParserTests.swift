@@ -208,6 +208,15 @@ final class TagPageTests: XCTestCase {
         XCTAssertEqual(parsed.novels[1].tags?.map(\.name), ["校园", "奇幻"])
     }
 
+    func testBookPageTagsReadFromTheHotTextLine() {
+        let html = """
+        <td><span class="hottext"><b>作品Tags：校园 斗智 青春 恋爱 后宫</b></span><br />
+        <span class="hottext"><b>作品热度：S级</b></span>
+        """
+        XCTAssertEqual(DesktopParser.tags(html)?.map(\.name), ["校园", "斗智", "青春", "恋爱", "后宫"])
+        XCTAssertNil(DesktopParser.tags("<html><body>没有标签</body></html>"))
+    }
+
     func testTagCloudReadsUnquotedLinks() {
         let html = "<li><a href=tags.php?t=校园>校园</a> <a href=tags.php?t=青春>青春</a></li>"
         XCTAssertEqual(DesktopParser.tagCloud(html), ["校园", "青春"])
