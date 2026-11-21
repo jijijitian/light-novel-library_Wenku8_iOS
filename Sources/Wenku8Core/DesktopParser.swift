@@ -75,9 +75,10 @@ public enum DesktopParser {
     public struct HomeBlock: Sendable, Identifiable, Hashable, Codable {
         public var title: String
         public var novels: [NovelSummary]
-        /// The `sort` of the list behind the panel's 「更多」 link, when it has one — that
-        /// link is the site's own way of expanding a panel into a full ranking.
-        public var moreSort: String?
+        /// The target of the panel's 「更多」 link, when it has one — that link is the
+        /// site's own way of expanding a panel into a full list. It points at either
+        /// `toplist.php?sort=…` or `articlelist.php?fullflag=1`.
+        public var moreURL: String?
 
         public var id: String { title }
     }
@@ -123,8 +124,13 @@ public enum DesktopParser {
             let body = ns.substring(with: NSRange(location: start, length: end - start))
             let novels = homeBlockNovels(body)
             guard !novels.isEmpty else { continue }
-            let moreSort = firstMatch(#"toplist\.php\?sort=([a-z]+)"#, in: body)
-            blocks.append(HomeBlock(title: title, novels: novels, moreSort: moreSort))
+            // The link can sit inside the title — 完本轻小说推广区 puts 「更多完本轻小说」 in its
+            // own heading — and the site writes some tags in upper case, hence `(?i)`.
+            let moreURL = firstMatch(
+                #"(?i)<a[^>]+href="([^"]*(?:toplist|articlelist)\.php[^"]*)"[^>]*>[^<]*更多"#,
+                in: rawTitle + body
+            )
+            blocks.append(HomeBlock(title: title, novels: novels, moreURL: moreURL))
         }
         return blocks
     }

@@ -90,7 +90,7 @@ struct ExploreView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline) {
                         SectionHeader(title: block.title, symbol: "sparkles")
-                        if let sort = block.moreSort, let board = RankBoard(rawValue: sort) {
+                        if let board = moreBoard(block.moreURL) {
                             Button {
                                 router.open(.rankList(board))
                             } label: {
@@ -197,6 +197,21 @@ struct ExploreView: View {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.snapshotURL, options: .atomic)
         savedAt = snapshot.savedAt
+    }
+
+    /// The list a panel's 「更多」 link points at.
+    ///
+    /// The site writes those links two ways: a ranking (`toplist.php?sort=…`) and a plain
+    /// listing (`articlelist.php?fullflag=1`, used by 完本轻小说推广区). Both open a board, so
+    /// the link is honoured rather than only the first shape.
+    private func moreBoard(_ moreURL: String?) -> RankBoard? {
+        guard let moreURL else { return nil }
+        if let range = moreURL.range(of: "sort=") {
+            let sort = moreURL[range.upperBound...].prefix { $0.isLetter }
+            return RankBoard(rawValue: String(sort))
+        }
+        if moreURL.contains("fullflag=1") { return .fullflag }
+        return nil
     }
 
     /// One book in a panel: cover plus title, the same in both layouts.
