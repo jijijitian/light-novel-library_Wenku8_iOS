@@ -9,7 +9,6 @@ struct DataSourceSettingsView: View {
     /// Both sources at once. Only offered while the relay is on — there is nothing to mix
     /// with otherwise.
     @State private var hybridEnabled = RelayCredentialStore.shared.isHybridEnabled
-    @State private var relayMessage: String?
     /// Outcome of the login check that follows a data source change.
     @State private var sessionMessage: String?
     /// Set when the switch left the app signed out, so the section offers a way back in.
@@ -53,7 +52,12 @@ struct DataSourceSettingsView: View {
                 Toggle(isOn: $relayEnabled) {
                     Label("启用中转服务", systemImage: "antenna.radiowaves.left.and.right")
                 }
-                .onChange(of: relayEnabled) { _, _ in applyRelaySettings() }
+                .onChange(of: relayEnabled) { _, _ in
+                    applyRelaySettings()
+                    // Re-read rather than keep the stale state: the switch was hidden while
+                    // the relay was off, and the stored preference outlives that.
+                    if relayEnabled { hybridEnabled = relayStore.isHybridEnabled }
+                }
 
                 if relayEnabled {
                     Toggle(isOn: $hybridEnabled) {
@@ -62,22 +66,12 @@ struct DataSourceSettingsView: View {
                     .onChange(of: hybridEnabled) { _, _ in applyRelaySettings() }
                 }
 
-                if let relayMessage {
-                    Text(relayMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             } header: {
                 Text("中转服务")
             } footer: {
                 Text("""
-                开启后首页、排行、文库、搜索、书籍信息与正文全部改由中转服务提供，\
-                不再混用网页版数据；中转失败会直接提示，不会换成网页版结果。\
-                账号密码与网页版相同。\
-                它是第三方公益服务，有独立配额，因此本应用强制对请求限速。\
-                关闭后改用网页版；排行榜网页版未登录时无法查看。\
-                混合模式会同时使用两边：中转能给的先用中转，中转给不了的（比如动画化榜单）\
-                改从网页版取，因此需要同时登录两边。
+                中转模式：使用中转api获取数据，中转有配额限制，请求自动限速。
+                混合模式：同时使用网页数据源与中转数据源，双方数据互补。
                 """)
                 .font(.footnote)
             }
@@ -147,8 +141,8 @@ struct DataSourceSettingsView: View {
     private func applyRelaySettings() {
         relayStore.setEnabled(relayEnabled)
         // Hybrid is a property of the relay: with it off there is nothing to mix with, so
-        // the stored preference is kept but not applied.
-        relayStore.setHybridEnabled(hybridEnabled)
+        // the preference is left untouched rather than cleared.
+        if relayEnabled { relayStore.setHybridEnabled(hybridEnabled) }
         RelayClient.shared.configure(
             RelayConfiguration(
                 isEnabled: relayEnabled,
@@ -158,11 +152,6 @@ struct DataSourceSettingsView: View {
         )
         if relayEnabled {
             Task { await RelayClient.shared.setMinimumInterval(relayStore.minimumInterval) }
-            relayMessage = hybridEnabled
-                ? "中转已启用（混合模式：两边并用）"
-                : "中转服务已启用"
-        } else {
-            relayMessage = "已关闭中转服务，将使用网页版数据"
         }
         // The relay authenticates separately from the website, so turning it on has to
         // sign in there too, and turning it off can leave a relay-only session behind.

@@ -929,7 +929,10 @@ public struct NovelService: Sendable {
             switch (relayed, site) {
             case (.signedOut, _), (_, .signedOut): return .signedOut
             case (.unknown, _), (_, .unknown): return .unknown
-            case (.signedIn(let name), _): return .signedIn(name)
+            // The relay can confirm a session without naming it, so the website's name
+            // fills the gap rather than leaving the account label blank.
+            case (.signedIn(let relayName), .signedIn(let siteName)):
+                return .signedIn(relayName.isEmpty ? siteName : relayName)
             }
         }
         return await websiteSessionState()
