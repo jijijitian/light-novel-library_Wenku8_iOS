@@ -14,11 +14,6 @@ struct TagNovelListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(
-                    title: tag,
-                    subtitle: "选择查看方式",
-                    symbol: "number"
-                )
                 ForEach(TagSort.allCases) { sort in
                     Button {
                         router.open(.tagList(tag, sort))
@@ -34,6 +29,7 @@ struct TagNovelListView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard(cornerRadius: 22)
+            .padding(.top, 12)
             .padding(.horizontal, 18)
             .padding(.top, 8)
         }

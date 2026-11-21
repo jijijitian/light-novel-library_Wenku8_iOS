@@ -56,8 +56,9 @@ struct TagBooksView: View {
         .onChange(of: model.novels.count) { _, _ in store() }
     }
 
+    /// The tag and the viewing, so the four lists are told apart from the title bar.
     private var title: String {
-        sort == .updated ? tag : "\(tag) · \(sort.shortTitle)"
+        "\(tag) · \(sort.shortTitle)"
     }
 
     // MARK: - Stored list
