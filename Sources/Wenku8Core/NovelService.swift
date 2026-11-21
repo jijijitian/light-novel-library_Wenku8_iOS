@@ -222,6 +222,11 @@ public struct NovelService: Sendable {
                 }
                 let row = HomeRow(section: section, items: items)
                 rows.append(row)
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil {
+                    print("[home] \(section.rawValue) from=relay items=\(items.count)")
+                }
+                #endif
                 await onRow(row)
             }
             // Hybrid: a section the relay could not serve is taken from the website, so the
@@ -230,6 +235,11 @@ public struct NovelService: Sendable {
                 for section in missing {
                     guard let row = web.first(where: { $0.section == section }) else { continue }
                     rows.append(row)
+                    #if DEBUG
+                    if ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil {
+                        print("[home] \(section.rawValue) from=web items=\(row.items.count)")
+                    }
+                    #endif
                     await onRow(row)
                 }
             }
