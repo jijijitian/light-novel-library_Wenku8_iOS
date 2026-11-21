@@ -29,7 +29,6 @@ struct TagCloudView: View {
                 )
             } else {
                 VStack(alignment: .leading, spacing: 16) {
-                    guide
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 8) {
                             SectionHeader(title: group.title, symbol: "number")
@@ -61,22 +60,6 @@ struct TagCloudView: View {
             if groups.isEmpty { restore() }
             await load()
         }
-    }
-
-    /// How the tags work, since the site's own page explains it in a line that leads
-    /// nowhere — its 「检索服务相关说明和使用指南」 link reloads the same page.
-    private var guide: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("标签说明", systemImage: "info.circle")
-                .font(.subheadline.weight(.medium))
-            Text("标签由文库站点提供，一本书可以有多个标签。点击标签可以查看带有该标签的全部书籍，这项查询由网页端提供，需要登录文库账号。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(cornerRadius: 22)
     }
 
     // MARK: - Stored groups

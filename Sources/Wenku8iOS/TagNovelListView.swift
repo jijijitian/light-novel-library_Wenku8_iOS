@@ -12,11 +12,31 @@ struct TagNovelListView: View {
 
     @EnvironmentObject private var router: AppRouter
     @StateObject private var model = PagedNovelListModel()
+    /// The last list read for this tag, painted while the refresh is in flight.
+    @State private var stored: [NovelSummary] = []
 
     var body: some View {
         ScrollView {
             if model.novels.isEmpty && model.isLoading {
-                LoadingRow(text: "正在载入「\(tag)」的书…")
+                if stored.isEmpty {
+                    LoadingRow(text: "正在载入「\(tag)」的书…")
+                } else {
+                    // The stored list stays on screen while the fresh one loads: a blank
+                    // grid for a second reads as the tag having no books.
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("正在刷新「\(tag)」的书…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        NovelGrid(novels: stored) { novel in
+                            router.open(.novel(novel.id))
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                }
             } else if let error = model.error, model.novels.isEmpty {
                 ErrorStateView(error: error) {
                     Task { await reload() }
@@ -39,7 +59,56 @@ struct TagNovelListView: View {
         .navigationTitle("#\(tag)")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.reload() }
-        .task { await reload() }
+        .task {
+            if stored.isEmpty { restore() }
+            await reload()
+        }
+        .onChange(of: model.novels.count) { _, _ in store() }
+    }
+
+    // MARK: - Stored list
+
+    /// Tag lists change slowly and reading one costs a login-gated page load, so the last
+    /// result is kept per tag and shown while the fresh one is fetched.
+    private struct StoredList: Codable {
+        var savedAt: Date
+        var novels: [NovelSummary]
+    }
+
+    private static var cacheDirectory: URL {
+        let base = (try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("TagLists", isDirectory: true)
+    }
+
+    private var cacheURL: URL {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in tag.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100_0000_01b3
+        }
+        return Self.cacheDirectory.appendingPathComponent(String(hash, radix: 16) + ".json")
+    }
+
+    private func restore() {
+        guard let data = try? Data(contentsOf: cacheURL),
+              let list = try? JSONDecoder().decode(StoredList.self, from: data) else { return }
+        stored = list.novels
+    }
+
+    private func store() {
+        guard !model.novels.isEmpty else { return }
+        let list = StoredList(savedAt: Date(), novels: Array(model.novels.prefix(24)))
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        try? FileManager.default.createDirectory(
+            at: Self.cacheDirectory,
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: cacheURL, options: .atomic)
     }
 
     private func reload() async {
