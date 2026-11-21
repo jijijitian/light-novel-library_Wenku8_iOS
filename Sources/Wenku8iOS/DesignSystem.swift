@@ -143,32 +143,43 @@ struct CoverCard: View {
 struct CoverImage: View {
     var url: URL?
 
+    @State private var image: UIImage?
+    @State private var isLoading = false
+
     var body: some View {
         Group {
-            if url == nil {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            } else if url == nil {
                 // No URL means there is nothing to fetch — not "still fetching". An
                 // `AsyncImage` given nil stays in `.empty` for good, so it drew a spinner
                 // that never stopped on covers the source does not have.
                 placeholder
             } else {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.18))) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        placeholder
-                    case .empty:
-                        ZStack {
-                            placeholder
-                            ProgressView().controlSize(.small)
-                        }
-                    @unknown default:
-                        placeholder
+                ZStack {
+                    placeholder
+                    if isLoading {
+                        ProgressView().controlSize(.small)
                     }
                 }
             }
         }
         .background(Color.secondary.opacity(0.14))
+        // Keyed by URL so a row reused for another book reloads instead of showing the
+        // previous cover.
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        guard image == nil, let url else { return }
+        isLoading = true
+        let loaded = await CoverFileCache.shared.image(for: url)
+        isLoading = false
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeOut(duration: 0.18)) { image = loaded }
     }
 
     private var placeholder: some View {
