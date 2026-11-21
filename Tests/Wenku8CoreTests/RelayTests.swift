@@ -13,6 +13,65 @@ final class RelayTests: XCTestCase {
         return TextDecoding.decode(try Data(contentsOf: url))
     }
 
+    // MARK: - reviews
+
+    private let reviewListXML = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <metadata>
+    <page num='429'/>
+    <item rid='322328' posttime='20261121155300' replies='0' replytime='20261121155300'>
+    <user uid='1551183'><![CDATA[tundra571]]></user>
+    <content><![CDATA[最后赢家是？]]></content>
+    </item>
+    <item rid='263689' posttime='20230226123448' replies='1684' replytime='20261121062130'>
+    <user uid='1033072'><![CDATA[SCP爱好者]]></user>
+    <content><![CDATA[WK8聊天室  SCiPNet]]></content>
+    </item>
+    </metadata>
+    """
+
+    func testRelayReviewsParseFields() {
+        let parsed = RelayParser.reviews(reviewListXML)
+        XCTAssertEqual(parsed.reviews.count, 2)
+        XCTAssertEqual(parsed.totalPages, 429)
+
+        let first = parsed.reviews[0]
+        XCTAssertEqual(first.id, 322328)
+        XCTAssertEqual(first.author, "tundra571")
+        XCTAssertEqual(first.topic, "最后赢家是？")
+        XCTAssertEqual(first.replyCount, 0)
+        // The relay sends a timestamp; the list shows a date.
+        XCTAssertEqual(first.date, "2026-11-21")
+
+        XCTAssertEqual(parsed.reviews[1].replyCount, 1684)
+        XCTAssertEqual(parsed.reviews[1].date, "2023-02-26")
+    }
+
+    func testRelayReviewThreadFlattensMarkup() {
+        let xml = """
+        <metadata>
+        <page num='169'/>
+        <item timestamp='20230226123448'>
+        <user uid='1'><![CDATA[甲]]></user>
+        <content><![CDATA[<p align="center"><b>标题</b></p>
+        <p>正文第一段</p>]]></content>
+        </item>
+        <item timestamp='20230226124500'>
+        <user uid='2'><![CDATA[乙]]></user>
+        <content><![CDATA[回复]]></content>
+        </item>
+        </metadata>
+        """
+        let parsed = RelayParser.reviewThread(xml)
+        XCTAssertEqual(parsed.posts.count, 2)
+        XCTAssertEqual(parsed.totalPages, 169)
+        XCTAssertEqual(parsed.posts[0].author, "甲")
+        XCTAssertEqual(parsed.posts[0].date, "2023-02-26")
+        XCTAssertFalse(parsed.posts[0].body.contains("<"))
+        XCTAssertTrue(parsed.posts[0].body.contains("正文第一段"))
+        XCTAssertEqual(parsed.posts[1].body, "回复")
+    }
+
     // MARK: - appver
 
     func testAppVerMatchesKnownVectors() {

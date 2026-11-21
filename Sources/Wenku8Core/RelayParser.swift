@@ -416,6 +416,83 @@ public enum RelayParser {
         return CoverURL.normalize(trimmed)
     }
 
+    // MARK: - Reviews
+
+    /// The relay's `action=review&do=list` payload.
+    ///
+    /// ```xml
+    /// <metadata>
+    ///   <page num='429'/>
+    ///   <item rid='322328' posttime='20261121155300' replies='0' replytime='...'>
+    ///     <user uid='1551183'><![CDATA[tundra571]]></user>
+    ///     <content><![CDATA[最后赢家是？]]></content>
+    ///   </item>
+    /// </metadata>
+    /// ```
+    public static func reviews(_ xml: String) -> (reviews: [NovelReview], totalPages: Int) {
+        var reviews: [NovelReview] = []
+        for record in items(xml) {
+            guard let ridRaw = record.attributes["rid"], let rid = Int(ridRaw) else { continue }
+            let author = record.elementValue("user") ?? ""
+            let topic = Markup.normalize(Markup.decodeEntities(record.elementValue("content") ?? ""))
+            guard !topic.isEmpty else { continue }
+            let replies = Int(record.attributes["replies"] ?? "") ?? 0
+            reviews.append(NovelReview(
+                id: rid,
+                topic: topic,
+                author: author,
+                date: shortDate(record.attributes["posttime"]),
+                replyCount: replies
+            ))
+        }
+        return (reviews, pageCount(xml))
+    }
+
+    /// The relay's `action=review&do=show` payload: one page of floors, each with the markup
+    /// the poster wrote, so the text has to be flattened like any other page.
+    public static func reviewThread(_ xml: String) -> (posts: [ReviewPost], totalPages: Int) {
+        var posts: [ReviewPost] = []
+        for (index, record) in items(xml).enumerated() {
+            let author = record.elementValue("user") ?? ""
+            let body = Markup.lines(from: record.elementValue("content") ?? "")
+                .joined(separator: "\n")
+            guard !body.isEmpty else { continue }
+            posts.append(ReviewPost(
+                id: "relay-\(index)",
+                author: author,
+                date: shortDate(record.attributes["timestamp"]),
+                body: body
+            ))
+        }
+        return (posts, pageCount(xml))
+    }
+
+    /// The `page num` element sits beside the items rather than at the top level, so it needs
+    /// the same walk down the tree.
+    private static func pageCount(_ xml: String) -> Int {
+        var total = 1
+        func walk(_ records: [Record]) {
+            for record in records {
+                if record.name == "page", let raw = record.attributes["num"], let value = Int(raw) {
+                    total = max(1, value)
+                }
+                walk(record.children)
+            }
+        }
+        walk(parse(xml))
+        return total
+    }
+
+    /// `20261121155300` → `2026-11-21`. The relay sends a timestamp where the website sends
+    /// a date, and the list shows the same field either way.
+    private static func shortDate(_ raw: String?) -> String {
+        guard let raw, raw.count >= 8 else { return "" }
+        let year = raw.prefix(4)
+        let month = raw.dropFirst(4).prefix(2)
+        let day = raw.dropFirst(6).prefix(2)
+        return "\(year)-\(month)-\(day)"
+    }
+
     // MARK: - Account
 
     /// `action=login` and the bookcase writes answer with a bare integer.

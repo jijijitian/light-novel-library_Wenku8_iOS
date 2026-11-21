@@ -326,6 +326,16 @@ public enum RelayAction {
         "action=userinfo"
     }
 
+    /// A book's reviews. Page one keeps the titles, the posters and the reply counts.
+    public static func reviewList(aid: Int, page: Int) -> String {
+        "action=review&do=list&aid=\(aid)&page=\(page)"
+    }
+
+    /// One page of a review thread's floors.
+    public static func reviewThread(rid: Int, page: Int) -> String {
+        "action=review&do=show&rid=\(rid)&page=\(page)&t=0"
+    }
+
     public static func sorts() -> String {
         "action=xml&item=sort&t=0"
     }

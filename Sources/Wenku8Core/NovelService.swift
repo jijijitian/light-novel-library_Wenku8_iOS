@@ -843,6 +843,19 @@ public struct NovelService: Sendable {
                 )
             }
         }
+        if relayIsAvailable {
+            if let relayed = await relayReviews(aid: aid, page: page) {
+                await storeReviews(relayed.reviews, aid: aid, page: page, totalPages: relayed.totalPages)
+                return ReviewPage(
+                    reviews: relayed.reviews,
+                    page: page,
+                    totalPages: relayed.totalPages
+                )
+            }
+            if !isHybrid {
+                throw Wenku8Error.unavailable("中转服务暂时无法获取书评，请稍后再试")
+            }
+        }
         do {
             let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
             if WAPParser.requiresLogin(html) {
@@ -855,18 +868,7 @@ public struct NovelService: Sendable {
             // Every page that is fetched joins the stored list, so what was read stays
             // readable: a page-one-only cache meant scrolling loaded pages that were thrown
             // away the next time the list opened.
-            if !reviews.isEmpty {
-                let total = pagination?.total ?? page
-                let stored = await offline.cachedReviews(for: aid) ?? []
-                let merged: [NovelReview]
-                if page == 1 {
-                    merged = reviews
-                } else {
-                    let known = Set(stored.map(\.id))
-                    merged = stored + reviews.filter { !known.contains($0.id) }
-                }
-                await offline.cacheReviews(merged, for: aid, page: page, totalPages: total)
-            }
+            await storeReviews(reviews, aid: aid, page: page, totalPages: pagination?.total ?? page)
             return ReviewPage(
                 reviews: reviews,
                 page: page,
@@ -882,11 +884,60 @@ public struct NovelService: Sendable {
         }
     }
 
+    /// Stores one page of reviews, appending to what is already held.
+    private func storeReviews(
+        _ reviews: [NovelReview],
+        aid: Int,
+        page: Int,
+        totalPages: Int
+    ) async {
+        guard !reviews.isEmpty else { return }
+        let stored = page == 1 ? [] : (await offline.cachedReviews(for: aid) ?? [])
+        let known = Set(stored.map(\.id))
+        let merged = stored + reviews.filter { !known.contains($0.id) }
+        await offline.cacheReviews(merged, for: aid, page: page, totalPages: totalPages)
+    }
+
+    private func relayReviews(
+        aid: Int,
+        page: Int
+    ) async -> (reviews: [NovelReview], totalPages: Int)? {
+        guard let data = try? await relay.send(RelayAction.reviewList(aid: aid, page: page)) else {
+            return nil
+        }
+        let parsed = RelayParser.reviews(TextDecoding.decode(data))
+        return parsed.reviews.isEmpty ? nil : parsed
+    }
+
+    private func relayReviewThread(
+        rid: Int,
+        page: Int
+    ) async -> (posts: [ReviewPost], totalPages: Int)? {
+        guard let data = try? await relay.send(RelayAction.reviewThread(rid: rid, page: page)) else {
+            return nil
+        }
+        let parsed = RelayParser.reviewThread(TextDecoding.decode(data))
+        return parsed.posts.isEmpty ? nil : parsed
+    }
+
     /// One page of a review thread.
     ///
     /// Threads page too — a popular one runs to a hundred pages — so the caller gets the
     /// floor list together with the page count.
     public func reviewPosts(rid: Int, page: Int = 1) async throws -> ReviewThread {
+        if relayIsAvailable {
+            if let relayed = await relayReviewThread(rid: rid, page: page) {
+                return ReviewThread(
+                    topic: "",
+                    posts: relayed.posts,
+                    page: page,
+                    totalPages: relayed.totalPages
+                )
+            }
+            if !isHybrid {
+                throw Wenku8Error.unavailable("中转服务暂时无法获取书评内容，请稍后再试")
+            }
+        }
         let html = try await client.wap("/article/reviewshow.php?rid=\(rid)&page=\(page)")
         let parsed = WAPParser.reviewPosts(html)
         let pagination = WAPParser.reviewPagination(html)
