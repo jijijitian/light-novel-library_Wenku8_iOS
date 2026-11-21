@@ -96,13 +96,6 @@ final class ReviewViewModel: ObservableObject {
     }
 }
 
-/// The scroll position of a review list, used to tell "the reader reached the bottom" from
-/// "a page was appended under the reader".
-private struct ReviewScrollOffset: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 struct ReviewListView: View {
     var novelID: Int
     @StateObject private var model = ReviewViewModel()
@@ -110,21 +103,9 @@ struct ReviewListView: View {
     /// The book's cover colours, shared with the detail page so the two screens match.
     @AppStorage(CoverPalette.storageKey) private var coverTint = false
     @State private var palette: CoverPalette?
-    @State private var scrollOffset: CGFloat = 0
-    /// Offset at which the previous page was asked for. Appending rows does not change the
-    /// offset, so this is what stops a fresh page from triggering the next one forever.
-    @State private var lastLoadOffset: CGFloat = -.greatestFiniteMagnitude
 
     var body: some View {
         ScrollView {
-            GeometryReader { geometry in
-                Color.clear.preference(
-                    key: ReviewScrollOffset.self,
-                    value: geometry.frame(in: .named("reviewScroll")).minY
-                )
-            }
-            .frame(height: 0)
-
             if model.isLoading && model.reviews.isEmpty {
                 LoadingRow(text: "正在载入书评…")
             } else if let error = model.error, model.reviews.isEmpty {
@@ -167,13 +148,11 @@ struct ReviewListView: View {
                         }
                         .buttonStyle(.plain)
                         .onAppear {
-                            // Only a reader who actually scrolled may page: a row that
-                            // appears because the list grew must not ask for the next page,
-                            // or the list loads forever.
-                            guard review.id == model.reviews.last?.id,
-                                  abs(scrollOffset - lastLoadOffset) > 24 else { return }
-                            lastLoadOffset = scrollOffset
-                            Task { await model.loadNextPage() }
+                            // The last row coming into view is the signal to fetch the next
+                            // page; with ten rows a page this only fires at the bottom.
+                            if review.id == model.reviews.last?.id {
+                                Task { await model.loadNextPage() }
+                            }
                         }
                     }
 
@@ -185,8 +164,6 @@ struct ReviewListView: View {
                 .padding(.vertical, 12)
             }
         }
-        .coordinateSpace(name: "reviewScroll")
-        .onPreferenceChange(ReviewScrollOffset.self) { scrollOffset = $0 }
         .background { TintedBackground(palette: coverTint ? palette : nil) }
         .navigationTitle("书评")
         .navigationBarTitleDisplayMode(.inline)
@@ -272,20 +249,10 @@ struct ReviewDetailSheet: View {
     var palette: CoverPalette?
     @StateObject private var model = ReviewDetailViewModel()
     @Environment(\.dismiss) private var dismiss
-    @State private var scrollOffset: CGFloat = 0
-    @State private var lastLoadOffset: CGFloat = -.greatestFiniteMagnitude
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                GeometryReader { geometry in
-                    Color.clear.preference(
-                        key: ReviewScrollOffset.self,
-                        value: geometry.frame(in: .named("threadScroll")).minY
-                    )
-                }
-                .frame(height: 0)
-
                 VStack(alignment: .leading, spacing: 14) {
                     Text(review.topic)
                         .font(.headline)
@@ -310,10 +277,9 @@ struct ReviewDetailSheet: View {
                             .padding(14)
                             .glassCard(cornerRadius: 18)
                             .onAppear {
-                                guard post.id == model.posts.last?.id,
-                                      abs(scrollOffset - lastLoadOffset) > 24 else { return }
-                                lastLoadOffset = scrollOffset
-                                Task { await model.loadNextPage() }
+                                if post.id == model.posts.last?.id {
+                                    Task { await model.loadNextPage() }
+                                }
                             }
                         }
 
@@ -324,8 +290,6 @@ struct ReviewDetailSheet: View {
                 }
                 .padding(18)
             }
-            .coordinateSpace(name: "threadScroll")
-            .onPreferenceChange(ReviewScrollOffset.self) { scrollOffset = $0 }
             .background { TintedBackground(palette: palette) }
             .navigationTitle("书评详情")
             .navigationBarTitleDisplayMode(.inline)
