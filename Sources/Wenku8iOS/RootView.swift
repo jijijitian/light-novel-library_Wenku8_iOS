@@ -16,7 +16,7 @@ struct RootView: View {
         var title: String {
             switch self {
             case .home: return "书架首页"
-            case .rank: return "排行"
+            case .rank: return "探索"
             case .search: return "搜索"
             case .shelf: return "我的书架"
             case .settings: return "设置"
@@ -26,7 +26,7 @@ struct RootView: View {
         var systemImage: String {
             switch self {
             case .home: return "house.fill"
-            case .rank: return "chart.bar.fill"
+            case .rank: return "safari.fill"
             case .search: return "magnifyingglass"
             case .shelf: return "books.vertical.fill"
             case .settings: return "gearshape.fill"
@@ -127,7 +127,7 @@ struct RootView: View {
 
     private var rankStack: some View {
         NavigationStack(path: $router.rankPath) {
-            RankView()
+            ExploreView()
                 .navigationDestination(for: AppRouter.Route.self) { RouteView(route: $0) }
         }
     }

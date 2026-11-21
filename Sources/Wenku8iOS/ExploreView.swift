@@ -1,12 +1,18 @@
 import SwiftUI
 import Wenku8Core
 
-struct RankView: View {
+struct ExploreView: View {
     @EnvironmentObject private var router: AppRouter
+    /// The website homepage's panels, shown above the boards.
+    @State private var blocks: [DesktopParser.HomeBlock] = []
+    @State private var isLoadingBlocks = false
+    @State private var blocksError: Error?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                exploreBlocks
+
                 // One way in. The board selector used to sit above a second row that
                 // opened the *selected* board, and "全部榜单" listed every board again
                 // — so 日点击榜 appeared three times on screen. Selecting a board now
@@ -70,7 +76,83 @@ struct RankView: View {
             .padding(.bottom, 30)
         }
         .background { AppBackground() }
-        .navigationTitle("排行榜")
+        .navigationTitle("探索")
+        .task { await loadBlocks() }
+        .refreshable { await Task { await loadBlocks(force: true) }.value }
+    }
+
+    // MARK: - Website homepage
+
+    /// The website's own homepage panels.
+    ///
+    /// They need a session and they are website content, so relay-only mode says so in one
+    /// short card instead of leaving a hole in the page.
+    @ViewBuilder
+    private var exploreBlocks: some View {
+        if !blocks.isEmpty {
+            ForEach(blocks) { block in
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader(title: block.title, symbol: "sparkles")
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(block.novels) { novel in
+                                Button {
+                                    router.open(.novel(novel.id))
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        CoverCard(
+                                            url: novel.coverURL,
+                                            title: novel.title,
+                                            width: 88,
+                                            height: 124
+                                        )
+                                        Text(novel.title)
+                                            .font(.caption2)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.leading)
+                                            .frame(width: 88, alignment: .leading)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 2)
+                    }
+                }
+            }
+        } else if isLoadingBlocks {
+            LoadingRow(text: "正在载入探索板块…")
+        } else if let blocksError {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("探索板块暂时无法载入", systemImage: "sparkles")
+                    .font(.subheadline.weight(.medium))
+                Text((blocksError as? LocalizedError)?.errorDescription ?? "请稍后再试")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await loadBlocks(force: true) }
+                } label: {
+                    Label("重新载入", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+                .secondaryGlassButtonShape()
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(cornerRadius: 22)
+        }
+    }
+
+    private func loadBlocks(force: Bool = false) async {
+        if isLoadingBlocks && !force { return }
+        isLoadingBlocks = true
+        defer { isLoadingBlocks = false }
+        do {
+            blocks = try await NovelService().exploreBlocks()
+            blocksError = nil
+        } catch {
+            if blocks.isEmpty { blocksError = error }
+        }
     }
 
     private func boardRow(_ board: RankBoard) -> some View {

@@ -71,6 +71,107 @@ public enum DesktopParser {
         return (novels, totalPages)
     }
 
+    /// One of the homepage's blocks, e.g. 新书风云榜.
+    public struct HomeBlock: Sendable, Identifiable, Hashable {
+        public var title: String
+        public var novels: [NovelSummary]
+
+        public var id: String { title }
+    }
+
+    /// The homepage's book blocks.
+    ///
+    /// The page is built from `<div class="block">` panels whose title sits in
+    /// `blocktitle`; the panel below it holds either cover cards (`title` on the anchor) or
+    /// a list of update rows (`《书名》` as the anchor text). Both shapes are read, and blocks
+    /// with no books — announcements, banners — drop out on their own.
+    ///
+    /// The homepage needs a session: anonymous visitors are redirected to the login form.
+    public static func homeBlocks(_ html: String) -> [HomeBlock] {
+        let titleRegex = try? NSRegularExpression(
+            pattern: #"<div class="blocktitle">(.*?)</div>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let ns = html as NSString
+        let matches = titleRegex?.matches(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ) ?? []
+        guard !matches.isEmpty else { return [] }
+
+        var blocks: [HomeBlock] = []
+        for (index, match) in matches.enumerated() {
+            let rawTitle = ns.substring(with: match.range(at: 1))
+            // Some titles wrap an explanatory link — 「…( 查看 榜单 )」 — so the bracketed
+            // tail is dropped rather than shown inside a section header.
+            let full = Markup.normalize(Markup.decodeEntities(Markup.plainText(rawTitle)))
+            let title = full
+                .split(whereSeparator: { $0 == "(" || $0 == "（" })
+                .first
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                ?? full
+            guard !title.isEmpty else { continue }
+
+            let start = match.range.location + match.range.length
+            let end = index + 1 < matches.count
+                ? matches[index + 1].range.location
+                : ns.length
+            guard end > start else { continue }
+            let body = ns.substring(with: NSRange(location: start, length: end - start))
+            let novels = homeBlockNovels(body)
+            guard !novels.isEmpty else { continue }
+            blocks.append(HomeBlock(title: title, novels: novels))
+        }
+        return blocks
+    }
+
+    /// Books inside one homepage panel, in page order.
+    private static func homeBlockNovels(_ body: String) -> [NovelSummary] {
+        var results: [NovelSummary] = []
+        var seen = Set<Int>()
+        var ordered: [Int] = []
+        var titles: [Int: String] = [:]
+
+        // Cover cards carry the title on the anchor.
+        let titled = try? NSRegularExpression(
+            pattern: #"<a href="/book/(\d+)\.htm"[^>]*title="([^"]*)""#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let ns = body as NSString
+        for match in titled?.matches(in: body, range: NSRange(location: 0, length: ns.length)) ?? [] {
+            guard let id = Int(ns.substring(with: match.range(at: 1))),
+                  seen.insert(id).inserted else { continue }
+            let title = Markup.normalize(Markup.decodeEntities(ns.substring(with: match.range(at: 2))))
+            guard !title.isEmpty else { continue }
+            ordered.append(id)
+            titles[id] = title
+        }
+
+        // Update rows carry it as the anchor text instead.
+        let plain = try? NSRegularExpression(
+            pattern: #"<a [^>]*href="/book/(\d+)\.htm"[^>]*>([^<]*)</a>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        for match in plain?.matches(in: body, range: NSRange(location: 0, length: ns.length)) ?? [] {
+            guard let id = Int(ns.substring(with: match.range(at: 1))),
+                  titles[id] == nil else { continue }
+            let raw = Markup.normalize(
+                Markup.decodeEntities(ns.substring(with: match.range(at: 2)))
+            )
+            let title = raw.trimmingCharacters(in: CharacterSet(charactersIn: "《》 "))
+            guard !title.isEmpty, title != "#" else { continue }
+            seen.insert(id)
+            ordered.append(id)
+            titles[id] = title
+        }
+
+        for id in ordered {
+            guard let title = titles[id] else { continue }
+            results.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+        }
+        return results
+    }
+
     /// The `作品Tags` line on a book's page.
     ///
     /// It reads `<b>作品Tags：校园 斗智 青春</b>`; the line is absent on pages the site serves

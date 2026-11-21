@@ -388,6 +388,25 @@ public struct NovelService: Sendable {
         return NovelListPage(novels: parsed.novels, totalPages: parsed.totalPages)
     }
 
+    /// The website homepage's book blocks.
+    ///
+    /// The homepage needs a session — anonymous visitors are redirected to the login form —
+    /// and it is a website page, so relay-only mode says so instead of showing nothing.
+    public func exploreBlocks() async throws -> [DesktopParser.HomeBlock] {
+        guard !relayIsAvailable || isHybrid else {
+            throw Wenku8Error.unavailable("中转模式不提供探索板块，关闭中转或开启混合模式后可以查看。")
+        }
+        let html = try await client.desktop("/index.php")
+        if AccountParser.isDesktopLoginPage(html) {
+            throw Wenku8Error.needLogin
+        }
+        let blocks = DesktopParser.homeBlocks(html)
+        guard !blocks.isEmpty else {
+            throw Wenku8Error.unavailable("首页暂时无法读取，请稍后再试。")
+        }
+        return blocks
+    }
+
     /// Every tag the site publishes, from its tag cloud.
     public func tagCloud() async throws -> [String] {
         guard !relayIsAvailable || isHybrid else {
