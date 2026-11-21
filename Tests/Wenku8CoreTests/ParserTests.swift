@@ -217,6 +217,27 @@ final class TagPageTests: XCTestCase {
         XCTAssertNil(DesktopParser.tags("<html><body>没有标签</body></html>"))
     }
 
+    func testTagGuideReadsIntroAndEntries() {
+        let html = """
+        <table class="grid"><caption>轻小说Tags检索服务相关说明和使用指南</caption>
+        <th><div><b>第一段。<br>第二段。</b></div></th>
+        <tr><td><div><ul class="ulli">
+        <li></li>
+        <li><span>青春Tag：</span><br>
+        成长是青春的一部分。
+        </li>
+        <li><span>奇幻、魔法Tag：</span><br>
+        使用可能相对混乱。
+        </li>
+        </ul></div></td></tr></table>
+        """
+        let guide = DesktopParser.tagGuide(html)
+        XCTAssertEqual(guide?.intro, ["第一段。", "第二段。"])
+        XCTAssertEqual(guide?.entries.map(\.tag), ["青春", "奇幻、魔法"])
+        XCTAssertEqual(guide?.entries.first?.text, "成长是青春的一部分。")
+        XCTAssertNil(DesktopParser.tagGuide("<html>没有说明</html>"))
+    }
+
     func testTagCloudReadsUnquotedLinks() {
         let html = "<li><a href=tags.php?t=校园>校园</a> <a href=tags.php?t=青春>青春</a></li>"
         XCTAssertEqual(DesktopParser.tagCloud(html), ["校园", "青春"])

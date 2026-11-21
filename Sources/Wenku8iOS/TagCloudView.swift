@@ -9,6 +9,8 @@ import Wenku8Core
 struct TagCloudView: View {
     @EnvironmentObject private var router: AppRouter
     @State private var groups: [DesktopParser.TagGroup] = []
+    @State private var guide: DesktopParser.TagGuide?
+    @State private var showsGuide = false
     @State private var isLoading = false
     @State private var error: Error?
     @State private var savedAt: Date?
@@ -29,6 +31,26 @@ struct TagCloudView: View {
                 )
             } else {
                 VStack(alignment: .leading, spacing: 16) {
+                    if guide != nil {
+                        Button {
+                            showsGuide = true
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "info.circle")
+                                    .foregroundStyle(.tint)
+                                Text("检索服务相关说明和使用指南")
+                                    .font(.subheadline.weight(.medium))
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .glassCard(cornerRadius: 22)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     ForEach(groups) { group in
                         VStack(alignment: .leading, spacing: 8) {
                             SectionHeader(title: group.title, symbol: "number")
@@ -60,6 +82,11 @@ struct TagCloudView: View {
             if groups.isEmpty { restore() }
             await load()
         }
+        .sheet(isPresented: $showsGuide) {
+            if let guide {
+                TagGuideSheet(guide: guide)
+            }
+        }
     }
 
     // MARK: - Stored groups
@@ -69,6 +96,7 @@ struct TagCloudView: View {
     private struct CloudSnapshot: Codable {
         var savedAt: Date
         var groups: [DesktopParser.TagGroup]
+        var guide: DesktopParser.TagGuide?
     }
 
     private static var snapshotURL: URL {
@@ -87,12 +115,13 @@ struct TagCloudView: View {
             return
         }
         groups = snapshot.groups
+        guide = snapshot.guide
         savedAt = snapshot.savedAt
     }
 
     private func store() {
         guard !groups.isEmpty else { return }
-        let snapshot = CloudSnapshot(savedAt: Date(), groups: groups)
+        let snapshot = CloudSnapshot(savedAt: Date(), groups: groups, guide: guide)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.snapshotURL, options: .atomic)
         savedAt = snapshot.savedAt
@@ -103,11 +132,63 @@ struct TagCloudView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            groups = try await NovelService().tagCloudGroups()
+            let page = try await NovelService().tagCloudPage()
+            groups = page.groups
+            guide = page.guide
             error = nil
             store()
         } catch {
             if groups.isEmpty { self.error = error }
+        }
+    }
+}
+
+
+/// The site's explanation of its tags, shown as written.
+struct TagGuideSheet: View {
+    var guide: DesktopParser.TagGuide
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(guide.intro.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.callout)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassCard(cornerRadius: 22)
+
+                    ForEach(guide.entries) { entry in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(entry.tag)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.tint)
+                            Text(entry.text)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glassCard(cornerRadius: 22)
+                    }
+                }
+                .padding(18)
+            }
+            .background { AppBackground() }
+            .navigationTitle("标签说明")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }

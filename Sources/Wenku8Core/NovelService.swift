@@ -407,8 +407,15 @@ public struct NovelService: Sendable {
         return blocks
     }
 
-    /// The site's tag cloud, grouped the way its own page groups it.
-    public func tagCloudGroups() async throws -> [DesktopParser.TagGroup] {
+    /// The site's tag cloud page: its groups of tags and its explanation of the service.
+    ///
+    /// Both live on the same page, so they come back together and are cached together.
+    public struct TagCloudPage: Sendable {
+        public var groups: [DesktopParser.TagGroup]
+        public var guide: DesktopParser.TagGuide?
+    }
+
+    public func tagCloudPage() async throws -> TagCloudPage {
         guard !relayIsAvailable || isHybrid else {
             throw Wenku8Error.unavailable("中转服务不提供标签浏览，关闭中转后可以查看。")
         }
@@ -420,7 +427,7 @@ public struct NovelService: Sendable {
         guard !groups.isEmpty else {
             throw Wenku8Error.unavailable("标签页暂时无法读取，请稍后再试。")
         }
-        return groups
+        return TagCloudPage(groups: groups, guide: DesktopParser.tagGuide(html))
     }
 
     /// Every tag the site publishes, from its tag cloud.

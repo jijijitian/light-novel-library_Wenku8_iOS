@@ -185,6 +185,20 @@ public enum DesktopParser {
         return NovelTag.split(Markup.decodeEntities(raw))
     }
 
+    /// The site's explanation of its tag service, shown below the cloud.
+    public struct TagGuide: Sendable, Hashable, Codable {
+        public struct Entry: Sendable, Hashable, Codable, Identifiable {
+            public var tag: String
+            public var text: String
+
+            public var id: String { tag }
+        }
+
+        public var title: String
+        public var intro: [String]
+        public var entries: [Entry]
+    }
+
     /// One heading on the tag cloud page, e.g. 幻想系属性.
     public struct TagGroup: Sendable, Identifiable, Hashable, Codable {
         public var title: String
@@ -248,6 +262,74 @@ public enum DesktopParser {
             groups.append(finished)
         }
         return groups
+    }
+
+    /// The 「检索服务相关说明和使用指南」 block that sits under the cloud.
+    ///
+    /// Its opening paragraphs are one `<b>` split by `<br>`, and each tag it explains is an
+    /// `<li><span>青春Tag：</span><br>…</li>`.
+    public static func tagGuide(_ html: String) -> TagGuide? {
+        guard let captionRange = html.range(
+            of: #"<caption>轻小说Tags检索服务相关说明和使用指南</caption>"#,
+            options: .regularExpression
+        ) else { return nil }
+        let title = "轻小说Tags检索服务相关说明和使用指南"
+        let rest = String(html[captionRange.upperBound...])
+
+        var intro: [String] = []
+        if let start = rest.range(of: "<b>"), let end = rest.range(of: "</b>") {
+            let body = String(rest[start.upperBound..<end.lowerBound])
+            intro = body
+                .components(separatedBy: "<br>")
+                .map { line in
+                    // The link inside the first paragraph points at the site's discussion
+                    // thread; dropping it would leave the brackets that wrapped it.
+                    let stripped = line
+                        .replacingOccurrences(
+                            of: #"<a[^>]*>.*?</a>"#,
+                            with: "",
+                            options: .regularExpression
+                        )
+                        .replacingOccurrences(of: "()", with: "")
+                        .replacingOccurrences(of: "（）", with: "")
+                    return Markup.normalize(Markup.decodeEntities(Markup.plainText(stripped)))
+                }
+                .filter { !$0.isEmpty }
+        }
+
+        var entries: [TagGuide.Entry] = []
+        if let listStart = rest.range(of: #"<ul class="ulli">"#),
+           let listEnd = rest.range(of: "</ul>", range: listStart.upperBound..<rest.endIndex) {
+            let list = String(rest[listStart.upperBound..<listEnd.lowerBound])
+            for match in regexMatches(#"<li>\s*<span>([^<]*)</span>(?:<br>)?([\s\S]*?)</li>"#, in: list) {
+                guard match.count == 2 else { continue }
+                var tag = Markup.normalize(Markup.decodeEntities(match[0]))
+                tag = tag.trimmingCharacters(in: CharacterSet(charactersIn: "：: "))
+                if tag.hasSuffix("Tag") { tag = String(tag.dropLast(3)) }
+                let text = Markup.normalize(Markup.decodeEntities(Markup.plainText(match[1])))
+                guard !tag.isEmpty, !text.isEmpty else { continue }
+                entries.append(TagGuide.Entry(tag: tag, text: text))
+            }
+        }
+
+        guard !intro.isEmpty || !entries.isEmpty else { return nil }
+        return TagGuide(title: title, intro: intro, entries: entries)
+    }
+
+    /// Every capture group, one array per match.
+    private static func regexMatches(_ pattern: String, in text: String) -> [[String]] {
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.dotMatchesLineSeparators]
+        ) else { return [] }
+        let ns = text as NSString
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { match in
+            (1..<match.numberOfRanges).map { index in
+                match.range(at: index).location == NSNotFound
+                    ? ""
+                    : ns.substring(with: match.range(at: index))
+            }
+        }
     }
 
     /// The tag names listed on the site's tag cloud page.
