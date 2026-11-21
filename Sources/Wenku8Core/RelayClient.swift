@@ -97,13 +97,21 @@ public struct RelayConfiguration: Sendable {
     /// that serves real rankings anonymously, so it is on by default; every call
     /// still falls back to the WAP/desktop paths when it fails.
     public var isEnabled: Bool
+    /// Whether a failed relay answer may be completed from the website.
+    ///
+    /// Off, a source answers alone and a gap is shown as a gap. On, the two are used
+    /// together: whichever can answer a piece does, so a board the relay cannot serve still
+    /// appears. Requires `isEnabled`: there is nothing to mix with otherwise.
+    public var isHybrid: Bool
 
     public init(
         baseURL: URL = URL(string: "https://wenku8-relay.mewx.org/")!,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        isHybrid: Bool = false
     ) {
         self.baseURL = baseURL
         self.isEnabled = isEnabled
+        self.isHybrid = isHybrid
     }
 
     public static let `default` = RelayConfiguration()
@@ -150,6 +158,11 @@ public final class RelayClient: @unchecked Sendable {
 
     public var isAvailable: Bool {
         configuration.isEnabled && provider != nil
+    }
+
+    /// True when the relay is on and the reader asked for both sources at once.
+    public var isHybrid: Bool {
+        isAvailable && configuration.isHybrid
     }
 
     /// The relay rejects a plain python/URLSession client behind Cloudflare unless

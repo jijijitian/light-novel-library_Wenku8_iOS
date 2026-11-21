@@ -38,6 +38,9 @@ struct Wenku8App: App {
         guard let raw = ProcessInfo.processInfo.environment["WENKU8_RELAY"] else { return }
         let store = RelayCredentialStore.shared
         store.setEnabled(raw == "1")
+        if let hybrid = ProcessInfo.processInfo.environment["WENKU8_HYBRID"] {
+            store.setHybridEnabled(hybrid == "1")
+        }
         #endif
     }
 
@@ -110,7 +113,7 @@ struct Wenku8App: App {
         let settings = RelayCredentialStore.shared
         let enabled = settings.isEnabled
         RelayClient.shared.configure(
-            RelayConfiguration(isEnabled: enabled),
+            RelayConfiguration(isEnabled: enabled, isHybrid: settings.isHybridEnabled),
             provider: enabled ? BuiltinAppVerProvider() : nil
         )
         if enabled {

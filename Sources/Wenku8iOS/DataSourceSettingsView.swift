@@ -6,6 +6,9 @@ struct DataSourceSettingsView: View {
     @EnvironmentObject private var account: AccountStore
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var relayEnabled = RelayCredentialStore.shared.isEnabled
+    /// Both sources at once. Only offered while the relay is on — there is nothing to mix
+    /// with otherwise.
+    @State private var hybridEnabled = RelayCredentialStore.shared.isHybridEnabled
     @State private var relayMessage: String?
     /// Outcome of the login check that follows a data source change.
     @State private var sessionMessage: String?
@@ -52,6 +55,13 @@ struct DataSourceSettingsView: View {
                 }
                 .onChange(of: relayEnabled) { _, _ in applyRelaySettings() }
 
+                if relayEnabled {
+                    Toggle(isOn: $hybridEnabled) {
+                        Label("混合模式", systemImage: "arrow.triangle.branch")
+                    }
+                    .onChange(of: hybridEnabled) { _, _ in applyRelaySettings() }
+                }
+
                 if let relayMessage {
                     Text(relayMessage)
                         .font(.caption)
@@ -65,7 +75,9 @@ struct DataSourceSettingsView: View {
                 不再混用网页版数据；中转失败会直接提示，不会换成网页版结果。\
                 账号密码与网页版相同。\
                 它是第三方公益服务，有独立配额，因此本应用强制对请求限速。\
-                关闭后改用网页版；排行榜网页版未登录时无法查看。
+                关闭后改用网页版；排行榜网页版未登录时无法查看。\
+                混合模式会同时使用两边：中转能给的先用中转，中转给不了的（比如动画化榜单）\
+                改从网页版取，因此需要同时登录两边。
                 """)
                 .font(.footnote)
             }
@@ -134,13 +146,21 @@ struct DataSourceSettingsView: View {
 
     private func applyRelaySettings() {
         relayStore.setEnabled(relayEnabled)
+        // Hybrid is a property of the relay: with it off there is nothing to mix with, so
+        // the stored preference is kept but not applied.
+        relayStore.setHybridEnabled(hybridEnabled)
         RelayClient.shared.configure(
-            RelayConfiguration(isEnabled: relayEnabled),
+            RelayConfiguration(
+                isEnabled: relayEnabled,
+                isHybrid: relayEnabled && hybridEnabled
+            ),
             provider: relayEnabled ? BuiltinAppVerProvider() : nil
         )
         if relayEnabled {
             Task { await RelayClient.shared.setMinimumInterval(relayStore.minimumInterval) }
-            relayMessage = "中转服务已启用"
+            relayMessage = hybridEnabled
+                ? "中转已启用（混合模式：两边并用）"
+                : "中转服务已启用"
         } else {
             relayMessage = "已关闭中转服务，将使用网页版数据"
         }

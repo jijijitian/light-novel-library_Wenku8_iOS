@@ -73,6 +73,13 @@ public struct NovelService: Sendable {
     /// path", which stays fully functional.
     private var relayIsAvailable: Bool { relay.isAvailable }
 
+    /// Both sources at once: the relay answers first, the website fills what it cannot.
+    ///
+    /// Off, a source answers alone — a gap is shown as a gap rather than completed from
+    /// somewhere else. On, the reader has asked for completeness and has signed in to both,
+    /// which is what makes the second source worth consulting.
+    public var isHybrid: Bool { relay.isHybrid }
+
     private func relaySearch(_ key: String, type: String) async -> [NovelSummary]? {
         guard relayIsAvailable else { return nil }
         // The relay expects the keyword form-encoded inside the action string.
@@ -114,9 +121,11 @@ public struct NovelService: Sendable {
                !result.novels.isEmpty {
                 return result
             }
-            throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
+            if !isHybrid {
+                throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
+            }
         }
-        let novels = try await rank(board, page: page)
+        let novels = try await websiteRank(board, page: page)
         return NovelListPage(novels: novels, totalPages: nil)
     }
 
@@ -128,9 +137,11 @@ public struct NovelService: Sendable {
                !result.novels.isEmpty {
                 return result
             }
-            throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
+            if !isHybrid {
+                throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
+            }
         }
-        let novels = try await library(category, page: page)
+        let novels = try await websiteLibrary(category, page: page)
         return NovelListPage(novels: novels, totalPages: nil)
     }
 
@@ -139,17 +150,18 @@ public struct NovelService: Sendable {
         let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return NovelListPage(novels: [], totalPages: nil) }
         if relayIsAvailable {
-            guard let data = try? await relay.send(
+            if let data = try? await relay.send(
                 RelayAction.search(type: query.field.parameter, key: keyword)
-            ) else {
+            ) {
+                let text = TextDecoding.decode(data)
+                let items = RelayParser.summaries(text).uniquedByID()
+                if !items.isEmpty {
+                    return NovelListPage(novels: items, totalPages: RelayParser.totalPages(text))
+                }
+            }
+            if !isHybrid {
                 throw Wenku8Error.unavailable("中转服务暂时无法搜索，请稍后再试")
             }
-            let text = TextDecoding.decode(data)
-            let items = RelayParser.summaries(text).uniquedByID()
-            guard !items.isEmpty else {
-                throw Wenku8Error.unavailable("没有找到匹配的书")
-            }
-            return NovelListPage(novels: items, totalPages: RelayParser.totalPages(text))
         }
         let novels = try await search(query)
         return NovelListPage(novels: novels, totalPages: nil)
@@ -201,17 +213,30 @@ public struct NovelService: Sendable {
             // the throttle's initial slot — is paid by a section the banner does not
             // depend on. When 今日热榜 went first it could lose that race and take the banner
             // down with it, which looked like "热榜 empty, everything else fine".
+            var missing: [HomeSection] = []
             for section in [HomeSection.latest, .hot, .newcomer, .weekly] {
                 let items = await homeSectionItems(section)
-                guard !items.isEmpty else { continue }
+                guard !items.isEmpty else {
+                    missing.append(section)
+                    continue
+                }
                 let row = HomeRow(section: section, items: items)
                 rows.append(row)
                 await onRow(row)
             }
+            // Hybrid: a section the relay could not serve is taken from the website, so the
+            // home screen is complete rather than silently short one row.
+            if isHybrid, !missing.isEmpty, let web = try? await legacyHomeRows() {
+                for section in missing {
+                    guard let row = web.first(where: { $0.section == section }) else { continue }
+                    rows.append(row)
+                    await onRow(row)
+                }
+            }
             // Handed back in page order regardless of fetch order, so the caller's final
             // assignment (if it ever uses it) matches what is on screen.
-            return HomeSection.allCases.compactMap { section in
-                rows.first { $0.section == section }
+            return HomeSection.allCases.compactMap { wanted in
+                rows.first { $0.section == wanted }
             }
         }
         // The website path parses one page, so it is all-or-nothing by nature.
@@ -269,8 +294,15 @@ public struct NovelService: Sendable {
             if let items = await relayNovelList(sort: board.rawValue, page: page), !items.isEmpty {
                 return items
             }
-            throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
+            if !isHybrid {
+                throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
+            }
         }
+        return try await websiteRank(board, page: page)
+    }
+
+    /// The website's version of a board, without consulting the relay.
+    private func websiteRank(_ board: RankBoard, page: Int) async throws -> [NovelSummary] {
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
@@ -327,8 +359,15 @@ public struct NovelService: Sendable {
             if let items = await relayNovelList(sort: sort, page: page), !items.isEmpty {
                 return items
             }
-            throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
+            if !isHybrid {
+                throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
+            }
         }
+        return try await websiteLibrary(category, page: page)
+    }
+
+    /// The website's version of a category, without consulting the relay.
+    private func websiteLibrary(_ category: Int, page: Int) async throws -> [NovelSummary] {
         let path = "/article/sortlist.php?class=\(category)&page=\(page)"
         let html = try await client.wap(path)
         if WAPParser.requiresLogin(html) {
@@ -553,21 +592,29 @@ public struct NovelService: Sendable {
     }
 
     private func onlineDetail(aid: Int) async throws -> NovelDetail {
-        if relayIsAvailable {
-            guard let data = try? await relay.send(RelayAction.meta(aid: aid)) else {
-                throw Wenku8Error.unavailable("中转服务暂时无法获取书籍信息")
-            }
-            var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
-            guard !parsed.title.isEmpty else {
-                throw Wenku8Error.unavailable("中转服务返回的书籍信息不完整")
-            }
-            // `meta` carries the short preview; `intro` carries the full text.
-            if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
-                let full = RelayParser.intro(TextDecoding.decode(introData))
-                if !full.isEmpty { parsed.intro = full }
-            }
-            return parsed
+        if relayIsAvailable, let relayed = await relayDetail(aid: aid) {
+            return relayed
         }
+        if relayIsAvailable, !isHybrid {
+            throw Wenku8Error.unavailable("中转服务暂时无法获取书籍信息")
+        }
+        return try await websiteDetail(aid: aid)
+    }
+
+    private func relayDetail(aid: Int) async -> NovelDetail? {
+        guard let data = try? await relay.send(RelayAction.meta(aid: aid)) else { return nil }
+        var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
+        guard !parsed.title.isEmpty else { return nil }
+        // `meta` carries the short preview; `intro` carries the full text.
+        if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
+            let full = RelayParser.intro(TextDecoding.decode(introData))
+            if !full.isEmpty { parsed.intro = full }
+        }
+        return parsed
+    }
+
+    /// The website's version of a book's detail, without consulting the relay.
+    private func websiteDetail(aid: Int) async throws -> NovelDetail {
         let html = try await client.wap("/article/articleinfo.php?id=\(aid)")
         var detail = WAPParser.novelDetail(html, aid: aid)
         if detail.title.isEmpty {
@@ -612,15 +659,11 @@ public struct NovelService: Sendable {
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {
-        if relayIsAvailable {
-            guard let data = try? await relay.send(RelayAction.chapterList(aid: aid)) else {
-                throw Wenku8Error.unavailable("中转服务暂时无法获取目录")
-            }
-            let relayed = RelayParser.volumes(TextDecoding.decode(data))
-            guard !relayed.isEmpty else {
-                throw Wenku8Error.unavailable("中转服务返回的目录为空")
-            }
-            return Self.mergeVolumes(relayed)
+        if relayIsAvailable, let relayed = await relayVolumes(aid: aid) {
+            return relayed
+        }
+        if relayIsAvailable, !isHybrid {
+            throw Wenku8Error.unavailable("中转服务暂时无法获取目录")
         }
         do {
             let volumes = try await wapVolumes(aid: aid)
@@ -630,6 +673,19 @@ public struct NovelService: Sendable {
             // "对不起，该文章不存在！" for books the desktop site still indexes.
         }
         return try await desktopVolumes(aid: aid)
+    }
+
+    private func relayVolumes(aid: Int) async -> [Volume]? {
+        guard let data = try? await relay.send(RelayAction.chapterList(aid: aid)) else { return nil }
+        let relayed = RelayParser.volumes(TextDecoding.decode(data))
+        guard !relayed.isEmpty else { return nil }
+        return Self.mergeVolumes(relayed)
+    }
+
+    private func relayChapter(aid: Int, cid: Int) async -> ChapterContent? {
+        guard let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) else { return nil }
+        let parsed = RelayParser.chapter(TextDecoding.decode(data), aid: aid, cid: cid)
+        return parsed.blocks.isEmpty ? nil : parsed
     }
 
     private func wapVolumes(aid: Int) async throws -> [Volume] {
@@ -701,14 +757,12 @@ public struct NovelService: Sendable {
             return cached
         }
         if relayIsAvailable {
-            guard let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) else {
+            if let relayed = await relayChapter(aid: aid, cid: cid) {
+                return relayed
+            }
+            if !isHybrid {
                 throw Wenku8Error.unavailable("中转服务暂时无法获取正文")
             }
-            let parsed = RelayParser.chapter(TextDecoding.decode(data), aid: aid, cid: cid)
-            guard !parsed.blocks.isEmpty else {
-                throw Wenku8Error.unavailable("中转服务返回的正文为空")
-            }
-            return parsed
         }
         var pages: [ChapterContent] = []
         var page = 1
@@ -867,8 +921,22 @@ public struct NovelService: Sendable {
         // — and vice versa. Asking both would report a login the reader's requests do not
         // actually use.
         if relayIsAvailable {
-            return await relaySessionState()
+            let relayed = await relaySessionState()
+            guard isHybrid else { return relayed }
+            // Hybrid reads from both, so a session on one side is not enough: a missing
+            // website session turns every fallback into a login gate.
+            let site = await websiteSessionState()
+            switch (relayed, site) {
+            case (.signedOut, _), (_, .signedOut): return .signedOut
+            case (.unknown, _), (_, .unknown): return .unknown
+            case (.signedIn(let name), _): return .signedIn(name)
+            }
         }
+        return await websiteSessionState()
+    }
+
+    /// What the website says about the current session.
+    private func websiteSessionState() async -> SessionState {
         guard let html = try? await client.desktop("/book/1614.htm") else { return .unknown }
         if AccountParser.isDesktopLoginPage(html), !html.contains("欢迎您") { return .signedOut }
         // Only the header counts. A cookie in the store proves nothing: it can name an
@@ -1091,7 +1159,13 @@ public struct NovelService: Sendable {
         if let message = AccountParser.loginErrorMessage(html) {
             throw Wenku8Error.login(message)
         }
-        return try await confirmSiteSession()
+        let session = try await confirmSiteSession()
+        // Hybrid reads from both, so the other session is established here rather than
+        // asking the reader to sign in twice.
+        if isHybrid {
+            _ = await signInToRelay(username: name, password: password)
+        }
+        return session
     }
 
     /// Signs the relay in, reporting only whether it worked.

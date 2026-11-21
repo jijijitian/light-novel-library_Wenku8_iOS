@@ -20,6 +20,7 @@ public final class RelayCredentialStore: RelayAppVerProvider, @unchecked Sendabl
         static let appVer = "relay.appver"
         static let enabled = "relay.enabled"
         static let minimumInterval = "relay.minimumInterval"
+        static let hybrid = "relay.hybrid"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -30,6 +31,16 @@ public final class RelayCredentialStore: RelayAppVerProvider, @unchecked Sendabl
     public var isEnabled: Bool {
         if defaults.object(forKey: Key.enabled) == nil { return true }
         return defaults.bool(forKey: Key.enabled)
+    }
+
+    /// Whether the relay and the website are used together. Off unless the relay is on.
+    public var isHybridEnabled: Bool {
+        guard isEnabled else { return false }
+        return defaults.bool(forKey: Key.hybrid)
+    }
+
+    public func setHybridEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: Key.hybrid)
     }
 
     /// The stored credential, verbatim. Exposed so Settings can show whether one
