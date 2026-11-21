@@ -826,7 +826,13 @@ public struct NovelService: Sendable {
     ///
     /// The list is paged — a popular book runs to hundreds of pages — so the page count
     /// comes back with the rows and the caller decides when to ask for the next one.
-    public func reviews(aid: Int, page: Int = 1) async throws -> ReviewPage {
+    public func reviews(aid: Int, page: Int = 1, force: Bool = false) async throws -> ReviewPage {
+        // Cached first, like the blurb and the catalogue: the stored page appears at once
+        // and only a deliberate refresh goes to the site.
+        if page == 1, !force, let cached = await offline.cachedReviews(for: aid) {
+            let total = await offline.cachedReviewPages(for: aid) ?? 1
+            return ReviewPage(reviews: cached, page: 1, totalPages: total)
+        }
         do {
             let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
             if WAPParser.requiresLogin(html) {
@@ -837,7 +843,11 @@ public struct NovelService: Sendable {
             // The first page joins the book's metadata, so a book opened offline still
             // says what readers made of it.
             if page == 1, !reviews.isEmpty {
-                await offline.cacheReviews(reviews, for: aid)
+                await offline.cacheReviews(
+                    reviews,
+                    for: aid,
+                    totalPages: pagination?.total ?? 1
+                )
             }
             return ReviewPage(
                 reviews: reviews,

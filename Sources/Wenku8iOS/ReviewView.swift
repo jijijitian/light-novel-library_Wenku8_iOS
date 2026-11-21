@@ -35,7 +35,7 @@ final class ReviewViewModel: ObservableObject {
         isLoading = true
         defer { if generation == mine { isLoading = false } }
         do {
-            let result = try await service.reviews(aid: novelID, page: 1)
+            let result = try await service.reviews(aid: novelID, page: 1, force: force)
             guard generation == mine else { return }
             reviews = result.reviews
             page = 1
