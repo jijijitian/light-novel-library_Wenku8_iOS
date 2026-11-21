@@ -179,6 +179,8 @@ struct RouteView: View {
             LibraryListView(categoryID: id, title: name)
         case .tag(let name):
             TagNovelListView(tag: name)
+        case .tagList(let name, let sort):
+            TagBooksView(tag: name, sort: sort)
         case .rankBoards:
             RankBoardsView()
         case .tagCloud:

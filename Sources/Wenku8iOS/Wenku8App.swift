@@ -195,9 +195,12 @@ final class AppRouter: ObservableObject {
         if ProcessInfo.processInfo.environment["WENKU8_OPEN_HEAT"] != nil {
             rankPath = [.heatRank]
         }
-        // `WENKU8_OPEN_TAG=校园` opens a tag's book list directly.
+        // `WENKU8_OPEN_TAG=校园` opens a tag's choices, and `WENKU8_TAG_SORT` picks which
+        // ordering to open straight away.
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_TAG"], !raw.isEmpty {
-            homePath = [.tag(raw)]
+            let sort = ProcessInfo.processInfo.environment["WENKU8_TAG_SORT"]
+                .flatMap(TagSort.init(rawValue:)) ?? nil
+            homePath = sort.map { [.tag(raw), .tagList(raw, $0)] } ?? [.tag(raw)]
         }
         // `WENKU8_OPEN_REVIEWS=aid` opens a book's review list directly, the same way.
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_REVIEWS"],
@@ -224,6 +227,7 @@ final class AppRouter: ObservableObject {
         case rankList(RankBoard)
         case library(Int, String)
         case tag(String)
+        case tagList(String, TagSort)
         case rankBoards
         case tagCloud
         case yearlyRank

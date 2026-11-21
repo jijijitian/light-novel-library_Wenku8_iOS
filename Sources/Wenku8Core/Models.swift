@@ -233,21 +233,14 @@ public enum TagSort: String, CaseIterable, Identifiable, Codable, Sendable {
 
     public var title: String {
         switch self {
-        case .updated: return "按更新查看"
-        case .popular: return "按热门查看"
-        case .completed: return "只看已完结"
-        case .anime: return "只看动画化"
-        }
-    }
-
-    public var shortTitle: String {
-        switch self {
-        case .updated: return "按更新"
-        case .popular: return "按热门"
+        case .updated: return "最近更新"
+        case .popular: return "热门"
         case .completed: return "已完结"
         case .anime: return "已动画化"
         }
     }
+
+    public var shortTitle: String { title }
 }
 
 public struct LibraryCategory: Identifiable, Hashable, Codable, Sendable {

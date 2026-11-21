@@ -75,6 +75,22 @@ final class PagedNovelListModel: ObservableObject {
         await reload()
     }
 
+    /// Starts over with a different loader.
+    ///
+    /// A plain reload can be superseded by the load already in flight — its `generation`
+    /// guard then drops the result and the list on screen never changes. Clearing first, and
+    /// bumping the generation, makes the new loader's first page the one that lands.
+    func restart(_ loader: @escaping (Int) async throws -> NovelListPage) async {
+        generation &+= 1
+        novels = []
+        seen = []
+        loadedPages = 0
+        totalPages = nil
+        error = nil
+        loadPage = loader
+        await reload()
+    }
+
     /// Re-fetches from the first page, replacing the list only once new data arrives.
     ///
     /// The old version cleared `novels` before fetching, so a pull emptied the screen and
