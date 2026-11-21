@@ -183,6 +183,11 @@ final class AppRouter: ObservableObject {
            let aid = Int(raw) {
             homePath = [.novel(aid)]
         }
+        // `WENKU8_OPEN_REVIEWS=aid` opens a book's review list directly, the same way.
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_REVIEWS"],
+           let aid = Int(raw) {
+            homePath = [.novel(aid), .reviews(aid)]
+        }
         #endif
     }
 

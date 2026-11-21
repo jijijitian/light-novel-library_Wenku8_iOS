@@ -280,6 +280,22 @@ public enum WAPParser {
         return reviews
     }
 
+    /// The page counter at the foot of a review list, written `[1/428]`.
+    public static func reviewPagination(_ html: String) -> (page: Int, total: Int)? {
+        // Both numbers are needed, so this cannot use `firstMatch` — that helper returns
+        // capture group one only, which would give the current page and no total.
+        guard let regex = try? NSRegularExpression(pattern: #"\[(\d+)/(\d+)\]"#) else {
+            return nil
+        }
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        guard let match = regex.firstMatch(in: html, range: range),
+              let pageRange = Range(match.range(at: 1), in: html),
+              let totalRange = Range(match.range(at: 2), in: html),
+              let page = Int(html[pageRange]),
+              let total = Int(html[totalRange]) else { return nil }
+        return (page, total)
+    }
+
     public static func reviewPosts(_ html: String) -> (topic: String, posts: [ReviewPost]) {
         let topic = firstMatch(#"主题：([^<]*)<br"#, in: html).map { Markup.decodeEntities($0) } ?? ""
         var posts: [ReviewPost] = []

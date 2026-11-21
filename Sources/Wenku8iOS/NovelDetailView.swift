@@ -300,6 +300,7 @@ struct NovelDetailView: View {
         VStack(alignment: .leading, spacing: 20) {
             header(detail)
             introCard(detail)
+            reviewsCard
             if !model.volumes.isEmpty {
                 chaptersCard
             } else if model.isLoading || model.isLoadingVolumes {
@@ -501,6 +502,29 @@ struct NovelDetailView: View {
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("未下载")
         }
+    }
+
+    /// Entry to this book's review list.
+    private var reviewsCard: some View {
+        Button {
+            router.open(.reviews(novelID))
+        } label: {
+            HStack(spacing: 12) {
+                SectionHeader(
+                    title: "书评",
+                    subtitle: "看看大家怎么说",
+                    symbol: "text.bubble"
+                )
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(cornerRadius: 22)
+        }
+        .buttonStyle(.plain)
     }
 
     private var chaptersCard: some View {

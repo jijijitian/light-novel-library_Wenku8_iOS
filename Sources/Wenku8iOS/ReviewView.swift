@@ -5,9 +5,16 @@ import Wenku8Core
 final class ReviewViewModel: ObservableObject {
     @Published private(set) var reviews: [NovelReview] = []
     @Published private(set) var isLoading = false
+    /// True while a further page is on its way, as opposed to the first load.
+    @Published private(set) var isLoadingPage = false
     @Published private(set) var error: Error?
+    /// Whether the site has more pages than the ones already shown.
+    @Published private(set) var hasMore = false
 
     private let service: NovelService
+    private var novelID: Int?
+    private var page = 0
+    private var totalPages = 0
     private var loaded = false
     /// Identifies the current load, so a superseded one cannot write over its result.
     private var generation = 0
@@ -17,24 +24,51 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func load(novelID: Int, force: Bool = false) async {
-        guard force || !loaded else { return }
         // A pull used to be dropped while a load was in flight, so the gesture did
         // nothing exactly when the reader was most likely to try it.
         if isLoading && !force { return }
+        guard force || !loaded else { return }
+
         generation &+= 1
         let mine = generation
+        self.novelID = novelID
         isLoading = true
         defer { if generation == mine { isLoading = false } }
         do {
-            let result = try await service.reviews(aid: novelID)
-            if generation == mine {
-                reviews = result
-                error = nil
-                loaded = true
-            }
+            let result = try await service.reviews(aid: novelID, page: 1)
+            guard generation == mine else { return }
+            reviews = result.reviews
+            page = 1
+            totalPages = result.totalPages
+            hasMore = result.totalPages > 1
+            error = nil
+            loaded = true
         } catch {
             // Keep whatever is on screen; only an empty page becomes an error.
             if generation == mine, reviews.isEmpty { self.error = error }
+        }
+    }
+
+    /// Appends the next page. Called when the last row comes into view.
+    func loadNextPage() async {
+        guard hasMore, !isLoading, !isLoadingPage, let novelID, page > 0 else { return }
+        let mine = generation
+        isLoadingPage = true
+        defer { isLoadingPage = false }
+        do {
+            let result = try await service.reviews(aid: novelID, page: page + 1)
+            guard generation == mine else { return }
+            // The site sometimes repeats a row across pages; a duplicate id would be a
+            // fatal error for `ForEach`, so only new ones are appended.
+            let known = Set(reviews.map(\.id))
+            reviews.append(contentsOf: result.reviews.filter { !known.contains($0.id) })
+            page = result.page
+            totalPages = result.totalPages
+            hasMore = page < totalPages
+            error = nil
+        } catch {
+            // A failed page keeps the rows already shown; the footer offers a retry.
+            hasMore = false
         }
     }
 }
@@ -87,6 +121,17 @@ struct ReviewListView: View {
                             .glassCard(cornerRadius: 18)
                         }
                         .buttonStyle(.plain)
+                        .onAppear {
+                            // The last row coming into view is the signal to fetch the next
+                            // page; with ten rows a page this only fires at the bottom.
+                            if review.id == model.reviews.last?.id {
+                                Task { await model.loadNextPage() }
+                            }
+                        }
+                    }
+
+                    if model.isLoadingPage {
+                        LoadingRow(text: "正在载入更多书评…")
                     }
                 }
                 .padding(.horizontal, 18)
@@ -110,9 +155,14 @@ final class ReviewDetailViewModel: ObservableObject {
     @Published private(set) var posts: [ReviewPost] = []
     @Published private(set) var topic = ""
     @Published private(set) var isLoading = false
+    @Published private(set) var isLoadingPage = false
     @Published private(set) var error: Error?
+    @Published private(set) var hasMore = false
 
     private let service: NovelService
+    private var rid: Int?
+    private var page = 0
+    private var totalPages = 0
 
     init(service: NovelService = NovelService()) {
         self.service = service
@@ -120,15 +170,36 @@ final class ReviewDetailViewModel: ObservableObject {
 
     func load(rid: Int) async {
         guard !isLoading else { return }
+        self.rid = rid
         isLoading = true
         defer { isLoading = false }
         do {
-            let result = try await service.reviewPosts(rid: rid)
+            let result = try await service.reviewPosts(rid: rid, page: 1)
             posts = result.posts
             topic = result.topic
+            page = 1
+            totalPages = result.totalPages
+            hasMore = result.totalPages > 1
             error = nil
         } catch {
             self.error = error
+        }
+    }
+
+    /// Appends the next page of floors.
+    func loadNextPage() async {
+        guard hasMore, !isLoading, !isLoadingPage, let rid, page > 0 else { return }
+        isLoadingPage = true
+        defer { isLoadingPage = false }
+        do {
+            let result = try await service.reviewPosts(rid: rid, page: page + 1)
+            let known = Set(posts.map(\.id))
+            posts.append(contentsOf: result.posts.filter { !known.contains($0.id) })
+            page = result.page
+            totalPages = result.totalPages
+            hasMore = page < totalPages
+        } catch {
+            hasMore = false
         }
     }
 }
@@ -164,6 +235,15 @@ struct ReviewDetailSheet: View {
                             }
                             .padding(14)
                             .glassCard(cornerRadius: 18)
+                            .onAppear {
+                                if post.id == model.posts.last?.id {
+                                    Task { await model.loadNextPage() }
+                                }
+                            }
+                        }
+
+                        if model.isLoadingPage {
+                            LoadingRow(text: "正在载入更多回复…")
                         }
                     }
                 }

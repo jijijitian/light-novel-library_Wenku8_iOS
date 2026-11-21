@@ -822,17 +822,38 @@ public struct NovelService: Sendable {
         return nil
     }
 
-    public func reviews(aid: Int) async throws -> [NovelReview] {
-        let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all")
+    /// One page of a book's reviews.
+    ///
+    /// The list is paged — a popular book runs to hundreds of pages — so the page count
+    /// comes back with the rows and the caller decides when to ask for the next one.
+    public func reviews(aid: Int, page: Int = 1) async throws -> ReviewPage {
+        let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
         if WAPParser.requiresLogin(html) {
             throw Wenku8Error.needLogin
         }
-        return WAPParser.reviews(html)
+        let reviews = WAPParser.reviews(html)
+        let pagination = WAPParser.reviewPagination(html)
+        return ReviewPage(
+            reviews: reviews,
+            page: page,
+            totalPages: pagination?.total ?? page
+        )
     }
 
-    public func reviewPosts(rid: Int) async throws -> (topic: String, posts: [ReviewPost]) {
-        let html = try await client.wap("/article/reviewshow.php?rid=\(rid)")
-        return WAPParser.reviewPosts(html)
+    /// One page of a review thread.
+    ///
+    /// Threads page too — a popular one runs to a hundred pages — so the caller gets the
+    /// floor list together with the page count.
+    public func reviewPosts(rid: Int, page: Int = 1) async throws -> ReviewThread {
+        let html = try await client.wap("/article/reviewshow.php?rid=\(rid)&page=\(page)")
+        let parsed = WAPParser.reviewPosts(html)
+        let pagination = WAPParser.reviewPagination(html)
+        return ReviewThread(
+            topic: parsed.topic,
+            posts: parsed.posts,
+            page: page,
+            totalPages: pagination?.total ?? page
+        )
     }
 
     public func accountName() async -> String? {
@@ -866,6 +887,34 @@ public struct NovelService: Sendable {
     /// Distinct from the login check: this says nothing about an account, only whether the
     /// reader's phone can reach the site or the relay right now — the question a reader has
     /// when a page stays empty and they do not know whether to change mirror or wait.
+    /// A page of a review thread.
+    public struct ReviewThread: Sendable {
+        public var topic: String
+        public var posts: [ReviewPost]
+        public var page: Int
+        public var totalPages: Int
+
+        public init(topic: String, posts: [ReviewPost], page: Int, totalPages: Int) {
+            self.topic = topic
+            self.posts = posts
+            self.page = page
+            self.totalPages = totalPages
+        }
+    }
+
+    /// A page of a book's review list.
+    public struct ReviewPage: Sendable {
+        public var reviews: [NovelReview]
+        public var page: Int
+        public var totalPages: Int
+
+        public init(reviews: [NovelReview], page: Int, totalPages: Int) {
+            self.reviews = reviews
+            self.page = page
+            self.totalPages = totalPages
+        }
+    }
+
     public struct Connectivity: Sendable, Equatable {
         public enum Target: String, Sendable, CaseIterable {
             case site
