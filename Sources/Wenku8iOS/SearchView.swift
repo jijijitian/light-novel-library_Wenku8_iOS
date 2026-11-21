@@ -92,7 +92,6 @@ struct SearchView: View {
                     .glassCard(cornerRadius: 22)
                 } else {
                     historySection
-                    categorySection
                 }
             }
             .padding(.horizontal, 18)
@@ -188,28 +187,6 @@ struct SearchView: View {
             .padding(14)
             .glassCard(cornerRadius: 22)
         }
-    }
-
-    private var categorySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "按文库浏览", subtitle: "图书馆分类", symbol: "building.columns")
-            FlowLayout(spacing: 8) {
-                ForEach(LibraryCategory.all) { category in
-                    Button {
-                        router.open(.library(category.id, category.name))
-                    } label: {
-                        Text(category.name)
-                            .font(.caption)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                    }
-                    .buttonStyle(.plain)
-                    .glassCapsule(interactive: true)
-                }
-            }
-        }
-        .padding(14)
-        .glassCard(cornerRadius: 22)
     }
 
     private func submit() {

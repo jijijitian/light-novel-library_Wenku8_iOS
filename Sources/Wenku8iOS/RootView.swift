@@ -15,7 +15,7 @@ struct RootView: View {
 
         var title: String {
             switch self {
-            case .home: return "书架首页"
+            case .home: return "首页"
             case .rank: return "探索"
             case .search: return "搜索"
             case .shelf: return "我的书架"
@@ -185,6 +185,8 @@ struct RouteView: View {
             TagCloudView()
         case .yearlyRank:
             YearlyRankView()
+        case .libraryBrowse:
+            LibraryBrowseView()
         }
     }
 }

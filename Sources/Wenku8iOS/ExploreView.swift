@@ -14,7 +14,7 @@ struct ExploreView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                // The two ways in, first thing on the page: everything below is the
+                // The three ways in, first thing on the page: everything below is the
                 // website's own panels, which are for browsing rather than for finding a
                 // specific screen.
                 VStack(alignment: .leading, spacing: 12) {
@@ -38,6 +38,19 @@ struct ExploreView: View {
                             title: "Tags云集",
                             subtitle: "按题材浏览全站标签",
                             symbol: "number"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().opacity(0.35)
+
+                    Button {
+                        router.open(.libraryBrowse)
+                    } label: {
+                        entryRow(
+                            title: "按文库浏览",
+                            subtitle: "按文库分类查找书籍",
+                            symbol: "building.columns"
                         )
                     }
                     .buttonStyle(.plain)
