@@ -205,6 +205,65 @@ public enum DesktopParser {
         public var entries: [Entry]
     }
 
+    /// One column of the heat ranking page (`/top.php`), e.g. 总热度榜.
+    public struct HeatBoard: Sendable, Identifiable, Hashable, Codable {
+        public var title: String
+        public var novels: [NovelSummary]
+
+        public var id: String { title }
+    }
+
+    /// The heat ranking page's columns.
+    ///
+    /// Each is `<div class="blockcaption">总热度榜</div>` followed by a `ultop` list of book
+    /// links; the page carries twenty of them, one per library and per measure.
+    public static func heatBoards(_ html: String) -> [HeatBoard] {
+        let captionRegex = try? NSRegularExpression(
+            pattern: #"class="blockcaption">([^<]*)</div>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let ns = html as NSString
+        let matches = captionRegex?.matches(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ) ?? []
+        guard !matches.isEmpty else { return [] }
+
+        var boards: [HeatBoard] = []
+        for (index, match) in matches.enumerated() {
+            let title = Markup.normalize(
+                Markup.decodeEntities(ns.substring(with: match.range(at: 1)))
+            )
+            guard !title.isEmpty else { continue }
+            let start = match.range.location + match.range.length
+            let end = index + 1 < matches.count ? matches[index + 1].range.location : ns.length
+            guard end > start else { continue }
+            let body = ns.substring(with: NSRange(location: start, length: end - start))
+            let novels = heatNovels(body)
+            guard !novels.isEmpty else { continue }
+            boards.append(HeatBoard(title: title, novels: novels))
+        }
+        return boards
+    }
+
+    private static func heatNovels(_ body: String) -> [NovelSummary] {
+        var results: [NovelSummary] = []
+        var seen = Set<Int>()
+        let regex = try? NSRegularExpression(
+            pattern: #"<a href="/book/(\d+)\.htm" title="([^"]*)""#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let ns = body as NSString
+        for match in regex?.matches(in: body, range: NSRange(location: 0, length: ns.length)) ?? [] {
+            guard let id = Int(ns.substring(with: match.range(at: 1))),
+                  seen.insert(id).inserted else { continue }
+            let title = Markup.normalize(Markup.decodeEntities(ns.substring(with: match.range(at: 2))))
+            guard !title.isEmpty else { continue }
+            results.append(NovelSummary(id: id, title: title, coverURL: CoverURL.image(for: id)))
+        }
+        return results
+    }
+
     /// One heading on the tag cloud page, e.g. 幻想系属性.
     public struct TagGroup: Sendable, Identifiable, Hashable, Codable {
         public var title: String

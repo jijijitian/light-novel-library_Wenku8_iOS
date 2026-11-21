@@ -187,6 +187,8 @@ struct RouteView: View {
             YearlyRankView()
         case .libraryBrowse:
             LibraryBrowseView()
+        case .heatRank:
+            HeatRankView()
         }
     }
 }

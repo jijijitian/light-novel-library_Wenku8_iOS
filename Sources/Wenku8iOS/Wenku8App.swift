@@ -191,6 +191,10 @@ final class AppRouter: ObservableObject {
         if ProcessInfo.processInfo.environment["WENKU8_OPEN_RANK_BOARDS"] != nil {
             rankPath = [.rankBoards]
         }
+        // `WENKU8_OPEN_HEAT=1` opens the heat ranking directly.
+        if ProcessInfo.processInfo.environment["WENKU8_OPEN_HEAT"] != nil {
+            rankPath = [.heatRank]
+        }
         // `WENKU8_OPEN_TAG=校园` opens a tag's book list directly.
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_TAG"], !raw.isEmpty {
             homePath = [.tag(raw)]
@@ -224,6 +228,7 @@ final class AppRouter: ObservableObject {
         case tagCloud
         case yearlyRank
         case libraryBrowse
+        case heatRank
     }
 
     func open(_ route: Route) {

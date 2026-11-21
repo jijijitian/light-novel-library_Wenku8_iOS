@@ -430,6 +430,24 @@ public struct NovelService: Sendable {
         return TagCloudPage(groups: groups, guide: DesktopParser.tagGuide(html))
     }
 
+    /// The heat ranking page (`/top.php`): twenty columns, one per library and measure.
+    ///
+    /// The page needs a session and only exists on the website, so relay-only mode says so.
+    public func heatBoards() async throws -> [DesktopParser.HeatBoard] {
+        guard !relayIsAvailable || isHybrid else {
+            throw Wenku8Error.unavailable("中转模式不提供热度排名，关闭中转或开启混合模式后可以查看。")
+        }
+        let html = try await client.desktop("/top.php")
+        if AccountParser.isDesktopLoginPage(html) {
+            throw Wenku8Error.needLogin
+        }
+        let boards = DesktopParser.heatBoards(html)
+        guard !boards.isEmpty else {
+            throw Wenku8Error.unavailable("热度排名暂时无法读取，请稍后再试。")
+        }
+        return boards
+    }
+
     /// Every tag the site publishes, from its tag cloud.
     public func tagCloud() async throws -> [String] {
         guard !relayIsAvailable || isHybrid else {

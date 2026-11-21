@@ -7,8 +7,6 @@ struct ExploreView: View {
     @State private var blocks: [DesktopParser.HomeBlock] = []
     @State private var isLoadingBlocks = false
     @State private var blocksError: Error?
-    /// Panels the reader opened to see all their books instead of the first few.
-    @State private var expandedBlocks: Set<String> = []
     @State private var savedAt: Date?
 
     var body: some View {
@@ -38,6 +36,19 @@ struct ExploreView: View {
                             title: "Tags云集",
                             subtitle: "按题材浏览全站标签",
                             symbol: "number"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().opacity(0.35)
+
+                    Button {
+                        router.open(.heatRank)
+                    } label: {
+                        entryRow(
+                            title: "热度排名",
+                            subtitle: "各文库的站内热度榜",
+                            symbol: "flame"
                         )
                     }
                     .buttonStyle(.plain)
@@ -86,59 +97,14 @@ struct ExploreView: View {
     private var exploreBlocks: some View {
         if !blocks.isEmpty {
             ForEach(blocks) { block in
-                let expanded = expandedBlocks.contains(block.id)
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .firstTextBaseline) {
-                        SectionHeader(title: block.title, symbol: "sparkles")
-                        if let board = moreBoard(block.moreURL) {
-                            Button {
-                                router.open(.rankList(board))
-                            } label: {
-                                Text("更多")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.tint)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if block.novels.count > 4 {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    if expanded {
-                                        expandedBlocks.remove(block.id)
-                                    } else {
-                                        expandedBlocks.insert(block.id)
-                                    }
-                                }
-                            } label: {
-                                Text(expanded ? "收起" : "展开全部")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.tint)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-
-                    if expanded {
-                        LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
-                            alignment: .leading,
-                            spacing: 14
-                        ) {
-                            ForEach(block.novels) { novel in
-                                novelCell(novel)
-                            }
-                        }
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(alignment: .top, spacing: 12) {
-                                ForEach(block.novels) { novel in
-                                    novelCell(novel)
-                                }
-                            }
-                            .padding(.horizontal, 2)
-                        }
-                    }
-                }
+                CoverPanel(
+                    title: block.title,
+                    novels: block.novels,
+                    more: moreBoard(block.moreURL).map { board in
+                        { router.open(.rankList(board)) }
+                    },
+                    onSelect: { router.open(.novel($0)) }
+                )
             }
         } else if isLoadingBlocks {
             LoadingRow(text: "正在载入探索板块…")
@@ -161,6 +127,21 @@ struct ExploreView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard(cornerRadius: 22)
         }
+    }
+
+    /// The list a panel's 「更多」 link points at.
+    ///
+    /// The site writes those links two ways: a ranking (`toplist.php?sort=…`) and a plain
+    /// listing (`articlelist.php?fullflag=1`, used by 完本轻小说推广区). Both open a board, so
+    /// the link is honoured rather than only the first shape.
+    private func moreBoard(_ moreURL: String?) -> RankBoard? {
+        guard let moreURL else { return nil }
+        if let range = moreURL.range(of: "sort=") {
+            let sort = moreURL[range.upperBound...].prefix { $0.isLetter }
+            return RankBoard(rawValue: String(sort))
+        }
+        if moreURL.contains("fullflag=1") { return .fullflag }
+        return nil
     }
 
     // MARK: - Stored panels
@@ -197,43 +178,6 @@ struct ExploreView: View {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.snapshotURL, options: .atomic)
         savedAt = snapshot.savedAt
-    }
-
-    /// The list a panel's 「更多」 link points at.
-    ///
-    /// The site writes those links two ways: a ranking (`toplist.php?sort=…`) and a plain
-    /// listing (`articlelist.php?fullflag=1`, used by 完本轻小说推广区). Both open a board, so
-    /// the link is honoured rather than only the first shape.
-    private func moreBoard(_ moreURL: String?) -> RankBoard? {
-        guard let moreURL else { return nil }
-        if let range = moreURL.range(of: "sort=") {
-            let sort = moreURL[range.upperBound...].prefix { $0.isLetter }
-            return RankBoard(rawValue: String(sort))
-        }
-        if moreURL.contains("fullflag=1") { return .fullflag }
-        return nil
-    }
-
-    /// One book in a panel: cover plus title, the same in both layouts.
-    private func novelCell(_ novel: NovelSummary) -> some View {
-        Button {
-            router.open(.novel(novel.id))
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                CoverCard(
-                    url: novel.coverURL,
-                    title: novel.title,
-                    width: 88,
-                    height: 124
-                )
-                Text(novel.title)
-                    .font(.caption2)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .frame(width: 88, alignment: .leading)
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     private func loadBlocks(force: Bool = false) async {
