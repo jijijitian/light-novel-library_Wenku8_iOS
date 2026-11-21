@@ -21,7 +21,7 @@ struct ExploreView: View {
                     } label: {
                         entryRow(
                             title: "排行榜",
-                            subtitle: "年度榜单与 13 个分类排行",
+                            subtitle: "年度榜单等分类排行",
                             symbol: "chart.bar"
                         )
                     }
