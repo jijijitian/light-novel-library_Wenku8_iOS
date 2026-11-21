@@ -131,7 +131,7 @@ iOS 17.0 及以上。液态玻璃效果需要 iOS 26 或更新版本，旧系统
 ## 致谢
 
 - [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android)：功能与交互参考，UI 设计：ZERO
-- 轻小说文库社区中转服务的维护者
+- [celia-sh/Novella](https://github.com/celia-sh/Novella)：封面取色与书籍详情页的配色方案参考
 
 ## 许可
 
