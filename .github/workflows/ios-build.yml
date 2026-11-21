@@ -1,9 +1,10 @@
 name: iOS Build
 
+# Only on demand. The repository is private, where Actions cannot run, so a push-triggered
+# build fails every time and mails a failure — and a passing one would build nothing useful.
+# Releases dispatch this workflow while the repository is briefly public; see
+# `tools/release-via-ci.sh`.
 on:
-  push:
-    branches: [master, main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
