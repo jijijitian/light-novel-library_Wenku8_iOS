@@ -22,8 +22,8 @@ struct RankBoardsView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 4)
-                        NavigationLink {
-                            YearlyRankView()
+                        Button {
+                            router.open(.yearlyRank)
                         } label: {
                             boardRow(title: "年度排行", symbol: "trophy")
                         }
@@ -37,8 +37,8 @@ struct RankBoardsView: View {
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 4)
                             ForEach(group.boards) { board in
-                                NavigationLink {
-                                    RankListView(board: board)
+                                Button {
+                                    router.open(.rankList(board))
                                 } label: {
                                     boardRow(board)
                                 }
@@ -93,7 +93,9 @@ struct RankBoardsView: View {
             ("月榜", [.monthvisit, .monthvote]),
             ("总榜", [.allvisit, .allvote, .goodnum]),
             ("更新与入库", [.lastupdate, .postdate]),
-            ("其他", [.size, .fullflag, .anime]),
+            ("其他", [.size]),
+            // `.fullflag` (已完结) and `.anime` (已动画化) are filters on what a book is,
+            // not rankings, so they are not listed here.
         ].filter { !$0.1.isEmpty }
     }
 }

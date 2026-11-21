@@ -183,6 +183,8 @@ struct RouteView: View {
             RankBoardsView()
         case .tagCloud:
             TagCloudView()
+        case .yearlyRank:
+            YearlyRankView()
         }
     }
 }

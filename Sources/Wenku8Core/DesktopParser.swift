@@ -186,7 +186,7 @@ public enum DesktopParser {
     }
 
     /// One heading on the tag cloud page, e.g. 幻想系属性.
-    public struct TagGroup: Sendable, Identifiable, Hashable {
+    public struct TagGroup: Sendable, Identifiable, Hashable, Codable {
         public var title: String
         public var tags: [String]
 

@@ -222,6 +222,7 @@ final class AppRouter: ObservableObject {
         case tag(String)
         case rankBoards
         case tagCloud
+        case yearlyRank
     }
 
     func open(_ route: Route) {

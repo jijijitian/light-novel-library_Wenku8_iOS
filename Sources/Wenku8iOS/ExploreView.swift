@@ -18,8 +18,8 @@ struct ExploreView: View {
                 // website's own panels, which are for browsing rather than for finding a
                 // specific screen.
                 VStack(alignment: .leading, spacing: 12) {
-                    NavigationLink {
-                        RankBoardsView()
+                    Button {
+                        router.open(.rankBoards)
                     } label: {
                         entryRow(
                             title: "排行榜",
@@ -31,8 +31,8 @@ struct ExploreView: View {
 
                     Divider().opacity(0.35)
 
-                    NavigationLink {
-                        TagCloudView()
+                    Button {
+                        router.open(.tagCloud)
                     } label: {
                         entryRow(
                             title: "Tags云集",
@@ -78,8 +78,8 @@ struct ExploreView: View {
                     HStack(alignment: .firstTextBaseline) {
                         SectionHeader(title: block.title, symbol: "sparkles")
                         if let sort = block.moreSort, let board = RankBoard(rawValue: sort) {
-                            NavigationLink {
-                                RankListView(board: board)
+                            Button {
+                                router.open(.rankList(board))
                             } label: {
                                 Text("更多")
                                     .font(.caption.weight(.medium))
