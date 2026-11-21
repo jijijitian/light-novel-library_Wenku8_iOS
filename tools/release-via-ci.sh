@@ -26,6 +26,11 @@ restore_private=""
 if [ "$visibility" = "PRIVATE" ]; then
   echo "==> making the repository public so Actions can run"
   gh repo edit "$REPO" --visibility public --accept-visibility-change-consequences >/dev/null
+  # Dispatching immediately after the flip still counts against the private quota: GitHub
+  # answers "The job was not started because recent account payments have failed". Give the
+  # visibility change a moment to settle, and make sure it really took.
+  sleep 30
+  test "$(gh repo view "$REPO" --json visibility --jq '.visibility')" = "PUBLIC"
   restore_private=1
 fi
 trap 'if [ -n "$restore_private" ]; then echo "==> restoring private"; gh repo edit "$REPO" --visibility private --accept-visibility-change-consequences >/dev/null; fi' EXIT

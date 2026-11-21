@@ -41,7 +41,36 @@ struct Wenku8App: App {
         #endif
     }
 
+    /// Debug-only: fetches a URL with the app's own session and writes the body to
+    /// `Documents/dump.html`, so page markup can be inspected without driving the UI.
+    private static func dumpURLFromEnvironment() {
+        #if DEBUG
+        guard let raw = ProcessInfo.processInfo.environment["WENKU8_DUMP_URL"],
+              let url = URL(string: raw) else { return }
+        Task {
+            var request = URLRequest(url: url)
+            request.setValue(
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+                + "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+                forHTTPHeaderField: "User-Agent"
+            )
+            guard let response = try? await Wenku8Client.shared.send(request) else {
+                print("[dump] request failed")
+                return
+            }
+            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let file = directory.appendingPathComponent("dump.html")
+            try? response.data.write(to: file)
+            let text = response.text
+            let links = text.components(separatedBy: "/book/").count - 1
+            print("[dump] status=\(response.status) bytes=\(response.data.count) bookLinks=\(links)")
+            print("[dump] finalURL=\(response.finalURL?.absoluteString ?? "nil")")
+        }
+        #endif
+    }
+
     init() {
+        Self.dumpURLFromEnvironment()
         Self.seedRelayFromEnvironment()
         Self.seedAppearanceFromEnvironment()
         Self.seedCoverTintFromEnvironment()
