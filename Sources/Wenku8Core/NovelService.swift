@@ -831,7 +831,7 @@ public struct NovelService: Sendable {
         // and only a deliberate refresh goes to the site.
         if page == 1, !force, let cached = await offline.cachedReviews(for: aid) {
             let total = await offline.cachedReviewPages(for: aid) ?? 1
-            return ReviewPage(reviews: cached, page: 1, totalPages: total)
+            return ReviewPage(reviews: cached, page: 1, totalPages: total, isCached: true)
         }
         do {
             let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
@@ -931,11 +931,20 @@ public struct NovelService: Sendable {
         public var reviews: [NovelReview]
         public var page: Int
         public var totalPages: Int
+        /// True when the page came from the store rather than the site, so the caller knows
+        /// to show it at once and refresh behind it.
+        public var isCached: Bool
 
-        public init(reviews: [NovelReview], page: Int, totalPages: Int) {
+        public init(
+            reviews: [NovelReview],
+            page: Int,
+            totalPages: Int,
+            isCached: Bool = false
+        ) {
             self.reviews = reviews
             self.page = page
             self.totalPages = totalPages
+            self.isCached = isCached
         }
     }
 

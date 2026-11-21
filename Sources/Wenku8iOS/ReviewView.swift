@@ -43,10 +43,29 @@ final class ReviewViewModel: ObservableObject {
             hasMore = result.totalPages > 1
             error = nil
             loaded = true
+
+            // A stored page carries the page count it was written with, which an older
+            // manifest does not have. Refresh behind the list so the count — and the rows —
+            // become current without making the reader wait.
+            if result.isCached {
+                Task { await self.revalidate(novelID: novelID, generation: mine) }
+            }
         } catch {
             // Keep whatever is on screen; only an empty page becomes an error.
             if generation == mine, reviews.isEmpty { self.error = error }
         }
+    }
+
+    /// Refreshes the first page behind what is already on screen.
+    private func revalidate(novelID: Int, generation mine: Int) async {
+        guard let fresh = try? await service.reviews(aid: novelID, page: 1, force: true),
+              generation == mine,
+              // The reader may already have paged further; replacing the list then would
+              // throw that away.
+              page == 1 else { return }
+        reviews = fresh.reviews
+        totalPages = fresh.totalPages
+        hasMore = fresh.totalPages > 1
     }
 
     /// Appends the next page. Called when the last row comes into view.
