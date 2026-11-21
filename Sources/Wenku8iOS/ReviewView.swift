@@ -100,6 +100,9 @@ struct ReviewListView: View {
     var novelID: Int
     @StateObject private var model = ReviewViewModel()
     @State private var selected: NovelReview?
+    /// The book's cover colours, shared with the detail page so the two screens match.
+    @AppStorage(CoverPalette.storageKey) private var coverTint = false
+    @State private var palette: CoverPalette?
 
     var body: some View {
         ScrollView {
@@ -161,15 +164,29 @@ struct ReviewListView: View {
                 .padding(.vertical, 12)
             }
         }
-        .background { AppBackground() }
+        .background { TintedBackground(palette: coverTint ? palette : nil) }
         .navigationTitle("书评")
         .navigationBarTitleDisplayMode(.inline)
         // Unstructured, so the retracting refresh control cannot cancel the fetch.
         .refreshable { await Task { await model.load(novelID: novelID, force: true) }.value }
-        .task { await model.load(novelID: novelID) }
-        .sheet(item: $selected) { review in
-            ReviewDetailSheet(review: review)
+        .task {
+            await loadPalette()
+            await model.load(novelID: novelID)
         }
+        .sheet(item: $selected) { review in
+            ReviewDetailSheet(review: review, palette: coverTint ? palette : nil)
+        }
+    }
+
+    /// Reads the cover's colours from the stored image; the book is usually already cached
+    /// because the list is reached from the detail page.
+    private func loadPalette() async {
+        guard coverTint else {
+            palette = nil
+            return
+        }
+        let remote = await OfflineStore.shared.entry(for: novelID)?.detail?.coverURL
+        palette = await CoverPalette.palette(for: novelID, remoteURL: remote)
     }
 }
 
@@ -229,6 +246,7 @@ final class ReviewDetailViewModel: ObservableObject {
 
 struct ReviewDetailSheet: View {
     var review: NovelReview
+    var palette: CoverPalette?
     @StateObject private var model = ReviewDetailViewModel()
     @Environment(\.dismiss) private var dismiss
 
@@ -272,7 +290,7 @@ struct ReviewDetailSheet: View {
                 }
                 .padding(18)
             }
-            .background { AppBackground() }
+            .background { TintedBackground(palette: palette) }
             .navigationTitle("书评详情")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
