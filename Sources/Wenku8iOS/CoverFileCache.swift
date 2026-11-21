@@ -41,9 +41,20 @@ final class CoverFileCache: @unchecked Sendable {
     }
 
     /// The image for a cover URL, from memory, from disk, or from the network in that order.
+    ///
+    /// A `file:` URL is a cover the app already downloaded for offline reading; it is read in
+    /// place rather than fetched, since `URLSession` cannot load it.
     func image(for url: URL) async -> UIImage? {
         let key = url.absoluteString as NSString
         if let cached = memory.object(forKey: key) { return cached }
+
+        if url.isFileURL {
+            guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else {
+                return nil
+            }
+            memory.setObject(image, forKey: key)
+            return image
+        }
 
         if failed.contains(url.absoluteString) { return nil }
 
