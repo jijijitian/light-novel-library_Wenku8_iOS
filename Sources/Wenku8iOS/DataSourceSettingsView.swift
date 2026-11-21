@@ -71,7 +71,7 @@ struct DataSourceSettingsView: View {
             } footer: {
                 Text("""
                 中转模式：使用中转api获取数据，中转有配额限制，请求自动限速。
-                混合模式：同时使用网页数据源与中转数据源，双方数据互补。
+                混合模式：以中转数据为主，中转取不到的数据才改用网页端。
                 """)
                 .font(.footnote)
             }
