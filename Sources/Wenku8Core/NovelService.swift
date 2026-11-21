@@ -371,7 +371,7 @@ public struct NovelService: Sendable {
     /// ignores the filter — so this is a website feature. In relay-only mode it says so
     /// instead of returning an empty list, which would read as "nothing carries this tag".
     /// Hybrid may use it, because there the website is already signed in and in use.
-    public func novels(tag: String, page: Int = 1) async throws -> NovelListPage {
+    public func novels(tag: String, page: Int = 1, sort: TagSort = .updated) async throws -> NovelListPage {
         guard !relayIsAvailable || isHybrid else {
             throw Wenku8Error.unavailable("中转服务不提供按标签浏览，关闭中转后可以查看。")
         }
@@ -380,7 +380,9 @@ public struct NovelService: Sendable {
         guard let encoded = TextDecoding.formEncodeGBK(name) else {
             throw Wenku8Error.unavailable("这个标签无法打开，请稍后再试")
         }
-        let html = try await client.desktop("/modules/article/tags.php?t=\(encoded)&page=\(page)")
+        let html = try await client.desktop(
+            "/modules/article/tags.php?t=\(encoded)&page=\(page)&v=\(sort.value)"
+        )
         if AccountParser.isDesktopLoginPage(html) {
             throw Wenku8Error.needLogin
         }

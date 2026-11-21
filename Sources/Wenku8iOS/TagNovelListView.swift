@@ -14,9 +14,15 @@ struct TagNovelListView: View {
     @StateObject private var model = PagedNovelListModel()
     /// The last list read for this tag, painted while the refresh is in flight.
     @State private var stored: [NovelSummary] = []
+    /// The site offers four orderings of a tag; this is the one on screen.
+    @State private var sort: TagSort = .updated
 
     var body: some View {
         ScrollView {
+            sortRow
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+
             if model.novels.isEmpty && model.isLoading {
                 if stored.isEmpty {
                     LoadingRow(text: "正在载入「\(tag)」的书…")
@@ -64,6 +70,13 @@ struct TagNovelListView: View {
             await reload()
         }
         .onChange(of: model.novels.count) { _, _ in store() }
+        .onChange(of: sort) { _, _ in
+            // A different ordering is a different list, so the stored copy is swapped
+            // before the request goes out.
+            stored = []
+            restore()
+            Task { await reloadForSort() }
+        }
     }
 
     // MARK: - Stored list
@@ -87,7 +100,7 @@ struct TagNovelListView: View {
 
     private var cacheURL: URL {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in tag.utf8 {
+        for byte in (tag + "#" + sort.rawValue).utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x100_0000_01b3
         }
@@ -111,9 +124,38 @@ struct TagNovelListView: View {
         try? data.write(to: cacheURL, options: .atomic)
     }
 
-    private func reload() async {
-        await model.start { page in
-            try await NovelService().novels(tag: tag, page: page)
+    /// The four orderings the site links above a tag's list.
+    private var sortRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(TagSort.allCases) { option in
+                    Button {
+                        sort = option
+                    } label: {
+                        Text(option.title)
+                            .font(.caption)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(sort == option ? Color.accentColor : .primary)
+                            .glassCapsule(interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 2)
         }
+    }
+
+    private func reload() async {
+        let sort = self.sort
+        await model.start { page in
+            try await NovelService().novels(tag: tag, page: page, sort: sort)
+        }
+    }
+
+    /// Swaps the ordering under an already-loaded list.
+    private func reloadForSort() async {
+        await reload()
+        await model.reload()
     }
 }

@@ -212,6 +212,44 @@ public struct ReviewPost: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+/// How a tag's book list is ordered, as the site's own four links order it.
+public enum TagSort: String, CaseIterable, Identifiable, Codable, Sendable {
+    case updated
+    case popular
+    case completed
+    case anime
+
+    public var id: String { rawValue }
+
+    /// The `v` parameter the site's tag page takes.
+    public var value: Int {
+        switch self {
+        case .updated: return 0
+        case .popular: return 1
+        case .completed: return 2
+        case .anime: return 3
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .updated: return "按更新查看"
+        case .popular: return "按热门查看"
+        case .completed: return "只看已完结"
+        case .anime: return "只看动画化"
+        }
+    }
+
+    public var shortTitle: String {
+        switch self {
+        case .updated: return "按更新"
+        case .popular: return "按热门"
+        case .completed: return "已完结"
+        case .anime: return "已动画化"
+        }
+    }
+}
+
 public struct LibraryCategory: Identifiable, Hashable, Codable, Sendable {
     public var id: Int
     public var name: String
