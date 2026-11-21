@@ -9,6 +9,7 @@ struct ExploreView: View {
     @State private var blocksError: Error?
     /// Panels the reader opened to see all their books instead of the first few.
     @State private var expandedBlocks: Set<String> = []
+    @State private var savedAt: Date?
 
     var body: some View {
         ScrollView {
@@ -17,11 +18,6 @@ struct ExploreView: View {
                 // website's own panels, which are for browsing rather than for finding a
                 // specific screen.
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(
-                        title: "去别处看看",
-                        subtitle: "榜单与标签各有独立页面",
-                        symbol: "square.grid.2x2"
-                    )
                     NavigationLink {
                         RankBoardsView()
                     } label: {
@@ -58,7 +54,12 @@ struct ExploreView: View {
         }
         .background { AppBackground() }
         .navigationTitle("探索")
-        .task { await loadBlocks() }
+        .task {
+            // Paint what was stored first, then refresh: the panels are the first thing
+            // the screen shows and should not arrive after the reader has looked at it.
+            if blocks.isEmpty { restore() }
+            await loadBlocks()
+        }
         .refreshable { await Task { await loadBlocks(force: true) }.value }
     }
 
@@ -76,6 +77,16 @@ struct ExploreView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline) {
                         SectionHeader(title: block.title, symbol: "sparkles")
+                        if let sort = block.moreSort, let board = RankBoard(rawValue: sort) {
+                            NavigationLink {
+                                RankListView(board: board)
+                            } label: {
+                                Text("更多")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.tint)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if block.novels.count > 4 {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -139,6 +150,42 @@ struct ExploreView: View {
         }
     }
 
+    // MARK: - Stored panels
+
+    /// The panels are worth keeping between launches: they are the same for hours, and the
+    /// homepage is a session-gated page that can be slow.
+    private struct ExploreSnapshot: Codable {
+        var savedAt: Date
+        var blocks: [DesktopParser.HomeBlock]
+    }
+
+    private static var snapshotURL: URL {
+        let base = (try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("ExploreSnapshot.json")
+    }
+
+    private func restore() {
+        guard let data = try? Data(contentsOf: Self.snapshotURL),
+              let snapshot = try? JSONDecoder().decode(ExploreSnapshot.self, from: data) else {
+            return
+        }
+        blocks = snapshot.blocks
+        savedAt = snapshot.savedAt
+    }
+
+    private func store() {
+        guard !blocks.isEmpty else { return }
+        let snapshot = ExploreSnapshot(savedAt: Date(), blocks: blocks)
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: Self.snapshotURL, options: .atomic)
+        savedAt = snapshot.savedAt
+    }
+
     /// One book in a panel: cover plus title, the same in both layouts.
     private func novelCell(_ novel: NovelSummary) -> some View {
         Button {
@@ -168,6 +215,7 @@ struct ExploreView: View {
         do {
             blocks = try await NovelService().exploreBlocks()
             blocksError = nil
+            store()
         } catch {
             if blocks.isEmpty { blocksError = error }
         }

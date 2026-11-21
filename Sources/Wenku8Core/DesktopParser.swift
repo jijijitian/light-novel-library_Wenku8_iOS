@@ -72,9 +72,12 @@ public enum DesktopParser {
     }
 
     /// One of the homepage's blocks, e.g. 新书风云榜.
-    public struct HomeBlock: Sendable, Identifiable, Hashable {
+    public struct HomeBlock: Sendable, Identifiable, Hashable, Codable {
         public var title: String
         public var novels: [NovelSummary]
+        /// The `sort` of the list behind the panel's 「更多」 link, when it has one — that
+        /// link is the site's own way of expanding a panel into a full ranking.
+        public var moreSort: String?
 
         public var id: String { title }
     }
@@ -120,7 +123,8 @@ public enum DesktopParser {
             let body = ns.substring(with: NSRange(location: start, length: end - start))
             let novels = homeBlockNovels(body)
             guard !novels.isEmpty else { continue }
-            blocks.append(HomeBlock(title: title, novels: novels))
+            let moreSort = firstMatch(#"toplist\.php\?sort=([a-z]+)"#, in: body)
+            blocks.append(HomeBlock(title: title, novels: novels, moreSort: moreSort))
         }
         return blocks
     }
