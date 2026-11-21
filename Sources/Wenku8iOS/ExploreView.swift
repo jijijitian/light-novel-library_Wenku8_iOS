@@ -7,68 +7,49 @@ struct ExploreView: View {
     @State private var blocks: [DesktopParser.HomeBlock] = []
     @State private var isLoadingBlocks = false
     @State private var blocksError: Error?
+    /// Panels the reader opened to see all their books instead of the first few.
+    @State private var expandedBlocks: Set<String> = []
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                exploreBlocks
-
-                // One way in. The board selector used to sit above a second row that
-                // opened the *selected* board, and "全部榜单" listed every board again
-                // — so 日点击榜 appeared three times on screen. Selecting a board now
-                // opens it, and the grouped list is the single index of all boards.
+                // The two ways in, first thing on the page: everything below is the
+                // website's own panels, which are for browsing rather than for finding a
+                // specific screen.
                 VStack(alignment: .leading, spacing: 12) {
                     SectionHeader(
-                        title: "全部榜单",
-                        subtitle: "点击任意榜单查看完整排行",
-                        symbol: "chart.bar"
+                        title: "去别处看看",
+                        subtitle: "榜单与标签各有独立页面",
+                        symbol: "square.grid.2x2"
                     )
-                    // 年度 first, as an ordinary row: it is a board like the others, not
-                    // a separate section of the page.
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("年度")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                        NavigationLink {
-                            YearlyRankView()
-                        } label: {
-                            boardRow(title: "年度排行", symbol: "trophy")
-                        }
-                        .buttonStyle(.plain)
-
-                        // Tags belong with browsing rather than with search: the site
-                        // publishes them as a cloud, and each one opens a book list.
-                        NavigationLink {
-                            TagCloudView()
-                        } label: {
-                            boardRow(title: "标签", symbol: "number")
-                        }
-                        .buttonStyle(.plain)
+                    NavigationLink {
+                        RankBoardsView()
+                    } label: {
+                        entryRow(
+                            title: "排行榜",
+                            subtitle: "年度榜单与 13 个分类排行",
+                            symbol: "chart.bar"
+                        )
                     }
+                    .buttonStyle(.plain)
 
-                    ForEach(Self.groupedBoards, id: \.title) { group in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(group.title)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 4)
-                            ForEach(group.boards) { board in
-                                NavigationLink {
-                                    RankListView(board: board)
-                                } label: {
-                                    boardRow(board)
-                                }
-                                .buttonStyle(.plain)
-                                if board != group.boards.last {
-                                    Divider().opacity(0.35)
-                                }
-                            }
-                        }
+                    Divider().opacity(0.35)
+
+                    NavigationLink {
+                        TagCloudView()
+                    } label: {
+                        entryRow(
+                            title: "Tags云集",
+                            subtitle: "按题材浏览全站标签",
+                            symbol: "number"
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(14)
                 .glassCard(cornerRadius: 22)
+
+                exploreBlocks
 
             }
             .padding(.horizontal, 18)
@@ -91,32 +72,47 @@ struct ExploreView: View {
     private var exploreBlocks: some View {
         if !blocks.isEmpty {
             ForEach(blocks) { block in
+                let expanded = expandedBlocks.contains(block.id)
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: block.title, symbol: "sparkles")
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 12) {
-                            ForEach(block.novels) { novel in
-                                Button {
-                                    router.open(.novel(novel.id))
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        CoverCard(
-                                            url: novel.coverURL,
-                                            title: novel.title,
-                                            width: 88,
-                                            height: 124
-                                        )
-                                        Text(novel.title)
-                                            .font(.caption2)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.leading)
-                                            .frame(width: 88, alignment: .leading)
+                    HStack(alignment: .firstTextBaseline) {
+                        SectionHeader(title: block.title, symbol: "sparkles")
+                        if block.novels.count > 4 {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    if expanded {
+                                        expandedBlocks.remove(block.id)
+                                    } else {
+                                        expandedBlocks.insert(block.id)
                                     }
                                 }
-                                .buttonStyle(.plain)
+                            } label: {
+                                Text(expanded ? "收起" : "展开全部")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.tint)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if expanded {
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                            alignment: .leading,
+                            spacing: 14
+                        ) {
+                            ForEach(block.novels) { novel in
+                                novelCell(novel)
                             }
                         }
-                        .padding(.horizontal, 2)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 12) {
+                                ForEach(block.novels) { novel in
+                                    novelCell(novel)
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                        }
                     }
                 }
             }
@@ -143,6 +139,28 @@ struct ExploreView: View {
         }
     }
 
+    /// One book in a panel: cover plus title, the same in both layouts.
+    private func novelCell(_ novel: NovelSummary) -> some View {
+        Button {
+            router.open(.novel(novel.id))
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CoverCard(
+                    url: novel.coverURL,
+                    title: novel.title,
+                    width: 88,
+                    height: 124
+                )
+                Text(novel.title)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(width: 88, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     private func loadBlocks(force: Bool = false) async {
         if isLoadingBlocks && !force { return }
         isLoadingBlocks = true
@@ -155,168 +173,26 @@ struct ExploreView: View {
         }
     }
 
-    private func boardRow(_ board: RankBoard) -> some View {
-        boardRow(title: board.title, symbol: board.symbol)
-    }
-
-    /// One row in the board index.
-    private func boardRow(title: String, symbol: String) -> some View {
+    /// One row in the "去别处看看" card.
+    private func entryRow(title: String, subtitle: String, symbol: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.subheadline)
-                .frame(width: 26)
                 .foregroundStyle(.tint)
-            Text(title).font(.subheadline)
-            Spacer()
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
             Image(systemName: "chevron.right")
-                .font(.footnote)
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 8)
+        .padding(.vertical, 2)
         .contentShape(Rectangle())
     }
-
-    /// Boards grouped by period, which is how the site presents them: a click board
-    /// and a recommendation board for each of day / week / month, plus the totals.
-    private static var groupedBoards: [(title: String, boards: [RankBoard])] {
-        [
-            ("日榜", [.dayvisit, .dayvote]),
-            ("周榜", [.weekvisit, .weekvote]),
-            ("月榜", [.monthvisit, .monthvote]),
-            ("总榜", [.allvisit, .allvote, .goodnum]),
-            ("更新与入库", [.lastupdate, .postdate]),
-            ("其他", [.size, .fullflag, .anime]),
-        ].filter { !$0.1.isEmpty }
-    }
 }
-
-struct RankBoardPicker: View {
-    @Binding var selection: RankBoard
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            GlassContainer(spacing: 10) {
-                HStack(spacing: 10) {
-                    ForEach(RankBoard.allCases) { board in
-                        Button {
-                            withAnimation(.snappy(duration: 0.22)) { selection = board }
-                        } label: {
-                            Text(board.title)
-                                .font(.caption.weight(.medium))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        .glassCapsule(
-                            tint: selection == board ? AppTheme.accent.opacity(0.55) : nil,
-                            interactive: true
-                        )
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-    }
-}
-
-struct RankListView: View {
-    var board: RankBoard
-    @EnvironmentObject private var router: AppRouter
-    @StateObject private var model = PagedNovelListModel()
-    @State private var showWeb = false
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if model.novels.isEmpty && model.isLoading {
-                    LoadingRow()
-                } else if let error = model.error, model.novels.isEmpty {
-                    VStack(spacing: 12) {
-                        ErrorStateView(error: error) { Task { await reload() } }
-                        Button("在网页版查看") { showWeb = true }
-                            .secondaryGlassButtonShape()
-                    }
-                } else {
-                    PagedNovelGrid(model: model) { novelID in
-                        router.open(.novel(novelID))
-                    }
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
-        }
-        .background { AppBackground() }
-        .navigationTitle(board.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.reload() }
-        .task { await reload() }
-        .task { await debugAutoReloadIfRequested() }
-        .sheet(isPresented: $showWeb) {
-            WebSheet(url: SiteDomain.current.webURL("/toplist.php?sort=\(board.rawValue)"))
-        }
-    }
-
-    private func reload() async {
-        await model.start { page in
-            try await NovelService().rankPage(board, page: page)
-        }
-    }
-
-    /// Fires a reload whose runner is cancelled mid-flight, the way SwiftUI cancels a
-    /// `.refreshable` closure, and logs what the list holds before and after.
-    ///
-    ///     --environment-variables '{"WENKU8_AUTO_REFRESH":"1"}'
-    func debugAutoReloadIfRequested() async {
-        #if DEBUG
-        guard ProcessInfo.processInfo.environment["WENKU8_AUTO_REFRESH"] != nil else { return }
-        try? await Task.sleep(nanoseconds: 8_000_000_000)
-        print("[rank] before -> \(model.novels.prefix(3).map { $0.id })")
-        let pull = Task { await model.reload() }
-        pull.cancel()
-        await pull.value
-        print("[rank] after cancelled reload -> \(model.novels.prefix(3).map { $0.id })")
-        #endif
-    }
-
-    /// The yearly-board selector, shown only when the yearly list is displayed.
-}
-
-struct LibraryListView: View {
-    var categoryID: Int
-    var title: String
-
-    @EnvironmentObject private var router: AppRouter
-    @StateObject private var model = PagedNovelListModel()
-
-    var body: some View {
-        ScrollView {
-            if model.novels.isEmpty && model.isLoading {
-                LoadingRow()
-            } else if let error = model.error, model.novels.isEmpty {
-                ErrorStateView(error: error) {
-                    Task { await reload() }
-                }
-            } else {
-                PagedNovelGrid(model: model) { novelID in
-                    router.open(.novel(novelID))
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-            }
-        }
-        .background { AppBackground() }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await model.reload() }
-        .task { await reload() }
-    }
-
-    private func reload() async {
-        await model.start { page in
-            try await NovelService().libraryPage(categoryID, page: page)
-        }
-    }
-}
-

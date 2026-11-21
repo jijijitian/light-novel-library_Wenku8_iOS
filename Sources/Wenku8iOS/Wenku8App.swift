@@ -183,6 +183,14 @@ final class AppRouter: ObservableObject {
            let aid = Int(raw) {
             homePath = [.novel(aid)]
         }
+        // `WENKU8_OPEN_TAG_CLOUD=1` opens Tags云集 directly.
+        if ProcessInfo.processInfo.environment["WENKU8_OPEN_TAG_CLOUD"] != nil {
+            rankPath = [.tagCloud]
+        }
+        // `WENKU8_OPEN_RANK_BOARDS=1` opens the board index directly.
+        if ProcessInfo.processInfo.environment["WENKU8_OPEN_RANK_BOARDS"] != nil {
+            rankPath = [.rankBoards]
+        }
         // `WENKU8_OPEN_TAG=校园` opens a tag's book list directly.
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_TAG"], !raw.isEmpty {
             homePath = [.tag(raw)]
@@ -212,6 +220,8 @@ final class AppRouter: ObservableObject {
         case rankList(RankBoard)
         case library(Int, String)
         case tag(String)
+        case rankBoards
+        case tagCloud
     }
 
     func open(_ route: Route) {

@@ -407,6 +407,22 @@ public struct NovelService: Sendable {
         return blocks
     }
 
+    /// The site's tag cloud, grouped the way its own page groups it.
+    public func tagCloudGroups() async throws -> [DesktopParser.TagGroup] {
+        guard !relayIsAvailable || isHybrid else {
+            throw Wenku8Error.unavailable("中转服务不提供标签浏览，关闭中转后可以查看。")
+        }
+        let html = try await client.desktop("/modules/article/tags.php")
+        if AccountParser.isDesktopLoginPage(html) {
+            throw Wenku8Error.needLogin
+        }
+        let groups = DesktopParser.tagCloudGroups(html)
+        guard !groups.isEmpty else {
+            throw Wenku8Error.unavailable("标签页暂时无法读取，请稍后再试。")
+        }
+        return groups
+    }
+
     /// Every tag the site publishes, from its tag cloud.
     public func tagCloud() async throws -> [String] {
         guard !relayIsAvailable || isHybrid else {

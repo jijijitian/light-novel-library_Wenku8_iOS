@@ -181,6 +181,71 @@ public enum DesktopParser {
         return NovelTag.split(Markup.decodeEntities(raw))
     }
 
+    /// One heading on the tag cloud page, e.g. 幻想系属性.
+    public struct TagGroup: Sendable, Identifiable, Hashable {
+        public var title: String
+        public var tags: [String]
+
+        public var id: String { title }
+    }
+
+    /// The tag cloud, split into the headings the site gives it.
+    ///
+    /// The page is a list of `<li>` rows: one row is a heading (`日常系属性Tags：`), the rows
+    /// after it are that heading's tags. Reading it as a flat list loses the grouping the
+    /// site uses to make a hundred tags browsable.
+    public static func tagCloudGroups(_ html: String) -> [TagGroup] {
+        let rowRegex = try? NSRegularExpression(
+            pattern: #"<li>(.*?)</li>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let tagRegex = try? NSRegularExpression(
+            pattern: #"<a href=tags\.php\?t=[^>]*>([^<]+)</a>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        var groups: [TagGroup] = []
+        var current: TagGroup?
+
+        for match in rowRegex?.matches(in: html, range: range) ?? [] {
+            guard let bodyRange = Range(match.range(at: 1), in: html) else { continue }
+            let body = String(html[bodyRange])
+
+            if body.contains("tags.php?t=") {
+                let bodyNS = body as NSString
+                let bodyRangeNS = NSRange(location: 0, length: bodyNS.length)
+                for tagMatch in tagRegex?.matches(in: body, range: bodyRangeNS) ?? [] {
+                    let name = Markup.normalize(
+                        Markup.decodeEntities(bodyNS.substring(with: tagMatch.range(at: 1)))
+                    )
+                    guard !name.isEmpty else { continue }
+                    if current == nil { current = TagGroup(title: "标签", tags: []) }
+                    current?.tags.append(name)
+                }
+            } else {
+                // A heading: flush whatever was being collected.
+                if let finished = current, !finished.tags.isEmpty {
+                    groups.append(finished)
+                }
+                current = nil
+                let text = Markup.normalize(
+                    Markup.decodeEntities(Markup.plainText(body))
+                )
+                guard text.hasSuffix("：") || text.hasSuffix(":") else { continue }
+                var title = String(text.dropLast()).trimmingCharacters(in: .whitespaces)
+                if title.hasSuffix("Tags") {
+                    title = String(title.dropLast(4)).trimmingCharacters(in: .whitespaces)
+                }
+                guard !title.isEmpty else { continue }
+                current = TagGroup(title: title, tags: [])
+            }
+        }
+        if let finished = current, !finished.tags.isEmpty {
+            groups.append(finished)
+        }
+        return groups
+    }
+
     /// The tag names listed on the site's tag cloud page.
     ///
     /// Its links are written without quotes — `<a href=tags.php?t=青春>青春</a>` — so the
