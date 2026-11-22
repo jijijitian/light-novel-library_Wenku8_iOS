@@ -9,6 +9,8 @@ struct DataSourceSettingsView: View {
     /// Both sources at once. Only offered while the relay is on — there is nothing to mix
     /// with otherwise.
     @State private var hybridEnabled = RelayCredentialStore.shared.isHybridEnabled
+    /// Which relay wire protocol to use.
+    @State private var protocolPreference = RelayCredentialStore.shared.protocolPreference
     /// Outcome of the login check that follows a data source change.
     @State private var sessionMessage: String?
     /// Set when the switch left the app signed out, so the section offers a way back in.
@@ -64,6 +66,14 @@ struct DataSourceSettingsView: View {
                         Label("混合模式", systemImage: "arrow.triangle.branch")
                     }
                     .onChange(of: hybridEnabled) { _, _ in applyRelaySettings() }
+
+                    Picker("中转协议", selection: $protocolPreference) {
+                        ForEach(RelayProtocolPreference.allCases) { preference in
+                            Text(preference.title).tag(preference)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: protocolPreference) { _, _ in applyRelaySettings() }
                 }
 
             } header: {
@@ -72,6 +82,7 @@ struct DataSourceSettingsView: View {
                 Text("""
                 中转模式：使用中转api获取数据，中转有配额限制，请求自动限速。
                 混合模式：以中转数据为主，中转取不到的数据才改用网页端。
+                中转协议：自动会先尝试新版协议，失败时回退到旧版；新版协议仍处于实验阶段，遇到问题可切换回旧版或网页模式。
                 """)
                 .font(.footnote)
             }
@@ -143,10 +154,12 @@ struct DataSourceSettingsView: View {
         // Hybrid is a property of the relay: with it off there is nothing to mix with, so
         // the preference is left untouched rather than cleared.
         if relayEnabled { relayStore.setHybridEnabled(hybridEnabled) }
+        relayStore.setProtocolPreference(protocolPreference)
         RelayClient.shared.configure(
             RelayConfiguration(
                 isEnabled: relayEnabled,
-                isHybrid: relayEnabled && hybridEnabled
+                isHybrid: relayEnabled && hybridEnabled,
+                protocolPreference: relayEnabled ? protocolPreference : .legacy
             ),
             provider: relayEnabled ? BuiltinAppVerProvider() : nil
         )

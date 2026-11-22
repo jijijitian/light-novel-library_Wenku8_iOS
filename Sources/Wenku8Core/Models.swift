@@ -389,6 +389,12 @@ public enum Wenku8Error: LocalizedError, Sendable {
     case needLogin
     case unavailable(String)
     case login(String)
+    /// The relay refused this client's protocol version and asked for an update.
+    ///
+    /// Carries the service's own wording rather than a version number the app cannot
+    /// know: the comparison happens server-side, so repeating what it said is more
+    /// useful than inventing a target.
+    case upgradeRequired(String?)
 
     public var errorDescription: String? {
         switch self {
@@ -397,7 +403,19 @@ public enum Wenku8Error: LocalizedError, Sendable {
         case .needLogin: return "该功能需要登录文库账号"
         case .unavailable(let message): return message
         case .login(let message): return message
+        case .upgradeRequired(let hint):
+            if let hint, !hint.isEmpty { return "中转服务要求升级客户端：\(hint)" }
+            return "该中转要求升级客户端，请更新应用"
         }
+    }
+
+    /// Whether retrying the same request could ever succeed.
+    ///
+    /// An upgrade demand is a stable property of the client, not a transient failure,
+    /// so views must stop retrying and offer guidance instead of a refresh button.
+    public var isRetriable: Bool {
+        if case .upgradeRequired = self { return false }
+        return true
     }
 }
 

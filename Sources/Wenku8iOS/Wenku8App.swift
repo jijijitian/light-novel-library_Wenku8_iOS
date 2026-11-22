@@ -113,7 +113,11 @@ struct Wenku8App: App {
         let settings = RelayCredentialStore.shared
         let enabled = settings.isEnabled
         RelayClient.shared.configure(
-            RelayConfiguration(isEnabled: enabled, isHybrid: settings.isHybridEnabled),
+            RelayConfiguration(
+                isEnabled: enabled,
+                isHybrid: settings.isHybridEnabled,
+                protocolPreference: enabled ? settings.protocolPreference : .legacy
+            ),
             provider: enabled ? BuiltinAppVerProvider() : nil
         )
         if enabled {

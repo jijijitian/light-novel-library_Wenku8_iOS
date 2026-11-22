@@ -34,6 +34,10 @@ targets:
       # listed here and lands in the framework bundle.
       - path: Sources/Wenku8Core/Resources/gbk-table.bin
         buildPhase: resources
+      # The relay v2 key schedule mixes this table into the session key, so it has to
+      # ship in the bundle. It is the same asset the Android client carries.
+      - path: Sources/Wenku8Core/Resources/wk8-lut.bin
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.jijijitian.wenku8.ios.core

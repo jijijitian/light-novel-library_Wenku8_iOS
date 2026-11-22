@@ -21,6 +21,7 @@ public final class RelayCredentialStore: RelayAppVerProvider, @unchecked Sendabl
         static let enabled = "relay.enabled"
         static let minimumInterval = "relay.minimumInterval"
         static let hybrid = "relay.hybrid"
+        static let protocolPreference = "relay.protocol"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -31,6 +32,21 @@ public final class RelayCredentialStore: RelayAppVerProvider, @unchecked Sendabl
     public var isEnabled: Bool {
         if defaults.object(forKey: Key.enabled) == nil { return true }
         return defaults.bool(forKey: Key.enabled)
+    }
+
+    /// Which relay wire protocol to speak.
+    ///
+    /// Defaults to `.legacy`: the new protocol is experimental, and an install that
+    /// predates it must keep working the way it did.
+    public var protocolPreference: RelayProtocolPreference {
+        guard let raw = defaults.string(forKey: Key.protocolPreference),
+              let value = RelayProtocolPreference(rawValue: raw)
+        else { return .legacy }
+        return value
+    }
+
+    public func setProtocolPreference(_ preference: RelayProtocolPreference) {
+        defaults.set(preference.rawValue, forKey: Key.protocolPreference)
     }
 
     /// Whether the relay and the website are used together. Off unless the relay is on.

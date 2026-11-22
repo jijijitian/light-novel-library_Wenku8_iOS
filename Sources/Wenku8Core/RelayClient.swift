@@ -91,6 +91,46 @@ public actor RelayThrottle {
     }
 }
 
+/// Which relay wire protocol to speak.
+///
+/// The service is mid-migration. The legacy endpoint is a form POST whose only
+/// credential is a minute-windowed `appver`; the v2 endpoint seals the request body
+/// through a native envelope and negotiates its version with response headers. Both
+/// must stay selectable, because either side can change independently.
+public enum RelayProtocol: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// `POST https://wenku8-relay.mewx.org/` with a form body and a minute-windowed `appver`.
+    case legacy
+    /// `POST https://mewx-android.wenku8.app/v2/api` with a sealed envelope and `X-WK8-Proto`.
+    case sealed
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .legacy: return "旧版"
+        case .sealed: return "新版（实验）"
+        }
+    }
+}
+
+/// How `RelayClient` chooses between `RelayProtocol` cases.
+public enum RelayProtocolPreference: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Try `.sealed` first and fall back to `.legacy` when it is unavailable.
+    case automatic
+    case legacy
+    case sealed
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .automatic: return "自动"
+        case .legacy: return RelayProtocol.legacy.title
+        case .sealed: return RelayProtocol.sealed.title
+        }
+    }
+}
+
 public struct RelayConfiguration: Sendable {
     public var baseURL: URL
     /// Whether relay requests should be attempted at all. Relay is the only path
@@ -103,15 +143,20 @@ public struct RelayConfiguration: Sendable {
     /// together: whichever can answer a piece does, so a board the relay cannot serve still
     /// appears. Requires `isEnabled`: there is nothing to mix with otherwise.
     public var isHybrid: Bool
+    /// Which wire protocol to use. Defaults to `.legacy` so an existing install keeps
+    /// behaving exactly as it did until the reader opts in.
+    public var protocolPreference: RelayProtocolPreference
 
     public init(
         baseURL: URL = URL(string: "https://wenku8-relay.mewx.org/")!,
         isEnabled: Bool = true,
-        isHybrid: Bool = false
+        isHybrid: Bool = false,
+        protocolPreference: RelayProtocolPreference = .legacy
     ) {
         self.baseURL = baseURL
         self.isEnabled = isEnabled
         self.isHybrid = isHybrid
+        self.protocolPreference = protocolPreference
     }
 
     public static let `default` = RelayConfiguration()
@@ -129,6 +174,13 @@ public final class RelayClient: @unchecked Sendable {
     private let session: URLSession
     private let throttle: RelayThrottle
     private var provider: RelayAppVerProvider? = BuiltinAppVerProvider()
+
+    /// Lazily built: the sealed transport does key derivation at construction, and an
+    /// install that never opts into the new protocol should not pay for it.
+    private var relayV2: RelayV2Transport?
+    /// Milliseconds to add to this device's clock so it matches the service's. The
+    /// service reports its own time when it sees a skew; zero means "assume we agree".
+    private var clockCorrection: Int64 = 0
 
     public init(
         configuration: RelayConfiguration = .default,
@@ -169,14 +221,35 @@ public final class RelayClient: @unchecked Sendable {
     /// it looks like the Android app, so requests carry that agent.
     static let userAgent = "okhttp/4.12.0"
 
+    /// The v2 endpoint. Fixed by the service; `baseURL` only describes the legacy one.
+    public static let sealedURL = URL(string: "https://mewx-android.wenku8.app/v2/api")!
+
     public func setMinimumInterval(_ interval: TimeInterval) async {
         await throttle.setMinimumInterval(interval)
+    }
+
+    /// True once a `.sealed` call has failed for a reason that is not the service's
+    /// fault, so `.automatic` can stop paying for the attempt on every request.
+    private var sealedIsBroken = false
+
+    /// Whether the next request should try the sealed protocol first.
+    ///
+    /// `.automatic` starts on the new protocol and drops to the old one for the rest
+    /// of the session once it proves unusable — the reader should not wait for two
+    /// round trips on every screen.
+    var shouldAttemptSealed: Bool {
+        switch configuration.protocolPreference {
+        case .legacy: return false
+        case .sealed: return true
+        case .automatic: return !sealedIsBroken
+        }
     }
 
     /// Sends one relay action and returns the raw body.
     ///
     /// `request` must already be the composed action string, for example
-    /// `"action=book&do=info&aid=1305&t=0"`.
+    /// `"action=book&do=info&aid=1305&t=0"`. The same string serves both protocols:
+    /// the v2 endpoint seals this exact byte sequence rather than wrapping it.
     public func send(_ request: String) async throws -> Data {
         #if DEBUG
         if ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil {
@@ -184,6 +257,40 @@ public final class RelayClient: @unchecked Sendable {
             print("[net] RELAY \(action)")
         }
         #endif
+        guard configuration.isEnabled, provider != nil else {
+            throw RelayError.notConfigured
+        }
+
+        var lastError: Error?
+        if shouldAttemptSealed {
+            do {
+                return try await sendSealed(request)
+            } catch let error as Wenku8Error {
+                // An upgrade demand is the service describing the client, not a fault
+                // to route around: surface it so the reader can act on it.
+                if case .upgradeRequired = error { throw error }
+                lastError = error
+            } catch {
+                lastError = error
+            }
+            // Only `.automatic` may fall back; an explicit choice is honoured so the
+            // reader can see which protocol failed.
+            if configuration.protocolPreference != .automatic {
+                throw lastError ?? RelayError.http("中转服务不可用")
+            }
+            sealedIsBroken = true
+        }
+        do {
+            return try await sendLegacy(request)
+        } catch {
+            // Report the sealed failure when it came first: it describes the protocol
+            // the reader asked for.
+            throw lastError ?? error
+        }
+    }
+
+    /// Legacy protocol: a form POST whose `request` field is the base64 action.
+    private func sendLegacy(_ request: String) async throws -> Data {
         guard configuration.isEnabled, let provider else {
             throw RelayError.notConfigured
         }
@@ -232,10 +339,177 @@ public final class RelayClient: @unchecked Sendable {
         case 401, 403:
             await provider.invalidate()
             throw RelayError.rejectedCredential
+        case 426:
+            throw Wenku8Error.upgradeRequired(
+                http.value(forHTTPHeaderField: "X-WK8-Update-Hint")
+            )
         case 429:
             throw RelayError.rateLimited
         default:
             throw RelayError.server(http.statusCode)
+        }
+    }
+
+    /// Sealed protocol: a raw envelope body with the version header, no form fields.
+    ///
+    /// The service validates the envelope before anything else, so every failure here
+    /// is reported as a relay error rather than guessed at. A skew reply carries the
+    /// service's clock, which is folded into the next attempt's `counter`.
+    private func sendSealed(_ request: String) async throws -> Data {
+        await throttle.acquire()
+
+        let transport = relayV2 ?? RelayV2Transport()
+        relayV2 = transport
+        guard transport.isAvailable else {
+            throw RelayError.http("当前版本无法使用新版中转协议")
+        }
+
+        // The service binds the session into the envelope, so the cookie that seals it
+        // must be the one that accompanies it. Reading it here keeps the two identical.
+        let cookie = Self.relayCookieHeader()
+        let body = Array(request.utf8)
+        let extra = Array(cookie.utf8)
+
+        let sealed: [UInt8]
+        do {
+            sealed = try transport.seal(body: body, extra: extra, counter: clockCorrection)
+        } catch {
+            throw RelayError.http("无法生成新版中转请求")
+        }
+
+        var urlRequest = URLRequest(url: Self.sealedURL)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue(RelayV2Transport.contentType, forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(
+            RelayV2Transport.protocolHeaderValue,
+            forHTTPHeaderField: RelayV2Transport.protocolHeaderName
+        )
+        urlRequest.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
+        urlRequest.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        if !cookie.isEmpty {
+            urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        urlRequest.httpBody = Data(sealed)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: urlRequest)
+        } catch {
+            #if DEBUG
+            print("[relay/v2] \(request.prefix(40)) failed: \(error)")
+            #endif
+            throw RelayError.http(Wenku8Client.describe(error))
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw RelayError.http("中转服务没有返回有效响应")
+        }
+        Self.adoptSessionCookie(from: http)
+        SharedCookieStore.persistRelayCookies()
+
+        // The service asks for an upgrade on 426, and also hints at one with a header
+        // on a 200. Both mean the same thing to the reader.
+        if http.value(forHTTPHeaderField: "X-WK8-Update-Hint") == "1" {
+            throw Wenku8Error.upgradeRequired(
+                http.value(forHTTPHeaderField: "X-WK8-Min-Version").map { "需要版本 \($0)" }
+            )
+        }
+
+        switch http.statusCode {
+        case 200...299:
+            return data
+        case 401:
+            // A skew reply is the service telling us its clock; anything else is a
+            // rejected session.
+            if let correction = Self.clockSkew(from: data) {
+                clockCorrection = correction
+                throw RelayError.http("已校准本机时间，请重试")
+            }
+            await provider?.invalidate()
+            throw RelayError.rejectedCredential
+        case 403 where Self.isEnvelopeRejection(data):
+            // `ENVELOPE_INVALID` describes the envelope, not the account: clearing the
+            // credential would be wrong, and its hint would send the reader to fix a
+            // password that is fine.
+            throw RelayError.http("新版中转协议被拒绝，可在设置中改用旧版或网页模式")
+        case 403:
+            await provider?.invalidate()
+            throw RelayError.rejectedCredential
+        case 426:
+            throw Wenku8Error.upgradeRequired(
+                Self.upgradeHint(from: data) ?? http.value(forHTTPHeaderField: "X-WK8-Update-Hint")
+            )
+        case 429:
+            throw RelayError.rateLimited
+        default:
+            throw RelayError.server(http.statusCode)
+        }
+    }
+
+    /// The `Cookie` header for the relay host, as one string.
+    ///
+    /// The envelope is sealed against exactly this value, so it is built once here
+    /// rather than left to `URLSession`'s own cookie handling.
+    static func relayCookieHeader() -> String {
+        let cookies = HTTPCookieStorage.shared.cookies?.filter { RelayHost.isRelay($0.domain) } ?? []
+        guard !cookies.isEmpty else { return "" }
+        return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    }
+
+    /// `{"error":"CLOCK_SKEW","serverTimeMs":<int64>}` → the correction in milliseconds.
+    static func clockSkew(from data: Data) -> Int64? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["error"] as? String == "CLOCK_SKEW",
+              let serverTime = object["serverTimeMs"] as? NSNumber
+        else { return nil }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        return serverTime.int64Value - now
+    }
+
+    /// `{"minVersionCode":…,"minVersionName":"…"}` → a line the reader can act on.
+    /// True when the service is rejecting the sealed envelope rather than the account.
+    ///
+    /// A v2 refusal names the envelope (`ENVELOPE_INVALID`); a wrong password or session
+    /// does not use that word, so the two must not share a handling path.
+    static func isEnvelopeRejection(_ data: Data) -> Bool {
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+        return text.contains("ENVELOPE_INVALID") || text.contains("CLOCK_SKEW")
+    }
+
+    static func upgradeHint(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let name = object["minVersionName"] as? String, !name.isEmpty {
+            return "需要版本 \(name)"
+        }
+        if let code = object["minVersionCode"] as? NSNumber {
+            return "需要版本 \(code.intValue)"
+        }
+        return nil
+    }
+
+    /// Keeps the session the service set, under the one name it uses.
+    static func adoptSessionCookie(from response: HTTPURLResponse) {
+        let headers = response.allHeaderFields
+        for (key, value) in headers {
+            guard let name = key as? String,
+                  name.caseInsensitiveCompare("Set-Cookie") == .orderedSame,
+                  let raw = value as? String, raw.contains("PHPSESSID=")
+            else { continue }
+            let start = raw.range(of: "PHPSESSID=")!.upperBound
+            let rest = raw[start...]
+            let sessionId = String(rest.prefix { $0 != ";" }).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionId.isEmpty else { continue }
+            let properties: [HTTPCookiePropertyKey: Any] = [
+                .name: "PHPSESSID",
+                .value: sessionId,
+                .domain: "wenku8.app",
+                .path: "/",
+            ]
+            if let cookie = HTTPCookie(properties: properties) {
+                HTTPCookieStorage.shared.setCookie(cookie)
+            }
         }
     }
 

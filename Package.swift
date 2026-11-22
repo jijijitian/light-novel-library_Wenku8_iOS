@@ -24,6 +24,7 @@ let package = Package(
             name: "Wenku8Core",
             resources: [
                 .copy("Resources/gbk-table.bin"),
+                .copy("Resources/wk8-lut.bin"),
             ]
         ),
         .target(
