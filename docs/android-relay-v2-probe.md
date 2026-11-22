@@ -201,4 +201,86 @@ c=141.101.123.0/24,162.159.135.0/24,188.114.98.0/24,172.67.150.0/24,
 | 10 | `GET https://share.wenku8.app/book/1973` | 200，9033 字节分享页 |
 | 11 | DoH `_network_cfg.wenku8.app TXT` | 429 字节节点配置 |
 
-**未能验证的部分**：新协议的成功响应格式、密封算法细节、证书指纹绑定方式——这些都需要逆向非公开的客户端与私有 SDK，本次不涉及。
+**未能验证的部分**：密封后的字节格式与成功响应内容——需要安卓运行时才能产生合法信封，见第九节。
+
+
+---
+
+## 九、新 API 的调用方法（反编译结论）
+
+反编译 APK 后，调用链已经完全清楚：新协议不是「加密的旧协议」，而是**由原生库生成的密封信封**。
+
+### 调用链
+
+```
+App 启动
+  └─ NativeEnvelopeBridge.c(application)          // 初始化
+       ├─ System.loadLibrary("mewx")               // libmewx.so
+       ├─ 用两个混淆常量数组异或出 32 字节种子：
+       │    seed[i] = ((C[i] & 0xFF) - ((i*19 + 7) & 0xFF)) ^ (D[i] & 0xFF)
+       └─ native a(context, assets, seed, 104, flavor)
+              flavor: playstore=1, default=2
+              原生侧读取 assets 并建立状态
+
+每次请求
+  └─ NativeEnvelopeBridge.d(body, extra)
+       ├─ native b(bodyBytes, extraBytes, counter)   // 密封
+       └─ 返回 vr3(headers = {"X-WK8-Proto": "2"}, sealedBytes)
+
+HTTP
+  └─ POST https://mewx-android.wenku8.app/v2/api
+       X-WK8-Proto: 2
+       body = sealedBytes
+```
+
+### 三个关键事实
+
+**1. 信封由原生代码生成，Java 层拿不到明文**
+
+```java
+public final class NativeEnvelopeBridge {
+    public static final Map a = Collections.singletonMap("X-WK8-Proto", "2");
+    private static native boolean a(Context, AssetManager, byte[], int, int);
+    private static native byte[] b(byte[], byte[], long);
+}
+```
+
+`b()` 的第三个参数是**计数器**（`AtomicLong`），服务端会在响应里下发时间戳，客户端据此校正：
+
+```java
+c.set(serverTime - System.currentTimeMillis());   // 对齐时钟，用于抗重放
+```
+
+**2. 密钥材料在运行时拼装**
+
+- 32 字节种子由 `lv1.C` 与 `lv1.D` 两个常量数组逐字节异或得到，**不落盘、不出现在字符串里**；
+- 原生库初始化时通过 `AAssetManager` 读 `assets/wk8_lut.bin`（2048 字节，512 个 32 位表项，随机分布），作为查表数据；
+- `libmewx.so` 只有 93 KB，未静态链接任何标准密码库（无 AES/GCM/OpenSSL 符号），导入的只有 `memcpy`、`AAsset_*`、`pthread_*` 等基础函数——说明用的是**自研的查表型分组密码**，而不是标准算法。
+
+**3. 版本协商靠响应头**
+
+```
+X-WK8-Proto         客户端声明协议版本（当前固定 "2"）
+X-WK8-Min-Version   服务端要求的最低版本
+X-WK8-Update-Hint   升级提示文案
+```
+
+低于门槛时服务端返回 426，客户端弹「当前应用版本过旧」。
+
+### 能否在 iOS 上复现
+
+| 需要的东西 | 现状 |
+| --- | --- |
+| 端点与请求头 | ✅ 已知（`/v2/api` + `X-WK8-Proto: 2`） |
+| 信封格式 | ❌ 原生生成，Java 层看不到 |
+| 密钥 | ❌ 运行时由混淆数组 + 资源表拼装 |
+| 算法 | ❌ 自研查表密码，只有 ARM64 机器码 |
+| 版本门禁 | ⚠️ 需要持续跟随 `X-WK8-Min-Version` |
+
+要复现，等价于**反汇编 93 KB 的 ARM64 原生库、还原查表密码与种子推导**，再在 iOS 上用 C 重写一遍，并通过证书指纹校验。工作量以周计，而且每换一次密钥/算法就要重来。
+
+### 结论
+
+新 API 的调用方法**在协议层面已完全弄清**（端点、头部、计数器、版本协商），但**载荷无法在安卓运行时之外生成**。这不是「补一个加密函数」的量级，而是要把客户端的一部分原生实现整体移植。
+
+站在项目角度，这条路不值得走：它绕不过官方的广告与登录校验，也与公告里点名的「滥用」直接冲突。**继续用旧 API，接受它随时可能关闭，用网页/混合模式兜底**，是更稳妥的选择。
