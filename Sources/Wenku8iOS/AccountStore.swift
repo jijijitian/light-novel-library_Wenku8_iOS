@@ -79,8 +79,7 @@ final class AccountStore: ObservableObject {
 
     /// Signs in to the website with a captcha the reader read off the image.
     ///
-    /// Used when the relay is off: it is the only way into the desktop pages now that their
-    /// form is captcha-guarded.
+    /// The desktop form is captcha-guarded, so this is the only way in.
     func signInToSite(username: String, password: String, captcha: String) async -> Bool {
         guard !isSigningIn else { return false }
         isSigningIn = true
@@ -133,8 +132,8 @@ final class AccountStore: ObservableObject {
 
         switch await service.sessionState() {
         case .signedIn(let name):
-            // The relay can confirm a session without telling us the name; keep the one we
-            // already have rather than blanking it.
+            // Keep the name we already have rather than blanking it when the site does
+            // not repeat it.
             if !name.isEmpty { setUserName(name) }
             sessionExpiredNotice = false
         case .signedOut:
@@ -161,12 +160,11 @@ final class AccountStore: ObservableObject {
         case expired
     }
 
-    /// Re-checks the login after the data source changed.
+    /// Re-checks the login after the mirror changed.
     ///
-    /// Switching the site domain or turning the relay on or off changes where requests go:
-    /// the website session lives in a cookie scoped to one domain, and the relay
-    /// authenticates separately. Either change can strand the app holding a name with no
-    /// session behind it, which shows up later as every shelf call failing.
+    /// The session lives in a cookie scoped to one domain, so switching mirrors can strand
+    /// the app holding a name with no session behind it, which shows up later as every
+    /// shelf call failing.
     ///
     /// The check runs once, immediately after the switch. It does not try to sign in again:
     /// no password is kept, in memory or on disk, so the only honest outcome is to report
@@ -176,9 +174,6 @@ final class AccountStore: ObservableObject {
         // probing a source on behalf of nobody. Every switch is silent in that state.
         guard userName != nil else { return .notSignedIn }
 
-        // Which session to ask is decided by the switch itself, and `sessionState()`
-        // answers it: relay enabled means the relay, relay disabled means the site now
-        // selected.
         switch await service.sessionState() {
         case .signedIn(let name):
             if !name.isEmpty { setUserName(name) }
@@ -405,7 +400,7 @@ final class AccountStore: ObservableObject {
             }
         }
 
-        // A handful per sync keeps the relay's throttle from being starved by this.
+        // A handful per sync keeps this from monopolising the requests the page needs.
         for aid in needsCatalogue.prefix(8) {
             await service.cacheDetailFully(aid: aid)
         }

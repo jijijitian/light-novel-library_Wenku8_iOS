@@ -31,19 +31,6 @@ struct Wenku8App: App {
         #endif
     }
 
-    /// Seeds the relay switch from `WENKU8_RELAY=1|0` once, so a debug launch can reproduce
-    /// the paths that only run with the relay on or off.
-    private static func seedRelayFromEnvironment() {
-        #if DEBUG
-        guard let raw = ProcessInfo.processInfo.environment["WENKU8_RELAY"] else { return }
-        let store = RelayCredentialStore.shared
-        store.setEnabled(raw == "1")
-        if let hybrid = ProcessInfo.processInfo.environment["WENKU8_HYBRID"] {
-            store.setHybridEnabled(hybrid == "1")
-        }
-        #endif
-    }
-
     /// Debug-only: fetches a URL with the app's own session and writes the body to
     /// `Documents/dump.html`, so page markup can be inspected without driving the UI.
     private static func dumpURLFromEnvironment() {
@@ -74,10 +61,8 @@ struct Wenku8App: App {
 
     init() {
         Self.dumpURLFromEnvironment()
-        Self.seedRelayFromEnvironment()
         Self.seedAppearanceFromEnvironment()
         Self.seedCoverTintFromEnvironment()
-        Self.configureRelay()
         Self.restoreDomain()
         Self.applyReaderOverrides()
     }
@@ -105,26 +90,6 @@ struct Wenku8App: App {
         Wenku8Client.shared.use(domain: SiteDomain(rawValue: raw) ?? .net)
     }
 
-    /// The relay is the only path that serves real rankings and category
-    /// listings anonymously, so it is enabled by default; the token is derived
-    /// locally (`RelayAppVer`) and every call falls back to WAP/desktop on
-    /// failure. Users can still switch it off in Settings.
-    private static func configureRelay() {
-        let settings = RelayCredentialStore.shared
-        let enabled = settings.isEnabled
-        RelayClient.shared.configure(
-            RelayConfiguration(
-                isEnabled: enabled,
-                isHybrid: settings.isHybridEnabled,
-                protocolPreference: enabled ? settings.protocolPreference : .legacy
-            ),
-            provider: enabled ? BuiltinAppVerProvider() : nil
-        )
-        if enabled {
-            let interval = settings.minimumInterval
-            Task { await RelayClient.shared.setMinimumInterval(interval) }
-        }
-    }
 
     var body: some Scene {
         WindowGroup {

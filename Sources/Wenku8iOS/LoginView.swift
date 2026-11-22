@@ -10,14 +10,9 @@ struct LoginView: View {
     @State private var showPassword = false
     @State private var localError: String?
     @State private var showRegister = false
-    /// Whether the website's captcha is required: only when the relay is off, since the
-    /// relay has none and the app reads from whichever source is enabled.
-    /// The website's captcha is needed whenever the website is part of the picture: with the
-    /// relay off, and in hybrid mode, where both sessions are established at once.
-    private var needsCaptcha: Bool {
-        let store = RelayCredentialStore.shared
-        return !store.isEnabled || store.isHybridEnabled
-    }
+    /// The website's desktop form asks for an image captcha, and that is the only source
+    /// the app reads from, so the field is always shown.
+    private var needsCaptcha: Bool { true }
     @State private var captcha = ""
     @State private var captchaImage: Data?
     @State private var isLoadingCaptcha = false

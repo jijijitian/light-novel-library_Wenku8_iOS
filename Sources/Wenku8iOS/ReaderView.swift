@@ -737,7 +737,7 @@ struct ZoomedImage: Identifiable {
     var id: String { url.absoluteString }
 }
 
-/// Inline illustration. The relay serves full-resolution scans (over 5000px
+/// Inline illustration. The site serves full-resolution scans (over 5000px
 /// wide), so they are downsampled by the image loader and opened at full size in
 /// `ImageViewer` when tapped.
 struct ReaderImage: View {

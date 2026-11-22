@@ -1,35 +1,5 @@
 import Foundation
 
-/// The relay's `appver` credential.
-///
-/// The official Android client keeps this in its native library, so its source shows only
-/// the call — `getMagicVersionCpp()` — and never the recipe. This is the Swift equivalent:
-/// one entry point, the pieces private, and the derivation written up in
-/// `docs/relay-api.md` instead of here.
-///
-/// Note that this is parity of shape, not of secrecy. Swift has no native boundary to hide
-/// behind — the constants end up in the binary as strings either way, and the project is
-/// GPL — so the point is that there is a single place to look, not that it is hidden.
-public enum RelayAppVer {
-    private static let version = "1.30"
-    private static let codeName = "digital-bento"
-
-    /// The token for the minute containing `unixSeconds`.
-    ///
-    /// - Parameter unixSeconds: wall-clock seconds; defaults to now.
-    public static func magicVersion(
-        unixSeconds: Int64 = Int64(Date().timeIntervalSince1970)
-    ) -> String {
-        let window = unixSeconds / 60
-        let payload = "\(version)|\(codeName)|\(window)"
-        let digest = SHA256.hmac(key: Array(codeName.utf8), message: Array(payload.utf8))
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        let start = hex.index(hex.startIndex, offsetBy: 12)
-        let end = hex.index(hex.startIndex, offsetBy: 20)
-        return "\(version)-\(codeName)-\(String(hex[start..<end]))"
-    }
-}
-
 // MARK: - SHA-256 / HMAC
 
 /// Minimal, dependency-free SHA-256 and HMAC-SHA256. The standard library has no

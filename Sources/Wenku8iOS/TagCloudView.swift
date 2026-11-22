@@ -4,7 +4,7 @@ import Wenku8Core
 /// The site's tag cloud, under its own name: Tags云集.
 ///
 /// Grouped the way the site groups it — 日常系属性, 幻想系属性 and so on — because a hundred
-/// tags in one flat list are not browsable. Tags are website content; with the relay alone
+/// tags in one flat list are not browsable. Tags are website content, so this screen
 /// there is nothing to list, which the screen says rather than appearing empty.
 struct TagCloudView: View {
     @EnvironmentObject private var router: AppRouter

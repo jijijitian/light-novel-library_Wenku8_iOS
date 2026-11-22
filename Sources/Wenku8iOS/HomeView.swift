@@ -140,7 +140,7 @@ final class HomeViewModel: ObservableObject {
     /// Brings the page up: stored copy first, then a refresh if one is due.
     ///
     /// The home screen is a view of things that change slowly — a ranking, a release list —
-    /// so re-fetching it on every visit wastes the reader's data and the relay's quota for
+    /// so re-fetching it on every visit wastes the reader's data for
     /// results that rarely differ. What is stored is painted immediately; the network is
     /// only touched on the first visit of a process or when that stored copy has gone stale.
     /// Pulling always refreshes.

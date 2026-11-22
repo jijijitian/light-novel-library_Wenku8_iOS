@@ -29,7 +29,7 @@ let package = Package(
     targets: [
         .target(
             name: "Wenku8Core",
-            resources: [.copy("Resources/gbk-table.bin"), .copy("Resources/wk8-lut.bin")]
+            resources: [.copy("Resources/gbk-table.bin")]
         ),
         .testTarget(
             name: "Wenku8CoreTests",

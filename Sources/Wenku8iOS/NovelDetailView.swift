@@ -134,8 +134,6 @@ struct NovelDetailView: View {
     @State private var showVolumePicker = false
     @AppStorage(CoverPalette.storageKey) private var coverTint = false
     @State private var palette: CoverPalette?
-    /// Set when a tag is tapped in relay-only mode, where no list can be fetched.
-    @State private var tagUnavailable: String?
 
     var body: some View {
         ScrollView {
@@ -528,17 +526,8 @@ struct NovelDetailView: View {
         }
     }
 
-    /// Opens a tag's book list, or explains why it cannot be opened.
-    ///
-    /// Only the website can list books by tag: the relay publishes a book's tags but ignores
-    /// a filter. In relay-only mode the tap says so, because a list that quietly never
-    /// loaded would look like the tag has no books.
+    /// Opens a tag's book list.
     private func openTag(_ tag: NovelTag) {
-        let store = RelayCredentialStore.shared
-        if store.isEnabled, !store.isHybridEnabled {
-            tagUnavailable = tag.name
-            return
-        }
         router.open(.tag(tag.name))
     }
 

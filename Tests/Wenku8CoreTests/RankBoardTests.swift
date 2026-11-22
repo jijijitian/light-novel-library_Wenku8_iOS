@@ -2,7 +2,7 @@ import XCTest
 @testable import Wenku8Core
 
 final class RankBoardTests: XCTestCase {
-    /// Every board the relay serves must be reachable in the app.
+    /// Every board the site serves must be reachable in the app.
     ///
     /// Measured against the live service: all of these answer with ten rows. `anime`
     /// answers empty there, so it is listed but reported as having no data.
@@ -17,7 +17,7 @@ final class RankBoardTests: XCTestCase {
         }
     }
 
-    /// `sort` is sent verbatim as the relay's parameter, so the raw values must match
+    /// `sort` is sent verbatim as the site's parameter, so the raw values must match
     /// what the service expects rather than any local spelling.
     func testSortParameterMatchesService() {
         XCTAssertEqual(RankBoard.dayvisit.rawValue, "dayvisit")

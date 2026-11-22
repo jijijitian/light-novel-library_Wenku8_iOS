@@ -58,7 +58,7 @@ final class PagedNovelListModel: ObservableObject {
         guard hasMore, loadPage != nil else { return 0 }
         // Complete the row the last book is on, then add two rows. The old arithmetic
         // assumed a page of twelve with three per row, which no source actually uses — the
-        // relay returns ten — so the fill never lined up with the grid.
+        // the page returns ten — so the fill never lined up with the grid.
         let columns = 3
         let remainder = novels.count % columns
         let toFillRow = remainder == 0 ? 0 : columns - remainder

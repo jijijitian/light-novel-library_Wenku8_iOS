@@ -91,7 +91,7 @@ struct ExploreView: View {
 
     /// The website's own homepage panels.
     ///
-    /// They need a session and they are website content, so relay-only mode says so in one
+    /// They need a session, so a signed-out reader sees one
     /// short card instead of leaving a hole in the page.
     @ViewBuilder
     private var exploreBlocks: some View {

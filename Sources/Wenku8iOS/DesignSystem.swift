@@ -274,39 +274,19 @@ struct ErrorStateView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: isUpgradeRequired ? "arrow.up.circle" : "wifi.exclamationmark")
+            Image(systemName: "wifi.exclamationmark")
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(isUpgradeRequired ? Color.accentColor : Color.orange)
+                .foregroundStyle(.orange)
             Text(errorMessage)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-            if isUpgradeRequired {
-                // Retrying cannot help: the service is describing this build, not a
-                // transient outage. Offer the way out instead of a refresh button, since
-                // this screen has no Settings navigation of its own.
-                Text("可在「设置 → 数据来源」改用网页模式继续阅读。")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                Button("知道了", action: retry)
-                    .buttonStyle(.bordered)
-            } else {
-                Button("重试", action: retry)
-                    .buttonStyle(.borderedProminent)
-            }
+            Button("重试", action: retry)
+                .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 36)
-    }
-
-    /// The relay refusing this build is a stable condition, so the retry affordance is
-    /// replaced by guidance rather than left to fail again.
-    private var isUpgradeRequired: Bool {
-        if case .upgradeRequired = error as? Wenku8Error { return true }
-        return false
     }
 
     private var errorMessage: String {

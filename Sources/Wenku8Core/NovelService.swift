@@ -54,60 +54,15 @@ actor MetadataFetchRegistry {
 
 public struct NovelService: Sendable {
     private let client: Wenku8Client
-    private let relay: RelayClient
     /// Local download cache consulted before the network.
     private let offline: OfflineStore
 
     public init(
         client: Wenku8Client = .shared,
-        relay: RelayClient = .shared,
         offline: OfflineStore = .shared
     ) {
         self.client = client
-        self.relay = relay
         self.offline = offline
-    }
-
-    /// Relay-first helpers. The relay is a third-party volunteer service, so every
-    /// call here is best-effort: a `nil` return simply means "use the WAP/desktop
-    /// path", which stays fully functional.
-    private var relayIsAvailable: Bool { relay.isAvailable }
-
-    /// Both sources at once: the relay answers first, the website fills what it cannot.
-    ///
-    /// Off, a source answers alone — a gap is shown as a gap rather than completed from
-    /// somewhere else. On, the reader has asked for completeness and has signed in to both,
-    /// which is what makes the second source worth consulting.
-    public var isHybrid: Bool { relay.isHybrid }
-
-    private func relaySearch(_ key: String, type: String) async -> [NovelSummary]? {
-        guard relayIsAvailable else { return nil }
-        // The relay expects the keyword form-encoded inside the action string.
-        let encoded = TextDecoding.formEncode(key)
-        guard let data = try? await relay.send(RelayAction.search(type: type, key: encoded)) else { return nil }
-        let items = RelayParser.summaries(TextDecoding.decode(data)).uniquedByID()
-        return items.isEmpty ? nil : items
-    }
-
-    /// `novellist` returns full rows with titles; `articlelist` returns bare ids
-    /// and is useless on its own, so lists go through `novellist`.
-    private func relayNovelList(sort: String, page: Int) async -> [NovelSummary]? {
-        guard relayIsAvailable else { return nil }
-        guard let data = try? await relay.send(RelayAction.novelList(sort: sort, page: page)) else { return nil }
-        let items = RelayParser.summaries(TextDecoding.decode(data)).uniquedByID()
-        return items.isEmpty ? nil : items
-    }
-
-    /// One page of a relay listing, with the total the service reports.
-    private func relayNovelListPage(sort: String, page: Int) async -> NovelListPage? {
-        guard relayIsAvailable else { return nil }
-        guard let data = try? await relay.send(RelayAction.novelList(sort: sort, page: page)) else {
-            return nil
-        }
-        let text = TextDecoding.decode(data)
-        let items = RelayParser.summaries(text).uniquedByID()
-        guard !items.isEmpty else { return nil }
-        return NovelListPage(novels: items, totalPages: RelayParser.totalPages(text))
     }
 
     /// A ranking board, one page at a time.
@@ -116,15 +71,6 @@ public struct NovelService: Sendable {
     /// that fetched only page 1 showed a fraction of the list with no way to reach the
     /// rest.
     public func rankPage(_ board: RankBoard, page: Int) async throws -> NovelListPage {
-        if relayIsAvailable {
-            if let result = await relayNovelListPage(sort: board.rawValue, page: page),
-               !result.novels.isEmpty {
-                return result
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
-            }
-        }
         let novels = try await websiteRank(board, page: page)
         return NovelListPage(novels: novels, totalPages: nil)
     }
@@ -132,15 +78,6 @@ public struct NovelService: Sendable {
     /// A library category, one page at a time.
     public func libraryPage(_ category: Int, page: Int) async throws -> NovelListPage {
         let sort = category == 0 ? "all" : "\(category)"
-        if relayIsAvailable {
-            if let result = await relayNovelListPage(sort: sort, page: page),
-               !result.novels.isEmpty {
-                return result
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
-            }
-        }
         let novels = try await websiteLibrary(category, page: page)
         return NovelListPage(novels: novels, totalPages: nil)
     }
@@ -149,33 +86,13 @@ public struct NovelService: Sendable {
     public func searchPage(_ query: SearchQuery, page: Int) async throws -> NovelListPage {
         let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return NovelListPage(novels: [], totalPages: nil) }
-        if relayIsAvailable {
-            if let data = try? await relay.send(
-                RelayAction.search(type: query.field.parameter, key: keyword)
-            ) {
-                let text = TextDecoding.decode(data)
-                let items = RelayParser.summaries(text).uniquedByID()
-                if !items.isEmpty {
-                    return NovelListPage(novels: items, totalPages: RelayParser.totalPages(text))
-                }
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法搜索，请稍后再试")
-            }
-        }
         let novels = try await search(query)
         return NovelListPage(novels: novels, totalPages: nil)
     }
 
     // MARK: - Home
 
-    /// The home screen's rows.
-    ///
-    /// With the relay enabled these come from it alone: the WAP home page serves a
-    /// different (and partly login-gated) selection, so mixing the two would show a
-    /// home screen assembled from two sources. The relay is asked for each board and
-    /// the rows are built from what it returns; a board it cannot serve is simply
-    /// omitted rather than quietly filled from the website.
+    /// The home screen's rows, read from the WAP home page.
     public func homeRows() async throws -> [HomeRow] {
         // The streaming path is what the UI uses; this collects the same rows for
         // callers that only want the finished list.
@@ -192,7 +109,6 @@ public struct NovelService: Sendable {
         return rows
     }
 
-    /// Builds the home rows from the relay's boards.
     /// The home rows, fetched one after another from the top of the page downwards.
     ///
     /// Each result is handed to `onRow` as soon as it arrives, so the page fills in
@@ -201,87 +117,15 @@ public struct NovelService: Sendable {
     /// the reader sees the top of the page first — so a section that is slow or fails
     /// must not hold up the ones above it.
     ///
-    /// A failed section is retried once; the relay occasionally answers slowly under load,
-    /// and a lost section is visible as a missing row.
     public func homeRowsStreaming(
         onRow: @escaping @Sendable (HomeRow) async -> Void
     ) async -> [HomeRow] {
-        if relayIsAvailable {
-            var rows: [HomeRow] = []
-            // 最近更新 goes first by design. It is the page's second section but the first
-            // request, so the cold-start cost of the very first relay call — DNS, TLS and
-            // the throttle's initial slot — is paid by a section the banner does not
-            // depend on. When 今日热榜 went first it could lose that race and take the banner
-            // down with it, which looked like "热榜 empty, everything else fine".
-            var missing: [HomeSection] = []
-            for section in [HomeSection.latest, .hot, .newcomer, .weekly] {
-                let items = await homeSectionItems(section)
-                guard !items.isEmpty else {
-                    missing.append(section)
-                    continue
-                }
-                let row = HomeRow(section: section, items: items)
-                rows.append(row)
-                #if DEBUG
-                if ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil {
-                    print("[home] \(section.rawValue) from=relay items=\(items.count)")
-                }
-                #endif
-                await onRow(row)
-            }
-            // Hybrid: a section the relay could not serve is taken from the website, so the
-            // home screen is complete rather than silently short one row.
-            if isHybrid, !missing.isEmpty, let web = try? await legacyHomeRows() {
-                for section in missing {
-                    guard let row = web.first(where: { $0.section == section }) else { continue }
-                    rows.append(row)
-                    #if DEBUG
-                    if ProcessInfo.processInfo.environment["WENKU8_NET_LOG"] != nil {
-                        print("[home] \(section.rawValue) from=web items=\(row.items.count)")
-                    }
-                    #endif
-                    await onRow(row)
-                }
-            }
-            // Handed back in page order regardless of fetch order, so the caller's final
-            // assignment (if it ever uses it) matches what is on screen.
-            return HomeSection.allCases.compactMap { wanted in
-                rows.first { $0.section == wanted }
-            }
-        }
-        // The website path parses one page, so it is all-or-nothing by nature.
-        //
-        // This must be `legacyHomeRows`, not `homeRows`: the latter is a wrapper around this
-        // same function, so calling it here recursed until the heap was exhausted — every
-        // launch with the relay off was killed by Jetsam a second in.
+        // One page is parsed, so this is all-or-nothing by nature. It must call
+        // `legacyHomeRows`, not `homeRows`: the latter wraps this same function, so
+        // calling it here recursed until the heap was exhausted.
         let rows = (try? await legacyHomeRows()) ?? []
         for row in rows { await onRow(row) }
         return rows
-    }
-
-    /// One section's books, retried once.
-    ///
-    /// A cancelled request is not retried and not reported as "no data": the task that
-    /// owned it went away (the view was rebuilt), so the work is simply moot. Retrying a
-    /// cancellation previously spent a second throttled slot and could knock out the
-    /// sections queued behind it.
-    private func homeSectionItems(_ section: HomeSection) async -> [NovelSummary] {
-        let sort = section.board.rawValue
-        // Three attempts with a growing pause. The first request of a session carries the
-        // cold-start cost (DNS, TLS), and it failed often enough to leave 今日热榜 — and the
-        // banner built from it — empty until a manual refresh. Extra attempts are cheap
-        // next to a missing section, and a section that is genuinely unavailable still
-        // gives up after the third.
-        for attempt in 0..<3 {
-            if Task.isCancelled { return [] }
-            if let page = await relayNovelListPage(sort: sort, page: 1), !page.novels.isEmpty {
-                return page.novels
-            }
-            if attempt < 2 {
-                try? await Task.sleep(nanoseconds: UInt64(400_000 * (attempt + 1)))
-            }
-        }
-        return []
     }
 
     private func fallbackHomeRows() async throws -> [HomeRow] {
@@ -297,21 +141,10 @@ public struct NovelService: Sendable {
     // MARK: - Ranking
 
     public func rank(_ board: RankBoard, page: Int = 1) async throws -> [NovelSummary] {
-        // With the relay enabled every board comes from it, and nothing is silently
-        // substituted from the website: a blank board is honest, a board quietly
-        // assembled from another source is not.
-        if relayIsAvailable {
-            if let items = await relayNovelList(sort: board.rawValue, page: page), !items.isEmpty {
-                return items
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法提供这个榜单，请稍后再试")
-            }
-        }
-        return try await websiteRank(board, page: page)
+        try await websiteRank(board, page: page)
     }
 
-    /// The website's version of a board, without consulting the relay.
+    /// A board read from the website.
     private func websiteRank(_ board: RankBoard, page: Int) async throws -> [NovelSummary] {
         let path = "/article/toplist.php?sort=\(board.rawValue)&page=\(page)"
         let html = try await client.wap(path)
@@ -328,8 +161,8 @@ public struct NovelService: Sendable {
     /// The desktop ranking, or a message saying why there is none.
     ///
     /// The yearly ranking used to be substituted here, which made an unreadable board look
-    /// like a board — the wrong books under the wrong title. It is now the same rule the
-    /// relay follows: a board that cannot be read says so.
+    /// like a board — the wrong books under the wrong title. A board that cannot be read
+    /// now says so.
     private func rankedFallback(
         _ board: RankBoard,
         page: Int,
@@ -365,16 +198,8 @@ public struct NovelService: Sendable {
 
     // MARK: - Tags
 
-    /// A tag's book list.
-    ///
-    /// The relay publishes a book's tags but has no way to list books by one — its list call
-    /// ignores the filter — so this is a website feature. In relay-only mode it says so
-    /// instead of returning an empty list, which would read as "nothing carries this tag".
-    /// Hybrid may use it, because there the website is already signed in and in use.
+    /// A tag's book list, read from the site's tag page.
     public func novels(tag: String, page: Int = 1, sort: TagSort = .updated) async throws -> NovelListPage {
-        guard !relayIsAvailable || isHybrid else {
-            throw Wenku8Error.unavailable("中转服务不提供按标签浏览，关闭中转后可以查看。")
-        }
         let name = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw Wenku8Error.unavailable("标签为空") }
         guard let encoded = TextDecoding.formEncodeGBK(name) else {
@@ -392,12 +217,8 @@ public struct NovelService: Sendable {
 
     /// The website homepage's book blocks.
     ///
-    /// The homepage needs a session — anonymous visitors are redirected to the login form —
-    /// and it is a website page, so relay-only mode says so instead of showing nothing.
+    /// The homepage needs a session: anonymous visitors are redirected to the login form.
     public func exploreBlocks() async throws -> [DesktopParser.HomeBlock] {
-        guard !relayIsAvailable || isHybrid else {
-            throw Wenku8Error.unavailable("中转模式不提供探索板块，关闭中转或开启混合模式后可以查看。")
-        }
         let html = try await client.desktop("/index.php")
         if AccountParser.isDesktopLoginPage(html) {
             throw Wenku8Error.needLogin
@@ -418,9 +239,6 @@ public struct NovelService: Sendable {
     }
 
     public func tagCloudPage() async throws -> TagCloudPage {
-        guard !relayIsAvailable || isHybrid else {
-            throw Wenku8Error.unavailable("中转服务不提供标签浏览，关闭中转后可以查看。")
-        }
         let html = try await client.desktop("/modules/article/tags.php")
         if AccountParser.isDesktopLoginPage(html) {
             throw Wenku8Error.needLogin
@@ -434,11 +252,8 @@ public struct NovelService: Sendable {
 
     /// The heat ranking page (`/top.php`): twenty columns, one per library and measure.
     ///
-    /// The page needs a session and only exists on the website, so relay-only mode says so.
+    /// The page needs a session.
     public func heatBoards() async throws -> [DesktopParser.HeatBoard] {
-        guard !relayIsAvailable || isHybrid else {
-            throw Wenku8Error.unavailable("中转模式不提供热度排名，关闭中转或开启混合模式后可以查看。")
-        }
         let html = try await client.desktop("/top.php")
         if AccountParser.isDesktopLoginPage(html) {
             throw Wenku8Error.needLogin
@@ -452,9 +267,6 @@ public struct NovelService: Sendable {
 
     /// Every tag the site publishes, from its tag cloud.
     public func tagCloud() async throws -> [String] {
-        guard !relayIsAvailable || isHybrid else {
-            throw Wenku8Error.unavailable("中转服务不提供标签浏览，关闭中转后可以查看。")
-        }
         let html = try await client.desktop("/modules/article/tags.php")
         if AccountParser.isDesktopLoginPage(html) {
             throw Wenku8Error.needLogin
@@ -464,18 +276,10 @@ public struct NovelService: Sendable {
 
     public func library(_ category: Int, page: Int = 1) async throws -> [NovelSummary] {
         let sort = category == 0 ? "all" : "\(category)"
-        if relayIsAvailable {
-            if let items = await relayNovelList(sort: sort, page: page), !items.isEmpty {
-                return items
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法提供这个分类，请稍后再试")
-            }
-        }
         return try await websiteLibrary(category, page: page)
     }
 
-    /// The website's version of a category, without consulting the relay.
+    /// A category read from the website.
     private func websiteLibrary(_ category: Int, page: Int) async throws -> [NovelSummary] {
         let path = "/article/sortlist.php?class=\(category)&page=\(page)"
         let html = try await client.wap(path)
@@ -487,18 +291,8 @@ public struct NovelService: Sendable {
         return WAPParser.linksIn(html).uniquedByID()
     }
 
-    /// Library categories.
-    ///
-    /// The relay publishes the same taxonomy (`action=xml&item=sort`); with it enabled
-    /// the list comes from there so the categories match the listings the relay
-    /// actually serves.
+    /// Library categories, read from the site's sort page.
     public func categories() async throws -> [LibraryCategory] {
-        if relayIsAvailable,
-           let text = try? await relay.sendText(RelayAction.sorts()),
-           let parsed = RelayParser.categories(text), !parsed.isEmpty {
-            return parsed
-        }
-        if relayIsAvailable { return LibraryCategory.all }
         let html = try await client.wap("/article/sort.php")
         let list = WAPParser.libraryCategories(html)
         return list.isEmpty ? LibraryCategory.all : list
@@ -509,12 +303,6 @@ public struct NovelService: Sendable {
     public func search(_ query: SearchQuery) async throws -> [NovelSummary] {
         let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return [] }
-        if relayIsAvailable {
-            if let items = await relaySearch(keyword, type: query.field.parameter) {
-                return items
-            }
-            throw Wenku8Error.unavailable("中转服务暂时无法搜索，请稍后再试")
-        }
         let fields = [
             "action": "search",
             "searchtype": query.field.parameter,
@@ -592,9 +380,6 @@ public struct NovelService: Sendable {
     private func fetchImage(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
-        if url.host?.contains("wenku8-relay") == true {
-            request.setValue("okhttp/4.12.0", forHTTPHeaderField: "User-Agent")
-        }
         let (data, _) = try await URLSession.shared.data(for: request)
         return data
     }
@@ -638,9 +423,8 @@ public struct NovelService: Sendable {
 
     /// Caches a book's metadata, cover and catalogue, fetching only what is missing.
     ///
-    /// Each piece is skipped when it is already stored: the relay is a volunteer service
-    /// paced at one request every 1.2s, so re-fetching a record that is already on disk
-    /// would starve every other request for no gain.
+    /// Each piece is skipped when it is already stored, so re-fetching a record that is
+    /// already on disk does not cost another request.
     public func cacheDetailFully(aid: Int) async {
         guard await MetadataFetchRegistry.shared.begin(aid) else { return }
         await performCacheDetail(aid: aid)
@@ -701,37 +485,9 @@ public struct NovelService: Sendable {
     }
 
     private func onlineDetail(aid: Int) async throws -> NovelDetail {
-        if relayIsAvailable, let relayed = await relayDetail(aid: aid) {
-            return relayed
-        }
-        if relayIsAvailable, !isHybrid {
-            throw Wenku8Error.unavailable("中转服务暂时无法获取书籍信息")
-        }
         return try await websiteDetail(aid: aid)
     }
-
-    private func relayDetail(aid: Int) async -> NovelDetail? {
-        guard let data = try? await relay.send(RelayAction.meta(aid: aid)) else { return nil }
-        var parsed = RelayParser.detail(TextDecoding.decode(data), aid: aid)
-        guard !parsed.title.isEmpty else { return nil }
-        // `meta` carries the short preview; `intro` carries the full text.
-        if let introData = try? await relay.send(RelayAction.intro(aid: aid)) {
-            let full = RelayParser.intro(TextDecoding.decode(introData))
-            if !full.isEmpty { parsed.intro = full }
-        }
-        // `meta` has no tags; `bookinfo` does. Once they are stored with the book, later
-        // opens read them instead of paying for another throttled request.
-        if parsed.tags == nil {
-            parsed.tags = await offline.entry(for: aid)?.detail?.tags
-            if parsed.tags == nil,
-               let infoData = try? await relay.send(RelayAction.bookInfo(aid: aid)) {
-                parsed.tags = RelayParser.tags(TextDecoding.decode(infoData))
-            }
-        }
-        return parsed
-    }
-
-    /// The website's version of a book's detail, without consulting the relay.
+    /// A book's detail read from the website.
     private func websiteDetail(aid: Int) async throws -> NovelDetail {
         let html = try await client.wap("/article/articleinfo.php?id=\(aid)")
         var detail = WAPParser.novelDetail(html, aid: aid)
@@ -785,12 +541,6 @@ public struct NovelService: Sendable {
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {
-        if relayIsAvailable, let relayed = await relayVolumes(aid: aid) {
-            return relayed
-        }
-        if relayIsAvailable, !isHybrid {
-            throw Wenku8Error.unavailable("中转服务暂时无法获取目录")
-        }
         do {
             let volumes = try await wapVolumes(aid: aid)
             if !volumes.isEmpty { return volumes }
@@ -800,20 +550,6 @@ public struct NovelService: Sendable {
         }
         return try await desktopVolumes(aid: aid)
     }
-
-    private func relayVolumes(aid: Int) async -> [Volume]? {
-        guard let data = try? await relay.send(RelayAction.chapterList(aid: aid)) else { return nil }
-        let relayed = RelayParser.volumes(TextDecoding.decode(data))
-        guard !relayed.isEmpty else { return nil }
-        return Self.mergeVolumes(relayed)
-    }
-
-    private func relayChapter(aid: Int, cid: Int) async -> ChapterContent? {
-        guard let data = try? await relay.send(RelayAction.text(aid: aid, cid: cid)) else { return nil }
-        let parsed = RelayParser.chapter(TextDecoding.decode(data), aid: aid, cid: cid)
-        return parsed.blocks.isEmpty ? nil : parsed
-    }
-
     private func wapVolumes(aid: Int) async throws -> [Volume] {
         var all: [Volume] = []
         var page = 1
@@ -881,14 +617,6 @@ public struct NovelService: Sendable {
         // work at all.
         if let cached = await offline.chapter(aid, cid: cid) {
             return cached
-        }
-        if relayIsAvailable {
-            if let relayed = await relayChapter(aid: aid, cid: cid) {
-                return relayed
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法获取正文")
-            }
         }
         var pages: [ChapterContent] = []
         var page = 1
@@ -959,19 +687,6 @@ public struct NovelService: Sendable {
                 )
             }
         }
-        if relayIsAvailable {
-            if let relayed = await relayReviews(aid: aid, page: page) {
-                await storeReviews(relayed.reviews, aid: aid, page: page, totalPages: relayed.totalPages)
-                return ReviewPage(
-                    reviews: relayed.reviews,
-                    page: page,
-                    totalPages: relayed.totalPages
-                )
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法获取书评，请稍后再试")
-            }
-        }
         do {
             let html = try await client.wap("/article/reviews.php?aid=\(aid)&type=all&page=\(page)")
             if WAPParser.requiresLogin(html) {
@@ -1013,47 +728,11 @@ public struct NovelService: Sendable {
         let merged = stored + reviews.filter { !known.contains($0.id) }
         await offline.cacheReviews(merged, for: aid, page: page, totalPages: totalPages)
     }
-
-    private func relayReviews(
-        aid: Int,
-        page: Int
-    ) async -> (reviews: [NovelReview], totalPages: Int)? {
-        guard let data = try? await relay.send(RelayAction.reviewList(aid: aid, page: page)) else {
-            return nil
-        }
-        let parsed = RelayParser.reviews(TextDecoding.decode(data))
-        return parsed.reviews.isEmpty ? nil : parsed
-    }
-
-    private func relayReviewThread(
-        rid: Int,
-        page: Int
-    ) async -> (posts: [ReviewPost], totalPages: Int)? {
-        guard let data = try? await relay.send(RelayAction.reviewThread(rid: rid, page: page)) else {
-            return nil
-        }
-        let parsed = RelayParser.reviewThread(TextDecoding.decode(data))
-        return parsed.posts.isEmpty ? nil : parsed
-    }
-
     /// One page of a review thread.
     ///
     /// Threads page too — a popular one runs to a hundred pages — so the caller gets the
     /// floor list together with the page count.
     public func reviewPosts(rid: Int, page: Int = 1) async throws -> ReviewThread {
-        if relayIsAvailable {
-            if let relayed = await relayReviewThread(rid: rid, page: page) {
-                return ReviewThread(
-                    topic: "",
-                    posts: relayed.posts,
-                    page: page,
-                    totalPages: relayed.totalPages
-                )
-            }
-            if !isHybrid {
-                throw Wenku8Error.unavailable("中转服务暂时无法获取书评内容，请稍后再试")
-            }
-        }
         let html = try await client.wap("/article/reviewshow.php?rid=\(rid)&page=\(page)")
         let parsed = WAPParser.reviewPosts(html)
         let pagination = WAPParser.reviewPagination(html)
@@ -1081,21 +760,11 @@ public struct NovelService: Sendable {
         /// The site could not be reached, so nothing can be concluded.
         case unknown
     }
-
-    /// The relay keeps a session of its own, and answers `4` for "not signed in".
-    public func relaySessionState() async -> SessionState {
-        guard relayIsAvailable else { return .unknown }
-        guard let info = try? await relay.sendText(RelayAction.userInfo()) else { return .unknown }
-        let trimmed = info.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == "4" { return .signedOut }
-        return .signedIn(RelayParser.userName(trimmed) ?? "")
-    }
-
-    /// The outcome of asking one source whether it answers at all.
+    /// The outcome of asking whether the site answers at all.
     ///
     /// Distinct from the login check: this says nothing about an account, only whether the
-    /// reader's phone can reach the site or the relay right now — the question a reader has
-    /// when a page stays empty and they do not know whether to change mirror or wait.
+    /// reader's phone can reach the site right now — the question a reader has when a page
+    /// stays empty and they do not know whether to change mirror or wait.
     /// A page of a review thread.
     public struct ReviewThread: Sendable {
         public var topic: String
@@ -1134,12 +803,6 @@ public struct NovelService: Sendable {
     }
 
     public struct Connectivity: Sendable, Equatable {
-        public enum Target: String, Sendable, CaseIterable {
-            case site
-            case relay
-        }
-
-        public var target: Target
         public var isReachable: Bool
         /// Round trip in seconds, when a request completed.
         public var latency: TimeInterval?
@@ -1154,64 +817,18 @@ public struct NovelService: Sendable {
             let html = try await client.wap("/")
             let elapsed = Date().timeIntervalSince(started)
             guard !html.isEmpty else {
-                return Connectivity(target: .site, isReachable: false, latency: nil,
+                return Connectivity( isReachable: false, latency: nil,
                                     detail: "站点返回了空页面")
             }
-            return Connectivity(target: .site, isReachable: true, latency: elapsed,
+            return Connectivity( isReachable: true, latency: elapsed,
                                 detail: "已连接 \(SiteDomain.current.title)")
         } catch {
-            return Connectivity(target: .site, isReachable: false, latency: nil,
+            return Connectivity( isReachable: false, latency: nil,
                                 detail: (error as? LocalizedError)?.errorDescription
                                     ?? error.localizedDescription)
         }
     }
-
-    /// Requests a small relay listing and reports how long it took.
-    ///
-    /// The relay paces every call at roughly 1.2s, so a success is never faster than that;
-    /// the figure reported here is therefore an upper bound on the network time.
-    public func checkRelayConnectivity() async -> Connectivity {
-        guard relayIsAvailable else {
-            return Connectivity(target: .relay, isReachable: false, latency: nil,
-                                detail: "中转服务未启用")
-        }
-        let started = Date()
-        do {
-            let text = try await relay.sendText(RelayAction.sorts())
-            let elapsed = Date().timeIntervalSince(started)
-            guard !text.isEmpty else {
-                return Connectivity(target: .relay, isReachable: false, latency: nil,
-                                    detail: "中转返回了空响应")
-            }
-            return Connectivity(target: .relay, isReachable: true, latency: elapsed,
-                                detail: "已连接中转服务")
-        } catch {
-            return Connectivity(target: .relay, isReachable: false, latency: nil,
-                                detail: (error as? LocalizedError)?.errorDescription
-                                    ?? error.localizedDescription)
-        }
-    }
-
     public func sessionState() async -> SessionState {
-        // The two sources hold separate sessions, and only the active one is consulted:
-        // with the relay on every request goes there, so the website's state is irrelevant
-        // — and vice versa. Asking both would report a login the reader's requests do not
-        // actually use.
-        if relayIsAvailable {
-            let relayed = await relaySessionState()
-            guard isHybrid else { return relayed }
-            // Hybrid reads from both, so a session on one side is not enough: a missing
-            // website session turns every fallback into a login gate.
-            let site = await websiteSessionState()
-            switch (relayed, site) {
-            case (.signedOut, _), (_, .signedOut): return .signedOut
-            case (.unknown, _), (_, .unknown): return .unknown
-            // The relay can confirm a session without naming it, so the website's name
-            // fills the gap rather than leaving the account label blank.
-            case (.signedIn(let relayName), .signedIn(let siteName)):
-                return .signedIn(relayName.isEmpty ? siteName : relayName)
-            }
-        }
         return await websiteSessionState()
     }
 
@@ -1263,25 +880,8 @@ public struct NovelService: Sendable {
         }
         client.clearSessionCookies()
 
-        // Only the source the app actually reads from is signed in, the same rule the
-        // session check follows. With the relay on, that is the relay — which never asks
-        // for a captcha; the site's own forms now do.
-        if relayIsAvailable {
-            switch await relaySignIn(username: name, password: password) {
-            case .success(let displayName):
-                return Session(userName: displayName, isRemote: true)
-            case .unknownAccount:
-                throw Wenku8Error.login("账号不存在")
-            case .wrongPassword:
-                throw Wenku8Error.login("密码错误")
-            case .unreachable(let reason):
-                throw Wenku8Error.login("中转服务登录失败：\(reason)")
-            }
-        }
-
-        // Relay off: the website is the source. Its desktop form demands an image captcha
-        // the app cannot solve, but the mobile form still asks only for the account and
-        // password and sets the same cookie.
+        // The desktop form demands an image captcha the app cannot solve, but the mobile
+        // form still asks only for the account and password and sets the same cookie.
         let html: String
         do {
             html = try await client.wapPost("/login.php", fields: [
@@ -1301,103 +901,12 @@ public struct NovelService: Sendable {
         }
         return try await confirmSiteSession()
     }
-
-    /// Turns relay bookshelf ids into the same rows the desktop page produces.
-    ///
-    /// The relay listing carries ids (and sometimes a name), but the shelf view draws
-    /// covers, authors and the latest chapter; those come from each book's metadata.
-    /// Fetched concurrently, and a book whose metadata fails still appears with its id
-    /// and title rather than vanishing from the shelf.
-    private func enrich(_ entries: [RelayParser.RelayShelfEntry]) async -> [ShelfEntry] {
-        await withTaskGroup(of: ShelfEntry.self) { group in
-            for entry in entries {
-                group.addTask { [self] in
-                    let summary = await novelSummary(aid: entry.aid, fallbackTitle: entry.name)
-                    let chapter: ChapterLink? = {
-                        guard let cid = entry.latestChapterCID else { return nil }
-                        return ChapterLink(id: cid, title: entry.latestChapterName ?? "")
-                    }()
-                    return ShelfEntry(novel: summary, latestChapter: chapter)
-                }
-            }
-            var rows: [ShelfEntry] = []
-            for await row in group { rows.append(row) }
-            // The relay returns shelf order; sorting by title keeps the list stable
-            // regardless of which metadata request finished first.
-            return rows.sorted { $0.novel.title < $1.novel.title }
-        }
-    }
-
-    /// Minimal summary for a book, falling back to placeholders when metadata is absent.
-    private func novelSummary(aid: Int, fallbackTitle: String?) async -> NovelSummary {
-        if let detail = try? await detail(aid: aid) {
-            return NovelSummary(
-                id: aid,
-                title: detail.title,
-                author: detail.author,
-                coverURL: detail.coverURL
-            )
-        }
-        return NovelSummary(
-            id: aid,
-            title: fallbackTitle ?? "书籍 \(aid)",
-            author: nil,
-            coverURL: CoverURL.image(for: aid)
-        )
-    }
-
-    /// What a relay sign-in attempt concluded.
-    ///
-    /// The relay answers with a bare code: 1 accepted, 2 no such account, 3 wrong password.
-    public enum RelaySignInResult: Sendable, Equatable {
-        case success(String)
-        case unknownAccount
-        case wrongPassword
-        case unreachable(String)
-    }
-
-    public func relaySignIn(username: String, password: String) async -> RelaySignInResult {
-        guard relayIsAvailable else { return .unreachable("中转服务未启用") }
-        let text: String
-        do {
-            text = try await relay.sendText(RelayAction.login(username: username, password: password))
-        } catch {
-            return .unreachable(
-                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            )
-        }
-        // Persist whatever the login established before reporting success: without this the
-        // session was gone by the next launch.
-        SharedCookieStore.persistRelayCookies()
-
-        switch RelayParser.resultCode(text) {
-        case 2: return .unknownAccount
-        case 3: return .wrongPassword
-        default: break
-        }
-
-        // A reply code alone is not proof: a login that answers "success" without issuing a
-        // cookie leaves every later call unauthenticated. Confirm by asking for the account.
-        if let info = try? await relay.sendText(RelayAction.userInfo()) {
-            let trimmed = info.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed != "4" else {
-                return .unreachable("中转未建立会话")
-            }
-            SharedCookieStore.persistRelayCookies()
-            let name = RelayParser.userName(trimmed) ?? username
-            return .success(name)
-        }
-        return .unreachable("中转未响应账号查询")
-    }
-
     /// Confirms a website sign-in and returns the name to show for it.
     ///
     /// The only proof is the header of a page served with the session in place. A cookie
     /// proves nothing — `jieqiUserInfo` is written even when the password is rejected, so
     /// reading it reported a failed sign-in as a success.
     private func confirmSiteSession() async throws -> Session {
-        // The website is always asked here, whatever the relay believes: this confirms a
-        // submission to the website's own form.
         guard let html = try? await client.desktop("/book/1614.htm") else {
             throw Wenku8Error.login("无法确认登录状态，请检查网络后重试")
         }
@@ -1439,46 +948,11 @@ public struct NovelService: Sendable {
         if let message = AccountParser.loginErrorMessage(html) {
             throw Wenku8Error.login(message)
         }
-        let session = try await confirmSiteSession()
-        // Hybrid reads from both, so the other session is established here rather than
-        // asking the reader to sign in twice.
-        if isHybrid {
-            _ = await signInToRelay(username: name, password: password)
-        }
-        return session
-    }
-
-    /// Signs the relay in, reporting only whether it worked.
-    @discardableResult
-    public func signInToRelay(username: String, password: String) async -> Bool {
-        guard relayIsAvailable else { return false }
-        guard let text = try? await relay.sendText(
-            RelayAction.login(username: username, password: password)
-        ) else { return false }
-        // Persist whatever the login established before reporting success: without
-        // this the session was gone by the next launch.
-        SharedCookieStore.persistRelayCookies()
-
-        // A reply code alone is not proof: a login that answers "success" without
-        // issuing a cookie leaves every later call unauthenticated, which is exactly
-        // the bug being fixed. So the session is confirmed by asking for the account
-        // and checking the relay did not answer "not signed in".
-        if let info = try? await relay.sendText(RelayAction.userInfo()) {
-            let trimmed = info.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed != "4" else { return false }
-            SharedCookieStore.persistRelayCookies()
-            return true
-        }
-        return (RelayParser.resultCode(text) ?? 0) == 1
-            || text.localizedCaseInsensitiveContains("ok")
+        return try await confirmSiteSession()
     }
 
     public func signOut() {
         client.clearSessionCookies()
-        if relayIsAvailable {
-            Task { _ = try? await relay.sendText(RelayAction.logout()) }
-        }
-        SharedCookieStore.clearRelayCookies()
     }
 
     public func currentUserName() async -> String? {
@@ -1489,9 +963,8 @@ public struct NovelService: Sendable {
 
     /// Reads the signed-in user's shelf from the desktop site.
     ///
-    /// The relay keeps its own session and the WAP shelf is a separate scope, so
-    /// neither sees a desktop login; the desktop page is the only place the
-    /// session established by `signIn` is visible.
+    /// The WAP shelf is a separate scope from the desktop one, so the desktop page is
+    /// the only place the session established by `signIn` is visible.
     public func remoteBookcase() async throws -> [NovelSummary] {
         try await remoteShelf().map(\.novel)
     }
@@ -1513,20 +986,6 @@ public struct NovelService: Sendable {
     public func remoteShelfPage(
         classID: Int? = nil
     ) async throws -> (entries: [ShelfEntry], reportedCount: Int?) {
-        // With the relay enabled the shelf comes from the relay's own session, which
-        // `signIn` establishes alongside the website's. Relay ids carry no group on
-        // that listing, so groups still come from the desktop page.
-        if relayIsAvailable, classID ?? 0 == 0 {
-            guard let text = try? await relay.sendText(RelayAction.bookcaseList()) else {
-                throw Wenku8Error.unavailable("中转服务暂时无法获取书架")
-            }
-            // An empty listing is a real answer — the account has nothing — and must
-            // not be mistaken for a failure, or an empty shelf would silently be
-            // re-read from a different source.
-            let entries = RelayParser.bookcaseEntries(text)
-            let shelf = await enrich(entries)
-            return (shelf, shelf.count)
-        }
         guard client.hasSession() else { throw Wenku8Error.needLogin }
         let path = classID.map { "/modules/article/bookcase.php?classid=\($0)" }
             ?? "/modules/article/bookcase.php"
@@ -1543,24 +1002,6 @@ public struct NovelService: Sendable {
 
     @discardableResult
     public func addToBookcase(aid: Int, classID: Int? = nil) async throws -> BookcaseMutationResult {
-        // The relay keeps its own session, which is not the one `signIn` establishes.
-        // A code 4 from it therefore means "the relay account is not signed in", not
-        // "this reader is signed out" — reporting that as an expired login was wrong.
-        // Fall through to the desktop page, which uses the session the reader actually
-        // established.
-        if relayIsAvailable,
-           let code = RelayParser.resultCode(try await relay.sendText(RelayAction.bookcaseAdd(aid: aid))) {
-            switch code {
-            case 1: return .succeeded
-            case 5: return .alreadyPresent
-            case 6: throw Wenku8Error.login("书架已满，请先清理后再添加")
-            case 4:
-                // Relay session missing: try the reader's own login below.
-                break
-            default:
-                break
-            }
-        }
         guard client.hasSession() else { throw Wenku8Error.needLogin }
         let html = try await client.desktop("/modules/article/addbookcase.php?bid=\(aid)")
         if AccountParser.isDesktopLoginPage(html) || AccountParser.isLoginGate(html) {
@@ -1610,15 +1051,6 @@ public struct NovelService: Sendable {
 
     @discardableResult
     public func removeFromBookcase(aid: Int) async throws -> BookcaseMutationResult {
-        if relayIsAvailable,
-           let code = RelayParser.resultCode(try await relay.sendText(RelayAction.bookcaseDelete(aid: aid))) {
-            switch code {
-            case 1: return .succeeded
-            case 7: return .notPresent
-            case 4: throw Wenku8Error.needLogin
-            default: throw Wenku8Error.login(RelayParser.message(for: code))
-            }
-        }
         let html = try await client.wap("/article/bookcase.php?delid=\(aid)")
         if AccountParser.isLoginGate(html) {
             throw Wenku8Error.needLogin

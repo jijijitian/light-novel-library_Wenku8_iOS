@@ -61,7 +61,7 @@ struct ShelfView: View {
             await loadCacheStates()
 
             // Once per launch, not once per visit. Returning to this tab re-ran the whole
-            // sync — four relay calls each time — which is what made the shelf feel like it
+            // sync — four calls each time — which is what made the shelf feel like it
             // was constantly updating. The refresh button is there for a deliberate re-sync.
             guard !Self.didSyncThisLaunch else { return }
             Self.didSyncThisLaunch = true

@@ -15,8 +15,7 @@ import Wenku8Core
 ///
 /// Chapter bodies are stored as `ChapterContent` JSON, and illustrations are
 /// fetched eagerly: an offline reader that only cached text would show the prose
-/// with broken pictures, which is exactly the chapter type the relay serves for
-/// these books.
+/// with broken pictures, which is the more common case for these books.
 public actor OfflineStore {
     public static let shared = OfflineStore()
 

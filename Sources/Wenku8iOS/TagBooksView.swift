@@ -3,7 +3,7 @@ import Wenku8Core
 
 /// One ordering of a tag's books.
 ///
-/// The website is the only source that can list books by tag — the relay publishes a book's
+/// The website is the source that can list books by tag. It publishes a book's
 /// tags but has no way to filter by one — so this screen is reachable only when the website
 /// is in use.
 struct TagBooksView: View {

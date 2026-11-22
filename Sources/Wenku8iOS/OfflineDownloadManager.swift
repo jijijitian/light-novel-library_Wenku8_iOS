@@ -177,11 +177,6 @@ public final class OfflineDownloadManager: ObservableObject {
     private func fetch(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
-        // Illustration hosts accept plain requests, but the relay's own host
-        // requires the client agent.
-        if url.host?.contains("wenku8-relay") == true {
-            request.setValue("okhttp/4.12.0", forHTTPHeaderField: "User-Agent")
-        }
         let (data, _) = try await URLSession.shared.data(for: request)
         return data
     }

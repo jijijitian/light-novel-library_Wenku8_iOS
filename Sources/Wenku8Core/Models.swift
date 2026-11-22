@@ -12,7 +12,7 @@ public struct NovelTag: Hashable, Codable, Sendable, Identifiable {
 
     /// Splits the source's space-separated tag string.
     ///
-    /// Both the relay and the website send tags as one string — `奇幻 冒险 百合` — and no tag
+    /// The site sends tags as one string — `奇幻 冒险 百合` — and no tag
     /// contains a space, so splitting on whitespace is what they intend.
     public static func split(_ raw: String?) -> [NovelTag]? {
         guard let raw, !raw.isEmpty else { return nil }
@@ -79,7 +79,7 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
     public var latestChapter: ChapterLink?
     public var recommendations: [NovelSummary]
     /// Absent when the source does not publish tags for a book — the website's book page
-    /// never does, and the relay only in its `bookinfo` payload.
+    /// never does; it is only on the desktop book page.
     public var tags: [NovelTag]?
 
     public init(
@@ -389,12 +389,6 @@ public enum Wenku8Error: LocalizedError, Sendable {
     case needLogin
     case unavailable(String)
     case login(String)
-    /// The relay refused this client's protocol version and asked for an update.
-    ///
-    /// Carries the service's own wording rather than a version number the app cannot
-    /// know: the comparison happens server-side, so repeating what it said is more
-    /// useful than inventing a target.
-    case upgradeRequired(String?)
 
     public var errorDescription: String? {
         switch self {
@@ -403,20 +397,11 @@ public enum Wenku8Error: LocalizedError, Sendable {
         case .needLogin: return "该功能需要登录文库账号"
         case .unavailable(let message): return message
         case .login(let message): return message
-        case .upgradeRequired(let hint):
-            if let hint, !hint.isEmpty { return "中转服务要求升级客户端：\(hint)" }
-            return "该中转要求升级客户端，请更新应用"
         }
     }
 
     /// Whether retrying the same request could ever succeed.
-    ///
-    /// An upgrade demand is a stable property of the client, not a transient failure,
-    /// so views must stop retrying and offer guidance instead of a refresh button.
-    public var isRetriable: Bool {
-        if case .upgradeRequired = self { return false }
-        return true
-    }
+    public var isRetriable: Bool { true }
 }
 
 public enum CoverURL {
@@ -442,7 +427,7 @@ extension Array where Element == NovelSummary {
     /// Drops repeated book ids while keeping the first occurrence's order.
     ///
     /// SwiftUI's `ForEach` treats a duplicate id as a fatal error, and the data
-    /// paths here concatenate several sources (relay, WAP, desktop, yearly
+    /// paths here concatenate several sources (WAP, desktop, yearly
     /// rankings), so any one of them repeating a book would crash the list.
     public func uniquedByID() -> [NovelSummary] {
         var seen = Set<Int>()

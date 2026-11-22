@@ -4,7 +4,7 @@ import Wenku8Core
 /// The site's heat ranking: twenty columns, one per library and per measure.
 ///
 /// It is the page behind 热度排名 in the site's navigation, and like the tags it is website
-/// content — the relay has no equivalent — so it is reachable only when the website is in use.
+/// content, and it needs a session, so it is reachable once the reader is signed in.
 struct HeatRankView: View {
     @EnvironmentObject private var router: AppRouter
     @State private var boards: [DesktopParser.HeatBoard] = []
