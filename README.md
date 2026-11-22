@@ -2,11 +2,11 @@
 
 # 轻小说文库 iOS
 
-轻小说文库（wenku8.net）的第三方 iOS 客户端。支持云端书架同步、离线下载、多种数据源与完整的阅读设置。
+轻小说文库（wenku8.net）的第三方 iOS 客户端。支持云端书架同步、离线下载、标签浏览与完整的阅读设置。
 
-[![Release](https://img.shields.io/github/v/release/jijijitian/light-novel-library_Wenku8_iOS?label=Release&color=5b8def)](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/releases/latest)
-[![iOS](https://img.shields.io/badge/iOS-17.0%2B-333333)](https://github.com/jijijitian/light-novel-library_Wenku8_iOS)
-[![License](https://img.shields.io/badge/License-GPL--2.0-2b6cb0)](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/blob/master/LICENSE)
+[![Release](https://img.shields.io/github/v/release/jijijitian/wenku8-reader?label=Release&color=5b8def)](https://github.com/jijijitian/wenku8-reader/releases/latest)
+[![iOS](https://img.shields.io/badge/iOS-17.0%2B-333333)](https://github.com/jijijitian/wenku8-reader)
+[![License](https://img.shields.io/badge/License-GPL--2.0-2b6cb0)](https://github.com/jijijitian/wenku8-reader/blob/master/LICENSE)
 
 </div>
 
@@ -21,12 +21,21 @@
 
 ## 主要功能
 
-### 书籍浏览
+### 首页与探索
 
 - 首页每日更新：今日热榜、最近更新、新书风云、每周书单
-- 13 个排行榜：日、周、月的点击与推荐榜，以及最新入库、字数、完结、动画化等分类
+- 探索页整合站点首页的全部推荐板块，可展开查看或跳转到对应榜单
+- 12 个排行榜：日、周、月的点击与推荐榜，以及年度、最新入库、字数、热度等分类
+- 热度排名：总榜与各文库榜，共 20 个榜单
+- Tags 云集：按题材分类浏览全站标签，附站点的标签使用说明
+- 按文库浏览：按文库分类查找作品
+
+### 书籍
+
+- 详情页显示作品标签，点击标签可查看同标签的其他作品
+- 标签书单支持最近更新、热门、已完结、已动画化四种查看方式
+- 书评列表与楼层，支持分页浏览
 - 按书名或作者搜索，自动保存搜索历史
-- 按文库分类逐页浏览
 
 ### 阅读器
 
@@ -50,22 +59,16 @@
 - 断网后书架、封面、简介与目录照常显示
 - 在设置中查看缓存占用、按书籍清理
 
-### 数据源
-
-- 默认使用社区维护的中转服务，排行榜与分类可正常访问
-- 可关闭中转，仅使用文库网页版
-- 混合模式：以中转数据为主，中转获取不到的内容自动从网页版补充
-- 站点域名可在 wenku8.net、wenku8.cc、wenku8.com 之间切换
-
 ### 界面
 
 - 液态玻璃材质，适配浅色、深色与着色模式
+- 封面取色：详情页与书评页的背景会跟随书籍封面配色
 - 原生标签栏与系统返回手势
 - 适配 iPad，支持横屏阅读
 
 ## 下载
 
-App 未上架 App Store，需自行签名安装。可在 [Releases](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/releases)
+App 未上架 App Store，需自行签名安装。可在 [Releases](https://github.com/jijijitian/wenku8-reader/releases)
 页面下载 `.ipa` 文件，或用 Xcode 直接编译到设备。
 
 **设备要求**：iOS 17.0 或更新版本。
@@ -85,32 +88,25 @@ App 未上架 App Store，需自行签名安装。可在 [Releases](https://gith
 
 ### 首次使用
 
-打开即可浏览，无需任何配置。
+打开即可浏览首页与搜索，无需任何配置。
 
-如需同步书架或查看排行榜，请前往 **我的书架 → 登录**，使用文库账号登录。
-登录后可同步云端书架、访问需要登录的排行榜，以及按标签浏览书籍。
+如需同步书架、查看排行榜或按标签浏览，请前往 **书架 → 登录**，使用文库账号登录。
 
-### 数据源选择
+### 站点域名
 
-在 **设置 → 数据源** 中切换：
-
-| 模式 | 说明 |
-| --- | --- |
-| 中转 | 默认。由中转服务提供数据，响应较快，榜单完整 |
-| 混合模式 | 同时使用中转与网页版，中转缺失的内容由网页版补充 |
-| 关闭中转 | 仅使用文库网页版，排行榜等页面需要登录 |
-
-站点域名通常无需调整，当前不可访问时可切换到其他域名。
+在 **设置 → 数据来源** 中可以在 `wenku8.net`、`wenku8.cc`、`wenku8.com` 三个域名之间切换。
+三处指向同一个站点，某个域名无法访问时换一个即可，账号与书架不受影响。
 
 ## FAQ
 
-### 为什么部分排行榜需要登录？
+### 为什么部分页面需要登录？
 
-文库网页版对未登录访客不开放排行榜页面。开启中转服务即可访问，或登录自己的文库账号。
+文库对未登录访客只开放部分内容：排行榜、标签页、站点首页的推荐板块都需要登录后才会显示。
+登录一次即可长期使用。
 
 ### 为什么个别书籍无法打开？
 
-少数书籍在文库网页版本身就不可读。使用中转服务通常可以解决，App 会在失败时给出明确提示。
+少数书籍在文库网页端本身就不可读，App 会在失败时给出明确提示，不会静默留白。
 
 ### 账号密码会被保存吗？
 
@@ -126,7 +122,7 @@ iOS 17.0 及以上。液态玻璃效果需要 iOS 26 或更新版本，旧系统
 
 ## 反馈
 
-使用中遇到问题或有功能建议，欢迎在 [Issues](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/issues) 中提出。
+使用中遇到问题或有功能建议，欢迎在 [Issues](https://github.com/jijijitian/wenku8-reader/issues) 中提出。
 
 ## 致谢
 
@@ -135,4 +131,4 @@ iOS 17.0 及以上。液态玻璃效果需要 iOS 26 或更新版本，旧系统
 
 ## 许可
 
-本项目基于 [GPL-2.0](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/blob/master/LICENSE) 协议开源，与原始 Android 项目一致。
+本项目基于 [GPL-2.0](https://github.com/jijijitian/wenku8-reader/blob/master/LICENSE) 协议开源，与原始 Android 项目一致。
