@@ -1,0 +1,59 @@
+{
+  "apk": {
+    "file": "app-default-release-v2.0.4.104.apk",
+    "package": "org.mewx.wenku8",
+    "versionName": "2.0.4",
+    "versionCode": 104,
+    "flavor": "default",
+    "minSdk": 24,
+    "targetSdk": 37,
+    "sha256": "1c6ffce67cc4fc8323e62f2ad36dba09aad604d93e61c3dbc5e0f0f0373e1a5f",
+    "source": "https://github.com/MewX/light-novel-library_Wenku8_Android/releases/download/v2.0.4/app-default-release-v2.0.4.104.apk"
+  },
+  "install_path": "/data/app/~~LpzIwXoQyd7fJV7COmt3tg==/org.mewx.wenku8-ycM2jzwCDYVyXEdPkE3IBg==",
+  "native_lib": {
+    "name": "libmewx.so",
+    "abis": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86",
+      "x86_64"
+    ],
+    "x86_64_size": 98496,
+    "jni_exports": [
+      "JNI_OnLoad (0xe440, 0x926 bytes)",
+      "JNI_OnUnload (0x10030, 0xc bytes)"
+    ],
+    "registered_methods": {
+      "a": "(android.content.Context, android.content.res.AssetManager, byte[], int, int) -> boolean",
+      "b": "(byte[], byte[], long) -> byte[]",
+      "c": "(org.mewx.wenku8.Wenku8V2Application) -> void",
+      "d": "(java.lang.String, java.lang.String) -> vr3"
+    }
+  },
+  "asset": {
+    "wk8_lut.bin": {
+      "size": 2048,
+      "structure": "128 x 16-byte entries, all distinct",
+      "loaded_by": "AAssetManager_open at 0xf7db inside JNI_OnLoad"
+    }
+  },
+  "server_headers_observed": {
+    "date": "Sun, 22 Nov 2026 12:12:59 GMT",
+    "content-type": "text/plain;charset=UTF-8",
+    "cf-ray": "a5e7d876ac6303c2-SJC",
+    "cf-cache-status": "HIT",
+    "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+    "age": "7430",
+    "cache-control": "max-age=14400, s-maxage=14400",
+    "last-modified": "Sun, 22 Nov 2026 10:09:08 GMT",
+    "server": "cloudflare",
+    "cf-placement": "remote-NRT",
+    "server-timing": "cfCacheStatus;desc=\"HIT\"",
+    "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=iH99q1d5g88euUZgTUYMUSWup%2BPpnPRRCrJ8PPPCq6oaq9sKXvgVmnEZORoY7SfR3zyyPs6Mu28qwuKbubAK3P%2Fjg1QFAw4CiAdRvfuW9cjSG7bUOW4pGu1s2udVUdEwyn3Ent3Iefm54g%3D%3D\"}]}",
+    "content-encoding": "gzip",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  },
+  "user_agent_observed": "okhttp/5.5.1",
+  "collected_at": "2026-11-22T20:20:34+0800"
+}

@@ -182,3 +182,89 @@ PY
 
 这些向量忠实反映原生库行为（已确认与 `.bss` 密钥状态一致），但**它们只证明"算得和客户端一样"，
 不证明"服务端接受"** —— 后者见第 3 节。
+
+
+---
+
+## 6. 重放实验：服务端接受的其实是「信封 + 时间」
+
+> 2026-11-22，用 Android agent 采集的官方客户端真实信封重放。
+
+### 6.1 实验结果
+
+把官方客户端采集到的信封**原样**重放到线上端点：
+
+```bash
+curl -X POST https://mewx-android.wenku8.app/v2/api \
+  -H "X-WK8-Proto: 2" \
+  -H "Content-Type: application/octet-stream" \
+  -H "Accept-Encoding: gzip" \
+  -H "User-Agent: okhttp/5.5.1" \
+  --data-binary @envelope.bin
+```
+
+| 信封 | 采集距今 | 响应 |
+| --- | --- | --- |
+| seq0 | 42.7 分钟 | `401 {"error":"CLOCK_SKEW","serverTimeMs":1795352145097}` |
+| seq11 | 40.2 分钟 | `401 {"error":"CLOCK_SKEW","serverTimeMs":1795352369240}` |
+| seq2 | 45 分钟 | `401` |
+
+**关键**：服务端返回的是 `CLOCK_SKEW`，**不是 `ENVELOPE_INVALID`**。
+
+### 6.2 这改变了什么
+
+之前我们自己的 sealer 得到 `403 ENVELOPE_INVALID`，据此推断「服务端有客户端之外的状态」。
+重放实验否掉了这个推断：
+
+| 情况 | 服务端响应 | 含义 |
+| --- | --- | --- |
+| 我们的 sealer 输出 | `403 ENVELOPE_INVALID` | 信封结构或密钥**不对** |
+| 官方客户端真实信封（过期） | `401 CLOCK_SKEW` | 信封**通过**了校验，只是时间超窗 |
+
+所以服务端**没有隐藏密钥**，也不依赖握手。剩下的差距只有两项：
+
+1. 我们生成的密文体与真实信封**不一致**（结构/密钥/明文布局）
+2. 明文里必须带一个**接近服务端当前时间**的时间戳
+
+### 6.3 时间戳不在信封外层
+
+在 `sealed` 的 154 字节里搜索该请求时间戳的各种编码形式，**全部未找到**：
+
+```
+ms LE 8 / ms BE 8 / s LE 8 / s BE 8 / s LE 4 / s BE 4 / ms LE 6 / s LE 5
+→ 均未命中
+```
+
+说明时间戳被**加密在密文体内部**，而不是明文头。这与「服务端能读出并判断是否超窗」一致。
+
+### 6.4 长度律在真实样本上成立
+
+12 组真实样本全部满足 `out_len = body_len + 83 + pad`，`pad ∈ [16, 95]`：
+
+```
+seq 0: body=43 sealed=154 pad=28      seq 6: body=42 sealed=182 pad=57
+seq 1: body=42 sealed=159 pad=34      seq 7: body=43 sealed=172 pad=46
+seq 2: body=32 sealed=141 pad=26      seq 8: body=42 sealed=184 pad=59
+seq 3: body=32 sealed=178 pad=63      seq 9: body=32 sealed=174 pad=59
+seq 4: body=33 sealed=205 pad=89      seq10: body=33 sealed=208 pad=92
+seq 5: body=42 sealed=188 pad=63      seq11: body=32 sealed=140 pad=25
+```
+
+**结论**：帧格式与长度律是对的，缺的只是密文体内部的构造。
+
+### 6.5 下一步
+
+有了真实密文，「解出明文」成为可验证的目标：
+
+- 若能用会话密钥解出 `body` + 时间戳 + padding，就证明密钥链完全正确，只需照抄明文布局
+- 若解不出，则说明每请求还有一层子密钥派生（`0xe240` ARX 所在）
+
+用目前复原的会话密钥直接按 AES-CTR 解密，得到的是乱码（可打印率 23/71），
+说明**每请求确实有额外的密钥混合**——这正是 `0xe240` 那 188 条指令在做的事。
+
+### 6.6 更正记录
+
+- 早期结论「服务端依赖客户端之外的状态」：**错误**，被重放实验否掉。
+- 请求书里的 `User-Agent: okhttp/4.12.0`：**错误**，实测为 `okhttp/5.5.1`。
+- 请求书里的 `0xe240` / `0xfb30` 等地址：**不是函数入口**，真实边界见
+  `regs-0xe240.txt`（`0xe240` 所属函数从 `0xe05c` 开始）。
