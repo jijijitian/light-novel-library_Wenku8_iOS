@@ -27,6 +27,10 @@
 - 12 个排行榜：日、周、月的点击与推荐榜，以及年度、最新入库、字数、热度等分类
 - 热度排名：总榜与各文库榜，共 20 个榜单
 
+| <img src=".readme/images/home.jpg" alt="" width="200"/> | <img src=".readme/images/explore.jpg" alt="" width="200"/> |
+|:---:|:---:|
+| 首页 | 探索 |
+
 ### 丰富的检索方式：标签、文库、搜索
 
 > 标签与文库分类由文库站点提供，登录后可用
@@ -40,6 +44,10 @@
 - 详情页显示作品标签，点击标签可查看同标签的其他作品
 - 标签书单支持最近更新、热门、已完结、已动画化四种查看方式
 - 书评列表与楼层，支持分页浏览
+
+| <img src=".readme/images/detail.jpg" alt="" width="200"/> | <img src=".readme/images/reviews.jpg" alt="" width="200"/> |
+|:---:|:---:|
+| 书籍详情与标签 | 书评 |
 
 ### 离线阅读
 
@@ -60,6 +68,10 @@
 - 字号、行距与首行缩进实时调节，无需退出阅读
 - 两种翻页方式：上下滑动与左右翻页
 - 章节目录随时跳转，插图支持全屏缩放
+
+| <img src=".readme/images/reader.jpg" alt="" width="200"/> |
+|:---:|
+| 阅读器 |
 
 ### 精美界面
 
@@ -90,19 +102,10 @@ App 未上架 App Store，需自行签名安装。
 
 ## 技术总览
 
-如果你是开发者，我们总是欢迎你提交 PR 参与开发。以下几点可以给你一个技术上的大概了解。
-
 - SwiftUI 架构，适配 iOS 17 至 iOS 26；
-- 核心解析与网络层独立为 `Wenku8Core` 模块，可单独在 Linux 上跑单元测试；
+- 核心解析与网络层独立为 `Wenku8Core` 模块；
 - 网页解析不依赖第三方 HTML 库，GBK 解码自带码表；
 - 封面与元数据落盘缓存，冷启动直接出内容。
-
-### 参与开发
-
-```bash
-bash tools/bootstrap-xcodeproj.sh device   # 生成 Xcode 工程
-bash tools/test-core-linux.sh              # 跑核心模块测试
-```
 
 ## FAQ
 
@@ -138,6 +141,7 @@ iOS 17.0 及以上。液态玻璃效果需要 iOS 26 或更新版本，旧系统
 
 - [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android)：功能与交互参考，UI 设计：ZERO
 - [celia-sh/Novella](https://github.com/celia-sh/Novella)：封面取色与书籍详情页的配色方案参考
+- [Aidoku](https://github.com/Aidoku/Aidoku)：应用图标设计参考
 
 ## 许可
 
