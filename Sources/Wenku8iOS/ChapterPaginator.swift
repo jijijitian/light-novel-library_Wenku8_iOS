@@ -75,6 +75,8 @@ enum ChapterPaginator {
         }
 
         func flushText() {
+            // Nothing buffered means there is no page to close.
+            guard buffer.length > 0 else { return }
             guard !buffer.string.isEmpty else {
                 pendingText = []
                 paraStarts = []
@@ -127,9 +129,21 @@ enum ChapterPaginator {
                     )
                 ))
             case .image(let url):
-                // An illustration gets its own page; it is never split and never
-                // shares a page with prose.
-                flushText()
+                // An illustration never splits and never shares a page with prose. Anything
+                // already buffered becomes its own page first — except when that buffer holds
+                // only the chapter title, which is one short line: an illustration chapter
+                // then shows its picture under the title instead of on a blank second page.
+                if buffer.length > 0 {
+                    if pendingText.count == 1, buffer.string.contains(trimmedTitle) {
+                        // Keep the title with the picture that follows it.
+                        pages.append([.paragraph(trimmedTitle), .image(url)])
+                        pendingText = []
+                        paraStarts = []
+                        buffer = NSMutableAttributedString()
+                        continue
+                    }
+                    flushText()
+                }
                 pages.append([.image(url)])
             }
         }

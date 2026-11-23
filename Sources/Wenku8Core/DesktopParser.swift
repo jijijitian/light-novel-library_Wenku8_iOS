@@ -197,6 +197,31 @@ public enum DesktopParser {
     /// is taken down. The download endpoint wants a volume id, which that page never prints —
     /// but the volume id is one less than its first chapter's id, so the downloads can be
     /// addressed from the chapter ids alone.
+    /// A chapter's illustrations from its desktop page.
+    ///
+    /// The mobile endpoint strips images entirely: a book's 插图 chapter comes back from it
+    /// with no pictures at all, so the desktop page is the only place they can be read. Each
+    /// picture sits in `<div class="divimage"><a href="…"><img src="…">`.
+    public static func chapterImages(_ html: String) -> [URL] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<div class="divimage"><a href="([^"]+)"#,
+            options: [.dotMatchesLineSeparators]
+        ) else { return [] }
+        let ns = html as NSString
+        var urls: [URL] = []
+        var seen = Set<String>()
+        let range = NSRange(location: 0, length: ns.length)
+        for match in regex.matches(in: html, range: range) {
+            let raw = ns.substring(with: match.range(at: 1))
+            guard seen.insert(raw).inserted else { continue }
+            // The page writes protocol-relative hosts for some mirrors.
+            let absolute = raw.hasPrefix("//") ? "https:" + raw : raw
+            guard let url = URL(string: absolute) else { continue }
+            urls.append(url)
+        }
+        return urls
+    }
+
     /// True when the book page carries the delisting notice.
     ///
     /// The page renders 「因版权问题，文库不再提供该小说的在线阅读与下载服务！」 in place of the

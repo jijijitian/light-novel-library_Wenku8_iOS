@@ -42,10 +42,12 @@ final class ReaderViewModel: ObservableObject {
         error = nil
         defer { if loadToken == token { isLoading = false } }
         do {
-            // A delisted book's chapters live in a per-volume pack, so opening one fetches and
-            // stores the whole volume. Announcing it keeps the downloads page honest about
-            // work that is really happening.
-            OfflineDownloadManager.shared.noteAutomaticVolumeFetch(novelID: novelID, chapterID: chapter.id)
+            // A delisted book's chapter comes from its volume pack, which takes a few seconds
+            // and is worth reporting. An ordinary chapter is a single request and must not
+            // put a download spinner on the downloads page.
+            if await service.isRestricted(novelID) {
+                OfflineDownloadManager.shared.noteAutomaticVolumeFetch(novelID: novelID, chapterID: chapter.id)
+            }
             let result = try await service.chapter(aid: novelID, cid: chapter.id)
             OfflineDownloadManager.shared.finishAutomaticVolumeFetch()
             cache[chapter.id] = result

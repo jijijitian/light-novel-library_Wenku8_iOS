@@ -593,6 +593,21 @@ public struct NovelService: Sendable {
     }
 
     /// Whether the site's book page carries the delisting notice.
+    /// Whether the book is delisted.
+    ///
+    /// The answer is already stored with the book's metadata, which the detail screen fills
+    /// in before any chapter can be opened, so no request is made here. A book with no stored
+    /// metadata has not been opened through the detail screen and is treated as ordinary.
+    /// Whether reading this book goes through the pack path, for a caller that wants to say
+    /// so before the work starts.
+    public func isRestricted(_ aid: Int) async -> Bool {
+        await isDelistedBook(aid: aid)
+    }
+
+    private func isDelistedBook(aid: Int) async -> Bool {
+        await offline.entry(for: aid)?.detail?.isRestricted == true
+    }
+
     public func isDelisted(aid: Int) async -> Bool {
         guard let book = try? await client.desktop("/book/\(aid).htm") else { return false }
         return DesktopParser.isDelisted(book)
@@ -711,13 +726,15 @@ public struct NovelService: Sendable {
         if let cached = await offline.chapter(aid, cid: cid) {
             return cached
         }
-        // A delisted book's chapters cannot be fetched by id at all; its text comes from the
-        // per-volume download and is stored on the way through, so this is paid once.
-        if let restricted = try? await restrictedChapter(aid: aid, cid: cid) {
-            await offline.saveChapter(restricted, for: aid)
-            return restricted
-        }
-        if await isDelisted(aid: aid) {
+        // The pack path is for delisted books only. Trying it first for everyone cost an
+        // extra request per chapter, and — worse — when it happened to succeed the WAP path
+        // was skipped, which is how a book's illustrations disappeared: the pack carries no
+        // image links.
+        if await isDelistedBook(aid: aid) {
+            if let restricted = try? await restrictedChapter(aid: aid, cid: cid) {
+                await offline.saveChapter(restricted, for: aid)
+                return restricted
+            }
             throw Wenku8Error.unavailable("这一章暂时无法获取，请稍后重试。")
         }
         var pages: [ChapterContent] = []
@@ -736,7 +753,26 @@ public struct NovelService: Sendable {
 
         let blocks = pages.flatMap(\.blocks)
         let title = pages.first?.title ?? ""
-        if blocks.isEmpty {
+        // The mobile endpoint answers an illustration chapter with a one-line placeholder
+        // instead of the pictures, so its presence — not an empty result — is what marks a
+        // chapter whose images have to come from the desktop page.
+        // The mobile page answers these with the site's own sentence, which differs in
+        // wording from page to page (「请在」 vs 「请访问」), so the marker is the phrase they
+        // share rather than the whole sentence.
+        let illustrationMarkers = ["纯图片内容", "转跳主站看图", "电脑版网页浏览插图"]
+        let isIllustrationOnly = blocks.isEmpty || blocks.contains { block in
+            guard case .paragraph(let text) = block else { return false }
+            return illustrationMarkers.contains { text.contains($0) }
+        }
+        if isIllustrationOnly {
+            if let images = try? await desktopChapterImages(aid: aid, cid: cid), !images.isEmpty {
+                return ChapterContent(
+                    novelID: aid,
+                    chapterID: cid,
+                    title: title,
+                    blocks: images.map { .image($0) }
+                )
+            }
             // Some books are delisted from reading while their catalogue still
             // resolves; the desktop chapter page states the reason ("因版权问题…").
             // Reporting that instead of a generic message stops it looking like a
@@ -747,6 +783,13 @@ public struct NovelService: Sendable {
             throw Wenku8Error.unavailable("该章节没有可显示的正文")
         }
         return ChapterContent(novelID: aid, chapterID: cid, title: title, blocks: blocks)
+    }
+
+    /// The illustrations on a chapter's desktop page.
+    private func desktopChapterImages(aid: Int, cid: Int) async throws -> [URL] {
+        let group = max(0, aid / 1000)
+        let html = try await client.desktop("/novel/\(group)/\(aid)/\(cid).htm")
+        return DesktopParser.chapterImages(html)
     }
 
     /// Reads the desktop chapter page and returns the site's own notice when the
