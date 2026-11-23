@@ -191,6 +191,81 @@ public enum DesktopParser {
         return NovelTag.split(Markup.decodeEntities(raw))
     }
 
+    /// A delisted book's catalogue, read from the one page that still renders it.
+    ///
+    /// `/novel/<group>/<aid>/index.htm` keeps the full table of contents even after the book
+    /// is taken down. The download endpoint wants a volume id, which that page never prints —
+    /// but the volume id is one less than its first chapter's id, so the downloads can be
+    /// addressed from the chapter ids alone.
+    public struct RestrictedCatalogue: Sendable {
+        public struct VolumeEntry: Sendable {
+            public var title: String
+            public var vid: Int
+            public var chapters: [ChapterLink]
+
+            public init(title: String, vid: Int, chapters: [ChapterLink]) {
+                self.title = title
+                self.vid = vid
+                self.chapters = chapters
+            }
+        }
+
+        public var volumes: [VolumeEntry]
+    }
+
+    public static func restrictedCatalogue(_ html: String) -> RestrictedCatalogue? {
+        // The page is a sequence of volume headings (bare text) followed by that volume's
+        // chapter links, `href="<cid>.htm">标题</a>`. One pass over both shapes keeps the
+        // chapters attached to the heading that precedes them.
+        let pattern = try? NSRegularExpression(
+            pattern: #"(第[零〇一二三四五六七八九十百千0-9]+卷[^<]{0,40})|href="(\d{5,7})\.htm">([^<]+)</a>"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let ns = html as NSString
+        let matches = pattern?.matches(in: html, range: NSRange(location: 0, length: ns.length)) ?? []
+        guard !matches.isEmpty else { return nil }
+
+        var volumes: [RestrictedCatalogue.VolumeEntry] = []
+        var currentTitle: String?
+        var currentChapters: [ChapterLink] = []
+
+        func flush() {
+            guard let title = currentTitle, !currentChapters.isEmpty else { return }
+            // The download endpoint takes a volume id, which the page never prints. It is one
+            // less than the volume's first chapter id — verified against every volume of a
+            // 17-volume book.
+            let vid = currentChapters[0].id - 1
+            volumes.append(.init(title: Markup.normalize(title), vid: vid, chapters: currentChapters))
+            currentChapters = []
+        }
+
+        for match in matches {
+            if match.range(at: 1).location != NSNotFound {
+                flush()
+                currentTitle = ns.substring(with: match.range(at: 1))
+                continue
+            }
+            guard currentTitle != nil,
+                  let cid = Int(ns.substring(with: match.range(at: 2))) else { continue }
+            let title = Markup.normalize(
+                Markup.decodeEntities(ns.substring(with: match.range(at: 3)))
+            )
+            currentChapters.append(ChapterLink(id: cid, title: title))
+        }
+        flush()
+
+        return volumes.isEmpty ? nil : RestrictedCatalogue(volumes: volumes)
+    }
+
+    /// True when the book page carries the delisting notice.
+    ///
+    /// The page renders 「因版权问题，文库不再提供该小说的在线阅读与下载服务！」 in place of the
+    /// catalogue. The wording is stable enough to match on its opening phrase rather than the
+    /// whole sentence.
+    public static func isDelisted(_ html: String) -> Bool {
+        html.contains("因版权问题") && html.contains("不再提供该小说")
+    }
+
     /// The site's explanation of its tag service, shown below the cloud.
     public struct TagGuide: Sendable, Hashable, Codable {
         public struct Entry: Sendable, Hashable, Codable, Identifiable {

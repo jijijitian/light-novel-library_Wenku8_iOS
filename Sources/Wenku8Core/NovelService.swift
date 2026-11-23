@@ -495,6 +495,11 @@ public struct NovelService: Sendable {
             let desktop = try await client.desktop("/book/\(aid).htm")
             detail = DesktopParser.novelDetail(desktop, aid: aid)
         }
+        // A delisted book's own pages are empty, so its notice is read from the desktop page
+        // that still renders it — the same page the tags come from.
+        if let book = try? await client.desktop("/book/\(aid).htm") {
+            detail.isRestricted = DesktopParser.isDelisted(book)
+        }
         // The mobile page carries no tags; the desktop book page does. They are read once
         // and then kept with the book, so only the first open pays for the extra request.
         if detail.tags == nil {
@@ -528,6 +533,12 @@ public struct NovelService: Sendable {
         do {
             return try await fetchVolumes(aid: aid)
         } catch {
+            // A delisted book has no readable catalogue through the usual endpoints, but its
+            // index page still lists every volume and chapter.
+            if let rebuilt = try? await restrictedCatalogue(aid: aid), !rebuilt.isEmpty {
+                await offline.cacheVolumes(rebuilt, for: aid)
+                return rebuilt
+            }
             // Offline: rebuild the catalogue from the downloaded manifest so the
             // reader can still navigate a cached book.
             if let entry = await offline.entry(for: aid), !entry.chapterIDs.isEmpty {
@@ -538,6 +549,99 @@ public struct NovelService: Sendable {
             }
             throw error
         }
+    }
+
+    // MARK: - Restricted books (download-only)
+
+    /// The per-volume text download the site still serves for a delisted book.
+    ///
+    /// A book taken down "at rights holders' request" has no readable pages, but its text is
+    /// still published one volume at a time:
+    ///
+    ///     https://dl.wenku8.com/packtxt.php?aid=<aid>&vid=<vid>&type=gbk
+    ///
+    /// `type=gbk` is the encoding actually written, despite the response saying `utf-8`; the
+    /// bytes are decoded with the app's GBK table.
+    public static func textPackURL(aid: Int, vid: Int) -> URL? {
+        URL(string: "https://dl.wenku8.com/packtxt.php?aid=\(aid)&vid=\(vid)&type=gbk")
+    }
+
+    /// Downloads one volume's pack and splits it into chapters.
+    public func downloadedVolume(aid: Int, vid: Int) async throws -> TextPackParser.ParsedVolume? {
+        guard let url = Self.textPackURL(aid: aid, vid: vid) else { return nil }
+        let response = try await client.get(url, referer: SiteDomain.current.webURL("/book/\(aid).htm").absoluteString)
+        guard !response.data.isEmpty else { return nil }
+        return TextPackParser.parse(TextDecoding.decode(response.data))
+    }
+
+    /// One chapter of a delisted book, from its volume download.
+    ///
+    /// The catalogue built from the index page keeps the chapter ids the site assigned, and a
+    /// volume's id is one less than its first chapter's, so the chapter can be found again
+    /// by asking for that volume's pack and matching the position within it.
+    private func restrictedChapter(aid: Int, cid: Int) async throws -> ChapterContent? {
+        let cached = await offline.cachedVolumes(for: aid)
+        let volumes: [Volume]
+        if let cached, !cached.isEmpty {
+            volumes = cached
+        } else if let rebuilt = try? await restrictedCatalogue(aid: aid) {
+            volumes = rebuilt
+        } else {
+            return nil
+        }
+        guard !volumes.isEmpty else { return nil }
+        for volume in volumes {
+            guard let position = volume.chapters.firstIndex(where: { $0.id == cid }),
+                  let vid = Int(volume.id) else { continue }
+            guard let parsed = try await downloadedVolume(aid: aid, vid: vid),
+                  position < parsed.chapters.count else { continue }
+            let chapter = parsed.chapters[position]
+            let blocks = chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
+            return ChapterContent(
+                novelID: aid,
+                chapterID: cid,
+                title: chapter.title,
+                blocks: blocks
+            )
+        }
+        return nil
+    }
+
+    /// A delisted book's catalogue, rebuilt from its index page.
+    ///
+    /// The endpoint that normally serves a catalogue returns an empty page for these books,
+    /// while `/novel/<group>/<aid>/index.htm` keeps the whole table of contents. The volume id
+    /// a download needs never appears on it, so it is derived from the volume's first chapter
+    /// id instead.
+    public func restrictedCatalogue(aid: Int) async throws -> [Volume] {
+        let group = max(1, aid / 1000)
+        let html = try await client.desktop("/novel/\(group)/\(aid)/index.htm")
+        guard let parsed = DesktopParser.restrictedCatalogue(html) else { return [] }
+        return parsed.volumes.map { entry in
+            Volume(id: String(entry.vid), title: entry.title, chapters: entry.chapters)
+        }
+    }
+
+    /// A restricted book's catalogue, rebuilt from its volume downloads.
+    ///
+    /// The site's own catalogue pages are empty for these books, so the volume ids are the
+    /// only starting point. They are not exposed anywhere once a book is delisted, which is
+    /// why `knownVolumeIDs` exists: a book that has been read once records them, and later
+    /// visits reuse that list instead of needing the catalogue again.
+    public func restrictedVolumes(aid: Int, volumeIDs: [Int]) async -> [Volume] {
+        var volumes: [Volume] = []
+        for (index, vid) in volumeIDs.enumerated() {
+            guard let parsed = try? await downloadedVolume(aid: aid, vid: vid) else { continue }
+            let chapters = parsed.chapters.enumerated().map { offset, chapter in
+                ChapterLink(id: TextPackParser.stableChapterID(vid: vid, index: offset), title: chapter.title)
+            }
+            volumes.append(Volume(
+                id: String(vid),
+                title: parsed.name.isEmpty ? "第 \(index + 1) 卷" : parsed.name,
+                chapters: chapters
+            ))
+        }
+        return volumes
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {
@@ -617,6 +721,12 @@ public struct NovelService: Sendable {
         // work at all.
         if let cached = await offline.chapter(aid, cid: cid) {
             return cached
+        }
+        // A delisted book's chapters cannot be fetched by id at all; its text comes from the
+        // per-volume download and is stored on the way through, so this is paid once.
+        if let restricted = try? await restrictedChapter(aid: aid, cid: cid) {
+            await offline.saveChapter(restricted, for: aid)
+            return restricted
         }
         var pages: [ChapterContent] = []
         var page = 1

@@ -299,6 +299,9 @@ struct NovelDetailView: View {
     private func content(_ detail: NovelDetail) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             header(detail)
+            if detail.isRestricted {
+                restrictedNotice
+            }
             if let tags = detail.tags, !tags.isEmpty {
                 tagsRow(tags)
             }
@@ -529,6 +532,25 @@ struct NovelDetailView: View {
     /// Opens a tag's book list.
     private func openTag(_ tag: NovelTag) {
         router.open(.tag(tag.name))
+    }
+
+    /// Shown when the site delisted the book.
+    ///
+    /// Its pages are empty, but the text is still published one volume at a time as a
+    /// download. Opening a chapter fetches that volume and keeps it, so the notice says the
+    /// first read costs a download rather than that the book is unavailable.
+    private var restrictedNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("因版权问题已下架", systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.semibold))
+            Text("文库不再提供这本书的在线阅读，但站点仍提供分卷下载。App 会在阅读时自动下载所在分卷，下载后会保留在本机。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(cornerRadius: 22)
     }
 
     private var reviewsCard: some View {

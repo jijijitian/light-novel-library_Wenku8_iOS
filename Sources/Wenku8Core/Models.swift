@@ -81,6 +81,11 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
     /// Absent when the source does not publish tags for a book — the website's book page
     /// never does; it is only on the desktop book page.
     public var tags: [NovelTag]?
+    /// True when the site delisted the book at rights holders' request.
+    ///
+    /// Such a book has no readable pages, but its text is still published one volume at a
+    /// time as a download, so the app can offer that instead of a dead end.
+    public var isRestricted: Bool = false
 
     public init(
         id: Int,
@@ -94,7 +99,8 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
         coverURL: URL? = nil,
         latestChapter: ChapterLink? = nil,
         recommendations: [NovelSummary] = [],
-        tags: [NovelTag]? = nil
+        tags: [NovelTag]? = nil,
+        isRestricted: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -108,6 +114,7 @@ public struct NovelDetail: Identifiable, Hashable, Codable, Sendable {
         self.latestChapter = latestChapter
         self.recommendations = recommendations
         self.tags = tags
+        self.isRestricted = isRestricted
     }
 }
 
