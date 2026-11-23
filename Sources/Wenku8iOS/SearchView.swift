@@ -41,7 +41,9 @@ final class SearchViewModel: ObservableObject {
         isSearching = true
         error = nil
         defer { isSearching = false }
-        await pages.start { page in
+        // `restart`, not `start`: a new keyword is a different result set, and `start` keeps
+        // whatever the previous search left on screen.
+        await pages.restart { page in
             try await self.service.searchPage(query, page: page)
         }
         results = pages.novels
@@ -99,6 +101,16 @@ struct SearchView: View {
             .padding(.bottom, 30)
         }
         .background { AppBackground() }
+        .task {
+            #if DEBUG
+            // `WENKU8_OPEN_SEARCH=电波女` runs one search on launch, so the result list and
+            // its paging can be checked without typing into the field.
+            if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_SEARCH"], !raw.isEmpty {
+                model.keyword = raw
+                submit()
+            }
+            #endif
+        }
         .navigationTitle("搜索")
         .onChange(of: model.keyword) { _, newValue in
             if newValue.isEmpty { model.clear() }

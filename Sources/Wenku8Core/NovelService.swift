@@ -315,6 +315,12 @@ public struct NovelService: Sendable {
             "searchkey": keyword,
         ]
         var lastError: Error?
+        // The chosen mirror first, then the others. That order matters more for a POST than
+        // anywhere else: an alias that answers 301 turns this into a GET and drops the search
+        // fields, so a mirror that redirects must not be preferred. Whether `.cc` redirects
+        // depends on the network the reader is on — it serves pages itself on some and
+        // redirects to `.net` on others — so the choice is left to the fallback order rather
+        // than resolved in advance.
         for host in client.endpoints.wapHosts {
             guard let url = URL(string: host + "/article/search.php") else { continue }
             do {
@@ -624,7 +630,7 @@ public struct NovelService: Sendable {
     /// a download needs never appears on it, so it is derived from the volume's first chapter
     /// id instead.
     public func restrictedCatalogue(aid: Int) async throws -> [Volume] {
-        let group = max(1, aid / 1000)
+        let group = max(0, aid / 1000)
         let html = try await client.desktop("/novel/\(group)/\(aid)/index.htm")
         guard let parsed = DesktopParser.restrictedCatalogue(html) else { return [] }
         return parsed.volumes.map { entry in
@@ -662,11 +668,12 @@ public struct NovelService: Sendable {
 
     /// Desktop catalogue fallback (`/novel/<group>/<aid>/index.htm`).
     ///
-    /// The group is `max(1, aid / 1000)`, matching the site's own folder layout.
+    /// The group is `max(0, aid / 1000)`, matching the site's own folder layout: books with
+    /// an id below 1000 live in `/novel/0/`, which a `max(1, …)` turned into a 404.
     /// Some books are only reachable this way, so an empty WAP catalogue must not
     /// be reported as "this book has no chapters".
     private func desktopVolumes(aid: Int) async throws -> [Volume] {
-        let group = max(1, aid / 1000)
+        let group = max(0, aid / 1000)
         let html = try await client.desktop("/novel/\(group)/\(aid)/index.htm")
         if DesktopParser.isPlaceholder(html) { return [] }
         return Self.mergeVolumes(DesktopParser.volumes(html))
@@ -748,7 +755,7 @@ public struct NovelService: Sendable {
     /// Reads the desktop chapter page and returns the site's own notice when the
     /// body was replaced by one (delisted-for-copyright books do this).
     private func desktopChapterNotice(aid: Int, cid: Int) async throws -> String? {
-        let group = max(1, aid / 1000)
+        let group = max(0, aid / 1000)
         let html = try await client.desktop("/novel/\(group)/\(aid)/\(cid).htm")
         if DesktopParser.isPlaceholder(html) { return nil }
         let text = Markup.plainText(html)

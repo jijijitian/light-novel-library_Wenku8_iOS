@@ -109,6 +109,9 @@ public final class Wenku8Client: @unchecked Sendable {
     let cookieStorage: HTTPCookieStorage
     public var endpoints = SiteEndpoints.default
 
+    /// Keeps the session's delegate alive; `URLSession` holds it weakly.
+    private let redirectKeeper: RedirectKeeper
+
     /// Switches the mirror used for every desktop/WAP request.
     public func use(domain: SiteDomain) {
         endpoints = SiteEndpoints(domain: domain)
@@ -124,7 +127,9 @@ public final class Wenku8Client: @unchecked Sendable {
         config.httpCookieAcceptPolicy = .always
         config.httpAdditionalHeaders = ["Accept-Language": "zh-CN,zh;q=0.9"]
         self.cookieStorage = .shared
-        self.session = URLSession(configuration: config)
+        let delegate = RedirectKeeper()
+        self.redirectKeeper = delegate
+        self.session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
     }
 
     public struct Response: Sendable {
@@ -442,5 +447,35 @@ public final class Wenku8Client: @unchecked Sendable {
         default:
             return "网络异常：\(nsError.localizedDescription)"
         }
+    }
+}
+
+/// Keeps a `POST` a `POST` across a redirect.
+///
+/// `wenku8.cc` and `wenku8.com` redirect to `www.wenku8.net` on some networks. Foundation's
+/// default policy follows the redirect as a `GET`, which silently drops the body — a search
+/// then comes back as an empty result rather than an error, which reads as "nothing matched".
+/// Re-issuing the original method and body at the new location keeps the request intact.
+final class RedirectKeeper: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let original = task.originalRequest,
+              original.httpMethod == "POST",
+              let body = original.httpBody else {
+            completionHandler(request)
+            return
+        }
+        var kept = request
+        kept.httpMethod = "POST"
+        kept.httpBody = body
+        if let contentType = original.value(forHTTPHeaderField: "Content-Type") {
+            kept.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        completionHandler(kept)
     }
 }
