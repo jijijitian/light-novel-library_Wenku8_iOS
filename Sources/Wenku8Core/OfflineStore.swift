@@ -202,10 +202,21 @@ public actor OfflineStore {
 
     // MARK: - Writing
 
+    /// Stores one chapter and records it as stored.
+    ///
+    /// The record is what the download badge and the per-chapter ticks read, so writing the
+    /// file without it left a chapter on disk that the app still called missing — which is
+    /// what happened to every chapter read through the reader rather than the download
+    /// screen.
     public func saveChapter(_ content: ChapterContent, for aid: Int) {
         try? fileManager.createDirectory(at: chaptersDirectory(for: aid), withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(content) else { return }
         try? data.write(to: chapterURL(for: aid, cid: content.chapterID), options: .atomic)
+
+        guard var entry = entry(for: aid) else { return }
+        guard entry.storedChapterIDs.insert(content.chapterID).inserted else { return }
+        entry.updatedAt = Date()
+        saveManifest(entry)
     }
 
     public func saveManifest(_ entry: Entry) {
@@ -416,8 +427,13 @@ public actor OfflineStore {
         // A stored catalogue is only usable when its volumes carry the site's download ids.
         // Earlier versions numbered them from zero — or titled a fallback volume 「正文」 —
         // and such a catalogue cannot address a download at all, so it is treated as absent
-        // and fetched again.
-        return volumes.contains(where: { $0.title == "正文" || Int($0.id) == nil }) ? nil : volumes
+        // and fetched again. A real id is a book-sized number: the site's ids run into the
+        // hundreds of thousands, so a catalogue whose ids are a short run starting at zero is
+        // the old numbering rather than an address.
+        let looksNumbered = volumes.enumerated().allSatisfy { index, volume in
+            volume.id == String(index) || volume.title == "正文"
+        }
+        return looksNumbered ? nil : volumes
     }
 
     /// Removes the metadata for a book while leaving its chapters alone.

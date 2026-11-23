@@ -604,8 +604,15 @@ public struct NovelService: Sendable {
         await isDelistedBook(aid: aid)
     }
 
+    /// Whether the book is delisted.
+    ///
+    /// The stored metadata answers it once the detail screen has run, which is the usual
+    /// case. Without it the answer is read from the book page: assuming "not delisted" sent a
+    /// delisted book down the reading path, which answers with the site's copyright notice and
+    /// reported that as a failure to load.
     private func isDelistedBook(aid: Int) async -> Bool {
-        await offline.entry(for: aid)?.detail?.isRestricted == true
+        if await offline.entry(for: aid)?.detail?.isRestricted == true { return true }
+        return await isDelisted(aid: aid)
     }
 
     public func isDelisted(aid: Int) async -> Bool {
@@ -624,15 +631,51 @@ public struct NovelService: Sendable {
     /// text — sometimes just the chapter, sometimes from it to the end of the volume, so the
     /// response is cut at its headings. That makes a chapter addressable directly, without
     /// knowing which volume it belongs to or what the volume's id is.
+    /// One chapter of a delisted book, storing the whole volume it arrives in.
+    ///
+    /// The pack endpoint answers with the requested chapter **and every chapter after it in
+    /// that volume**, so the response is split the way a whole volume is and every chapter it
+    /// yields is stored. Fetching a pack and keeping only the one chapter asked for meant a
+    /// volume cost one request per chapter and still never showed as cached.
+    ///
+    /// The chapters are matched to the catalogue by position: the first heading in the pack is
+    /// the chapter whose id was requested, and the catalogue lists that volume's chapters in
+    /// the same order.
     private func restrictedChapter(aid: Int, cid: Int) async throws -> ChapterContent? {
-        guard let parsed = try await chapterPack(aid: aid, cid: cid),
-              let chapter = TextPackParser.singleChapter(parsed) else { return nil }
-        return ChapterContent(
-            novelID: aid,
-            chapterID: cid,
-            title: chapter.title,
-            blocks: chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
-        )
+        guard let text = try await chapterPack(aid: aid, cid: cid) else { return nil }
+
+        // The volume this chapter belongs to, from the stored catalogue.
+        let volumes = await offline.cachedVolumes(for: aid) ?? []
+        guard let volume = volumes.first(where: { $0.chapters.contains(where: { $0.id == cid }) }),
+              let start = volume.chapters.firstIndex(where: { $0.id == cid })
+        else {
+            // No catalogue: fall back to the single chapter the pack starts with.
+            guard let single = TextPackParser.singleChapter(text) else { return nil }
+            let content = ChapterContent(
+                novelID: aid, chapterID: cid, title: single.title,
+                blocks: single.paragraphs.map { ChapterContent.Block.paragraph($0) }
+            )
+            await offline.saveChapter(content, for: aid)
+            return content
+        }
+
+        let parsed = TextPackParser.parse(text, volumeName: volume.title)
+        let chapters = parsed?.chapters ?? []
+        var requested: ChapterContent?
+        for (offset, chapter) in chapters.enumerated() {
+            let target = start + offset
+            guard target < volume.chapters.count else { break }
+            let link = volume.chapters[target]
+            let content = ChapterContent(
+                novelID: aid,
+                chapterID: link.id,
+                title: chapter.title,
+                blocks: chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
+            )
+            await offline.saveChapter(content, for: aid)
+            if link.id == cid { requested = content }
+        }
+        return requested
     }
 
     /// The raw text of one chapter, fetched by its id.
@@ -713,9 +756,10 @@ public struct NovelService: Sendable {
                 for chapter in volume.chapters where seenChapters.insert(chapter.id).inserted {
                     chapters.append(chapter)
                 }
-                // Two volumes may legitimately share a title, so the id is derived
-                // from the position in the merged list rather than the title.
-                copy.id = "\(merged.count)"
+                // The id is left as it came: it is the volume's download address, read from
+                // the catalogue row. Renumbering it here by position was what made every
+                // volume address wrong, and left a stored catalogue that could not be used
+                // for a download at all.
                 copy.chapters = chapters
                 merged.append(copy)
             }

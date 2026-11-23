@@ -83,17 +83,36 @@ public final class OfflineDownloadManager: ObservableObject {
             novelID: novelID,
             completed: 0,
             total: 1,
-            novelTitle: "正在下载分卷",
+            novelTitle: Self.automaticVolumeTitle,
             currentChapterTitle: "所在分卷",
             currentChapterID: chapterID
         )
     }
 
+    /// Ends an automatic volume fetch, leaving a short "finished" note behind.
+    ///
+    /// A volume download takes about two seconds, so clearing the row the moment it lands
+    /// left the downloads page showing nothing at all — the work happened, and anybody who
+    /// looked a second later would not know it had. The note stays just long enough to be
+    /// seen, then clears itself.
     public func finishAutomaticVolumeFetch() {
-        if progress?.total == 1, progress?.novelTitle == "正在下载分卷" {
-            progress = nil
+        guard progress?.total == 1, progress?.novelTitle == Self.automaticVolumeTitle else { return }
+        automaticFinish = "已下载分卷"
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            await MainActor.run {
+                guard let self else { return }
+                self.progress = nil
+                self.automaticFinish = nil
+            }
         }
     }
+
+    /// Shown briefly after an automatic fetch, so the work is visible.
+    @Published public private(set) var automaticFinish: String?
+
+    /// Prefix used for rows that describe an automatic fetch rather than a queued download.
+    static let automaticVolumeTitle = "正在下载分卷"
 
     public func cancel() {
         task?.cancel()
@@ -167,9 +186,9 @@ public final class OfflineDownloadManager: ObservableObject {
                                 await store.saveImage(data, for: aid, remote: url)
                             }
                         }
+                        // `saveChapter` writes the record too; this copy only feeds the
+                        // progress count below.
                         entry.storedChapterIDs.insert(chapter.id)
-                        entry.updatedAt = Date()
-                        await store.saveManifest(entry)
                         stored = true
                     } catch {
                         // A failing chapter must not abort the whole book. It stays out of

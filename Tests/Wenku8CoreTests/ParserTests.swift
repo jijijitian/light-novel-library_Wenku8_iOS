@@ -173,13 +173,17 @@ final class ParserTests: XCTestCase {
     }
 
     func testVolumeMerging() {
-        let a = Volume(id: "0", title: "第一卷", chapters: [ChapterLink(id: 1, title: "一")])
-        let b = Volume(id: "1", title: "第一卷", chapters: [ChapterLink(id: 2, title: "二")])
-        let c = Volume(id: "2", title: "第二卷", chapters: [ChapterLink(id: 3, title: "三")])
+        // Two pages of one volume are joined; the volume keeps the download id it came with,
+        // because that id is what a download is addressed by. Renumbering it here is what
+        // made every volume address wrong.
+        let a = Volume(id: "10326", title: "第一卷", chapters: [ChapterLink(id: 1, title: "一")])
+        let b = Volume(id: "10333", title: "第一卷", chapters: [ChapterLink(id: 2, title: "二")])
+        let c = Volume(id: "11988", title: "第二卷", chapters: [ChapterLink(id: 3, title: "三")])
         let merged = NovelService.mergeVolumes([a, b, c])
         XCTAssertEqual(merged.count, 2)
         XCTAssertEqual(merged[0].chapters.map(\.id), [1, 2])
-        XCTAssertEqual(merged[1].id, "1")
+        XCTAssertEqual(merged[0].id, "10326")
+        XCTAssertEqual(merged[1].id, "11988")
     }
 }
 

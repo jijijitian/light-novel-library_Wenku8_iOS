@@ -13,6 +13,14 @@ struct ActiveDownloadsView: View {
 
     var body: some View {
         List {
+            if let finished = manager.automaticFinish {
+                // A volume fetched while reading is over in about two seconds; this keeps it
+                // visible for a moment afterwards instead of vanishing before it is seen.
+                Section {
+                    Label(finished, systemImage: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+            }
             if manager.progress == nil, let starting = manager.startingNovelID {
                 // The first request has not returned yet; say so rather than showing an
                 // empty page, which looked like the tap had done nothing.
