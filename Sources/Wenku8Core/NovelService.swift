@@ -315,6 +315,10 @@ public struct NovelService: Sendable {
             "searchkey": keyword,
         ]
         var lastError: Error?
+        // An answer that arrives and lists nothing is a real answer: the search ran and
+        // found nothing. Counting it as a failure meant an ordinary empty search ended by
+        // throwing the last host's "no results" at the reader as an error.
+        var answered = false
         // The chosen mirror first, then the others. That order matters more for a POST than
         // anywhere else: an alias that answers 301 turns this into a GET and drops the search
         // fields, so a mirror that redirects must not be preferred. Whether `.cc` redirects
@@ -325,19 +329,23 @@ public struct NovelService: Sendable {
             guard let url = URL(string: host + "/article/search.php") else { continue }
             do {
                 let response = try await client.post(url, fields: fields)
-                let items = WAPParser.linksIn(response.text).uniquedByID()
-                if !items.isEmpty { return items }
                 if WAPParser.requiresLogin(response.text) {
                     throw Wenku8Error.needLogin
                 }
+                answered = true
+                let items = WAPParser.linksIn(response.text).uniquedByID()
+                if !items.isEmpty { return items }
             } catch {
                 lastError = error
             }
         }
 
-        if let items = try? await desktopSearch(keyword: keyword, field: query.field), !items.isEmpty {
-            return items.uniquedByID()
+        if let items = try? await desktopSearch(keyword: keyword, field: query.field) {
+            answered = true
+            if !items.isEmpty { return items.uniquedByID() }
         }
+        // Something answered and listed nothing, so the result is empty rather than broken.
+        if answered { return [] }
         if let error = lastError { throw error }
         return []
     }
