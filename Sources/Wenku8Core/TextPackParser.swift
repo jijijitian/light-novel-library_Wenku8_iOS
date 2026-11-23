@@ -53,21 +53,27 @@ public enum TextPackParser {
 
     /// Splits one downloaded volume.
     ///
-    /// - Parameter text: the pack decoded with `TextDecoding.decode`. The endpoint labels its
-    ///   response `charset=utf-8` while writing GBK, so the bytes must not be trusted to be
-    ///   UTF-8.
-    public static func parse(_ text: String) -> ParsedVolume? {
+    /// - Parameters:
+    ///   - text: the pack decoded with `TextDecoding.decode`. The endpoint labels its response
+    ///     `charset=utf-8` while writing GBK, so the bytes must not be trusted to be UTF-8.
+    ///   - volumeName: the volume's name as the site's catalogue states it. The pack repeats
+    ///     this before every heading, so passing it in removes the guesswork: a volume titled
+    ///     `第二卷 青春猪头少年…` puts the whole title there, and headings without a 第…章 marker
+    ///     (终章 / 后记 / 插图) can then be recognised by the same prefix.
+    public static func parse(_ text: String, volumeName: String? = nil) -> ParsedVolume? {
         let lines = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n")
 
-        // The volume's own name is whatever a heading puts before its chapter marker. Reading
-        // it from the first heading is enough: every heading in a file repeats the same name.
+        // The name comes from the catalogue when the caller has it; otherwise it is whatever
+        // the first heading puts before its chapter marker.
+        let expected = volumeName?.trimmingCharacters(in: .whitespaces)
         guard let firstIndex = lines.firstIndex(where: { headingName($0) != nil }),
-              let volumeName = headingName(lines[firstIndex]) else {
+              let name = expected ?? headingName(lines[firstIndex]) else {
             return nil
         }
+        let volume = name
 
         var chapters: [ParsedChapter] = []
         var currentTitle: String?
@@ -85,9 +91,19 @@ public enum TextPackParser {
             if trimmed.isEmpty { continue }
             if trimmed.hasPrefix(bannerPrefix) { continue }
 
-            // Only a line that starts with this volume's name and then a chapter marker is a
-            // heading. Prose that opens with 第…章 does not carry the volume prefix.
-            if let (name, title) = splitHeading(trimmed), name == volumeName {
+            // A heading is the volume's name followed by something. Prose that mentions a
+            // chapter number does not carry the volume prefix, so it stays in the body.
+            if trimmed.hasPrefix(volume) {
+                let rest = String(trimmed.dropFirst(volume.count))
+                    .trimmingCharacters(in: .whitespaces)
+                if isChapterName(rest) {
+                    flush()
+                    currentTitle = rest
+                    continue
+                }
+            }
+            // Without a catalogue name, fall back to the marker-based split.
+            if expected == nil, let (name, title) = splitHeading(trimmed), name == volume {
                 flush()
                 currentTitle = title
                 continue
@@ -101,7 +117,7 @@ public enum TextPackParser {
         flush()
 
         guard !chapters.isEmpty else { return nil }
-        return ParsedVolume(name: volumeName, chapters: chapters)
+        return ParsedVolume(name: volume, chapters: chapters)
     }
 
     /// The volume name a heading repeats, or nil when the line is not a heading.
@@ -115,10 +131,10 @@ public enum TextPackParser {
     /// at the chapter marker rather than at the first 卷.
     private static func splitHeading(_ line: String) -> (String, String)? {
         guard line.count <= 80, line.hasPrefix("第") else { return nil }
-        // A heading is one line of a title; prose runs far longer and ends in a full stop.
-        // Question and exclamation marks are legitimate in titles (「明天的事明天再说？」),
-        // so only the full stop is disqualifying.
-        guard !line.hasSuffix("。"), !line.contains("，") else { return nil }
+        // A heading is a short title. Prose runs longer and ends in a full stop; commas and
+        // question marks are legitimate inside titles (「终章 结果，第二天……」,
+        // 「第二章 明天的事明天再说？」), so neither disqualifies a line.
+        guard !line.hasSuffix("。") else { return nil }
 
         if let range = line.range(of: chapterMarker, options: .regularExpression) {
             let name = String(line[line.startIndex..<range.lowerBound])
@@ -127,17 +143,17 @@ public enum TextPackParser {
             return (name, String(line[range.lowerBound...]))
         }
 
-        // 终章 / 后记 / 插图 carry no numbered marker; they follow the volume token directly.
+        // Headings without a numbered marker: 主要人物 / 终章 / 后记 / 插图 / 番外. They follow the
+        // volume token directly, so the token is 第…卷 and the rest is the chapter name.
         guard let volumeEnd = line.firstIndex(of: "卷") else { return nil }
         let token = String(line[line.startIndex...volumeEnd])
         guard token.count >= 3 else { return nil }
         guard token.dropFirst().dropLast().allSatisfy(isNumberCharacter) else { return nil }
         let rest = String(line[line.index(after: volumeEnd)...]).trimmingCharacters(in: .whitespaces)
         guard !rest.isEmpty else { return nil }
-        let allowed = ["终章", "插图", "后记", "序", "尾声", "番外"]
-        guard rest.hasPrefix("第") || allowed.contains(where: { rest.hasPrefix($0) }) else {
-            return nil
-        }
+        // The remainder of a heading is a short name, not a sentence: a paragraph that merely
+        // opens with the volume name runs long and ends in a full stop.
+        guard rest.count <= 24, !rest.hasSuffix("。") else { return nil }
         return (token, rest)
     }
 
@@ -149,6 +165,16 @@ public enum TextPackParser {
     public static func stableChapterID(vid: Int, index: Int) -> Int {
         // Negative so it can never collide with a real chapter id, which is positive.
         -(vid * 1000 + index)
+    }
+
+    /// True when the text after a volume name reads as a chapter name.
+    ///
+    /// Headings are short and never end in a full stop; a paragraph that happens to open with
+    /// the volume name runs long. Commas and question marks are legitimate in titles
+    /// (「终章 结果，第二天……」, 「第二章 明天的事明天再说？」), so they do not disqualify.
+    private static func isChapterName(_ text: String) -> Bool {
+        guard !text.isEmpty, text.count <= 40, !text.hasSuffix("。") else { return false }
+        return true
     }
 
     private static func isNumberCharacter(_ character: Character) -> Bool {

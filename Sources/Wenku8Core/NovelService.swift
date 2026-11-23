@@ -83,11 +83,17 @@ public struct NovelService: Sendable {
     }
 
     /// A search result, one page at a time.
+    /// A search result as a page.
+    ///
+    /// Search returns everything the site has in one response, so the total is 1 and never
+    /// nil: a nil total reads as "there may be more", which left the list asking for a page
+    /// two that does not exist and showing 正在载入 forever.
     public func searchPage(_ query: SearchQuery, page: Int) async throws -> NovelListPage {
         let keyword = query.keyword.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !keyword.isEmpty else { return NovelListPage(novels: [], totalPages: nil) }
+        guard !keyword.isEmpty else { return NovelListPage(novels: [], totalPages: 1) }
+        if page > 1 { return NovelListPage(novels: [], totalPages: 1) }
         let novels = try await search(query)
-        return NovelListPage(novels: novels, totalPages: nil)
+        return NovelListPage(novels: novels, totalPages: 1)
     }
 
     // MARK: - Home
@@ -567,11 +573,15 @@ public struct NovelService: Sendable {
     }
 
     /// Downloads one volume's pack and splits it into chapters.
-    public func downloadedVolume(aid: Int, vid: Int) async throws -> TextPackParser.ParsedVolume? {
+    public func downloadedVolume(
+        aid: Int,
+        vid: Int,
+        volumeName: String? = nil
+    ) async throws -> TextPackParser.ParsedVolume? {
         guard let url = Self.textPackURL(aid: aid, vid: vid) else { return nil }
         let response = try await client.get(url, referer: SiteDomain.current.webURL("/book/\(aid).htm").absoluteString)
         guard !response.data.isEmpty else { return nil }
-        return TextPackParser.parse(TextDecoding.decode(response.data))
+        return TextPackParser.parse(TextDecoding.decode(response.data), volumeName: volumeName)
     }
 
     /// One chapter of a delisted book, from its volume download.
@@ -593,7 +603,7 @@ public struct NovelService: Sendable {
         for volume in volumes {
             guard let position = volume.chapters.firstIndex(where: { $0.id == cid }),
                   let vid = Int(volume.id) else { continue }
-            guard let parsed = try await downloadedVolume(aid: aid, vid: vid),
+            guard let parsed = try await downloadedVolume(aid: aid, vid: vid, volumeName: volume.title),
                   position < parsed.chapters.count else { continue }
             let chapter = parsed.chapters[position]
             let blocks = chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
@@ -620,28 +630,6 @@ public struct NovelService: Sendable {
         return parsed.volumes.map { entry in
             Volume(id: String(entry.vid), title: entry.title, chapters: entry.chapters)
         }
-    }
-
-    /// A restricted book's catalogue, rebuilt from its volume downloads.
-    ///
-    /// The site's own catalogue pages are empty for these books, so the volume ids are the
-    /// only starting point. They are not exposed anywhere once a book is delisted, which is
-    /// why `knownVolumeIDs` exists: a book that has been read once records them, and later
-    /// visits reuse that list instead of needing the catalogue again.
-    public func restrictedVolumes(aid: Int, volumeIDs: [Int]) async -> [Volume] {
-        var volumes: [Volume] = []
-        for (index, vid) in volumeIDs.enumerated() {
-            guard let parsed = try? await downloadedVolume(aid: aid, vid: vid) else { continue }
-            let chapters = parsed.chapters.enumerated().map { offset, chapter in
-                ChapterLink(id: TextPackParser.stableChapterID(vid: vid, index: offset), title: chapter.title)
-            }
-            volumes.append(Volume(
-                id: String(vid),
-                title: parsed.name.isEmpty ? "第 \(index + 1) 卷" : parsed.name,
-                chapters: chapters
-            ))
-        }
-        return volumes
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {

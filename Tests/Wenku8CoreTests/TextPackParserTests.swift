@@ -66,6 +66,41 @@ final class TextPackParserTests: XCTestCase {
         XCTAssertEqual(parsed.chapters[0].paragraphs.count, 2)
     }
 
+    /// A volume named by the catalogue splits exactly as the catalogue does, including the
+    /// headings that carry no 第…章 marker.
+    func testCatalogueNameSplitsEndingChapters() throws {
+        let text = """
+          第二卷 青春猪头少年 第一章 开始
+            正文。
+
+          第二卷 青春猪头少年 终章 结果，第二天……
+            正文。
+
+          第二卷 青春猪头少年 后记
+            正文。
+
+          第二卷 青春猪头少年 插图
+            图片。
+        """
+        let parsed = try XCTUnwrap(TextPackParser.parse(text, volumeName: "第二卷 青春猪头少年"))
+        XCTAssertEqual(parsed.chapters.map(\.title), [
+            "第一章 开始", "终章 结果，第二天……", "后记", "插图",
+        ])
+    }
+
+    /// A heading with no numbered marker at all (「主要人物」) is still a chapter.
+    func testUnnumberedFirstHeading() throws {
+        let text = """
+          第一卷 主要人物
+            人物介绍。
+
+          第一卷 第一章 开始
+            正文。
+        """
+        let parsed = try XCTUnwrap(TextPackParser.parse(text, volumeName: "第一卷"))
+        XCTAssertEqual(parsed.chapters.map(\.title), ["主要人物", "第一章 开始"])
+    }
+
     func testChapterIDIsStableAndNegative() {
         let a = TextPackParser.stableChapterID(vid: 54755, index: 0)
         let b = TextPackParser.stableChapterID(vid: 54755, index: 0)
