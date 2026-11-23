@@ -191,6 +191,10 @@ struct RouteView: View {
             LibraryBrowseView()
         case .heatRank:
             HeatRankView()
+        case .dataSource:
+            DataSourceSettingsView()
+        case .metadataCache:
+            MetadataCacheView()
         }
     }
 }

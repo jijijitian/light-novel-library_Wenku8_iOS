@@ -4,11 +4,10 @@ import Wenku8Core
 struct SettingsView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var router: AppRouter
     @State private var showWeb = false
     @State private var showLicense = false
     @State private var showLogin = false
-    @State private var showDataSource = false
-    @State private var showMetadataCache = false
     @State private var accountMessage: String?
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var offlineCount = 0
@@ -153,22 +152,16 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background { AppBackground() }
-        .navigationDestination(isPresented: $showDataSource) {
-            DataSourceSettingsView()
-        }
-        .navigationDestination(isPresented: $showMetadataCache) {
-            MetadataCacheView()
-        }
         .navigationTitle("设置")
         .task {
             #if DEBUG
             // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
             // check can be looked at without driving the UI.
             if ProcessInfo.processInfo.environment["WENKU8_OPEN_DATA_SOURCE"] != nil {
-                showDataSource = true
+                router.open(.dataSource)
             }
             if ProcessInfo.processInfo.environment["WENKU8_OPEN_METADATA"] != nil {
-                showMetadataCache = true
+                router.open(.metadataCache)
             }
             #endif
         }

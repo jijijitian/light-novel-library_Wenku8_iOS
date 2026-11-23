@@ -202,6 +202,8 @@ final class AppRouter: ObservableObject {
         case yearlyRank
         case libraryBrowse
         case heatRank
+        case dataSource
+        case metadataCache
     }
 
     func open(_ route: Route) {
