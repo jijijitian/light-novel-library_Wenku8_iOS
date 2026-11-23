@@ -648,14 +648,17 @@ public struct NovelService: Sendable {
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {
+        // The desktop catalogue first: its rows carry each volume's download id
+        // (`<td class="vcss" vid="10326">`), which the mobile catalogue does not have at all
+        // — it marks volumes with `〖第一卷〗` and nothing else, so every volume came back
+        // numbered from zero and every download address was wrong.
         do {
-            let volumes = try await wapVolumes(aid: aid)
+            let volumes = try await desktopVolumes(aid: aid)
             if !volumes.isEmpty { return volumes }
         } catch {
-            // Fall through to the desktop catalogue below: the WAP endpoint answers
-            // "对不起，该文章不存在！" for books the desktop site still indexes.
+            // Fall through to the mobile catalogue when the desktop page is unavailable.
         }
-        return try await desktopVolumes(aid: aid)
+        return try await wapVolumes(aid: aid)
     }
     private func wapVolumes(aid: Int) async throws -> [Volume] {
         var all: [Volume] = []

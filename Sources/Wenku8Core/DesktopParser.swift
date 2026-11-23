@@ -662,7 +662,10 @@ public enum DesktopParser {
         // The row also carries the volume's download id, `vid="14835"`, which is what the
         // pack endpoint takes. It is the only place the id is printed for a book whose
         // download page has been taken down.
-        let headingPattern = #"<td[^>]*class="vcss"[^>]*?(?:vid="(\d+)")?[^>]*>\s*([^<]*?)\s*</td>"#
+        // The attributes are matched one at a time: a lazy `[^>]*?` before an optional
+        // group lets the group be skipped, which silently dropped the id and left every
+        // volume numbered from zero.
+        let headingPattern = #"<td[^>]*class="vcss"[^>]*?vid="(\d+)"[^>]*>\s*([^<]*?)\s*</td>"#
         let chapterPattern = #"<a\s+href="(\d+)\.htm"[^>]*>([^<]{1,80})</a>"#
         guard let headingRegex = try? NSRegularExpression(
                 pattern: headingPattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),

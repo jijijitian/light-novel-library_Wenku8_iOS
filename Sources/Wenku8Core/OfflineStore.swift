@@ -412,7 +412,12 @@ public actor OfflineStore {
 
     public func cachedVolumes(for aid: Int) -> [Volume]? {
         guard let entry = entry(for: aid), let volumes = entry.volumes else { return nil }
-        return volumes.isEmpty ? nil : volumes
+        guard !volumes.isEmpty else { return nil }
+        // A stored catalogue is only usable when its volumes carry the site's download ids.
+        // Earlier versions numbered them from zero — or titled a fallback volume 「正文」 —
+        // and such a catalogue cannot address a download at all, so it is treated as absent
+        // and fetched again.
+        return volumes.contains(where: { $0.title == "正文" || Int($0.id) == nil }) ? nil : volumes
     }
 
     /// Removes the metadata for a book while leaving its chapters alone.
