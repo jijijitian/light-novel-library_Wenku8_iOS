@@ -611,7 +611,10 @@ public struct NovelService: Sendable {
     /// delisted book down the reading path, which answers with the site's copyright notice and
     /// reported that as a failure to load.
     private func isDelistedBook(aid: Int) async -> Bool {
-        if await offline.entry(for: aid)?.detail?.isRestricted == true { return true }
+        // A stored book record answers this: the detail screen wrote it, and the value it
+        // holds is the answer — `false` included. Reading the book page instead cost one
+        // request per chapter, on every book, to relearn what was already on disk.
+        if let detail = await offline.entry(for: aid)?.detail { return detail.isRestricted }
         return await isDelisted(aid: aid)
     }
 
