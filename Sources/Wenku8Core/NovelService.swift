@@ -606,6 +606,20 @@ public struct NovelService: Sendable {
     /// The answer is already stored with the book's metadata, which the detail screen fills
     /// in before any chapter can be opened, so no request is made here. A book with no stored
     /// metadata has not been opened through the detail screen and is treated as ordinary.
+    /// Whether a cached chapter still matches the catalogue's title for it.
+    ///
+    /// An earlier build matched a volume's chapters to the pack by position but took the pack's
+    /// first heading as the requested chapter even when the pack started earlier, so a volume
+    /// could be stored one place out — every chapter holding its neighbour's text. Those files
+    /// looked cached and were never replaced. Comparing the title catches them, and a mismatch
+    /// sends the chapter back through the fetch that writes it correctly.
+    private func cacheMatchesCatalogue(_ cached: ChapterContent, aid: Int, cid: Int) async -> Bool {
+        guard let volumes = await offline.cachedVolumes(for: aid),
+              let link = volumes.flatMap(\.chapters).first(where: { $0.id == cid })
+        else { return true }
+        return cached.title == link.title
+    }
+
     /// Whether reading this book goes through the pack path, for a caller that wants to say
     /// so before the work starts.
     public func isRestricted(_ aid: Int) async -> Bool {
@@ -781,7 +795,8 @@ public struct NovelService: Sendable {
     public func chapter(aid: Int, cid: Int) async throws -> ChapterContent {
         // A downloaded chapter always wins, which is what makes offline reading
         // work at all.
-        if let cached = await offline.chapter(aid, cid: cid) {
+        if let cached = await offline.chapter(aid, cid: cid),
+           await cacheMatchesCatalogue(cached, aid: aid, cid: cid) {
             return cached
         }
         // The pack path is for delisted books only. Trying it first for everyone cost an
