@@ -595,29 +595,44 @@ struct NovelDetailView: View {
 
             ForEach(model.volumes) { volume in
                 DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(volume.chapters.enumerated()), id: \.element.id) { index, chapter in
                             Button {
                                 openChapter(volume: volume, index: index)
                             } label: {
-                                HStack(spacing: 8) {
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
                                     // Status leads the row: a spinner while this chapter is
                                     // being fetched, a download mark once it is on disk, and
                                     // an empty circle when it is not. Reading position stays
                                     // at the trailing edge so the two never compete.
                                     chapterStatusIcon(chapter.id)
+                                    // The number separates chapters at a glance and gives the
+                                    // list a left edge to read down; the title stays the only
+                                    // thing at full weight.
+                                    Text("\(index + 1)")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                        .frame(minWidth: 18, alignment: .trailing)
                                     Text(chapter.title)
-                                        .font(.subheadline)
+                                        .font(.footnote)
                                         .multilineTextAlignment(.leading)
                                         .lineLimit(2)
-                                    Spacer(minLength: 8)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                     if store.progress(for: novelID)?.chapterID == chapter.id {
                                         Image(systemName: "bookmark.fill")
                                             .font(.caption2)
                                             .foregroundStyle(.tint)
                                     }
                                 }
-                                .padding(.vertical, 7)
+                                .padding(.vertical, 9)
+                                .padding(.horizontal, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(store.progress(for: novelID)?.chapterID == chapter.id
+                                              ? AnyShapeStyle(.tint.opacity(0.12))
+                                              : AnyShapeStyle(.clear))
+                                )
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
