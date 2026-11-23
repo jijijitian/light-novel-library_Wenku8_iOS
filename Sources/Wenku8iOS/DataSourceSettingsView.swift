@@ -10,6 +10,7 @@ struct DataSourceSettingsView: View {
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @State private var checks: [NovelService.Connectivity] = []
     @State private var isChecking = false
+    @State private var showCopyrightList = false
 
     private var current: SiteDomain {
         SiteDomain(rawValue: domainRaw) ?? .net
@@ -74,6 +75,33 @@ struct DataSourceSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassCard(cornerRadius: 22)
 
+                // The site removed a number of books at rights holders' request; a reader
+                // who cannot find one of them needs to know that before assuming a fault.
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        showCopyrightList = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("版权下架书目")
+                                    .font(.subheadline.weight(.medium))
+                                Text("站点因版权要求停止提供的作品")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(14)
+                .glassCard(cornerRadius: 22)
+
                 Label(
                     "某个域名打不开时换一个即可，账号与书架不会受影响。",
                     systemImage: "info.circle"
@@ -87,6 +115,9 @@ struct DataSourceSettingsView: View {
             .padding(.bottom, 30)
         }
         .background { AppBackground() }
+        .sheet(isPresented: $showCopyrightList) {
+            CopyrightNoticeSheet()
+        }
         .navigationTitle("数据来源")
         .navigationBarTitleDisplayMode(.inline)
     }
