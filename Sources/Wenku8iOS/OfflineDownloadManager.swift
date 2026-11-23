@@ -73,6 +73,28 @@ public final class OfflineDownloadManager: ObservableObject {
         }
     }
 
+    /// Reports that a chapter is being fetched outside the download queue.
+    ///
+    /// A delisted book's pack is fetched the moment a chapter is opened; without this the
+    /// downloads page shows nothing while a multi-megabyte volume is on the wire.
+    public func noteAutomaticVolumeFetch(novelID: Int, chapterID: Int) {
+        guard progress == nil else { return }
+        progress = Progress(
+            novelID: novelID,
+            completed: 0,
+            total: 1,
+            novelTitle: "正在下载分卷",
+            currentChapterTitle: "所在分卷",
+            currentChapterID: chapterID
+        )
+    }
+
+    public func finishAutomaticVolumeFetch() {
+        if progress?.total == 1, progress?.novelTitle == "正在下载分卷" {
+            progress = nil
+        }
+    }
+
     public func cancel() {
         task?.cancel()
         task = nil
@@ -125,10 +147,50 @@ public final class OfflineDownloadManager: ObservableObject {
                 currentChapterID: missing.first?.id
             )
 
-            for chapter in missing {
+            // A delisted book is fetched a whole volume at a time: opening one of its chapters
+            // already downloads the pack it came from, so looping chapter by chapter would
+            // fetch the same pack once per chapter. Grouping keeps that to one request per
+            // volume and still records every chapter of it.
+            let grouped = Dictionary(grouping: missing) { chapter in
+                allVolumes.first { $0.chapters.contains(where: { $0.id == chapter.id }) }?.id ?? ""
+            }
+
+            for volumeID in grouped.keys.sorted() {
                 if Task.isCancelled { break }
-                progress?.currentChapterTitle = chapter.title
-                progress?.currentChapterID = chapter.id
+                let volumeChapters = grouped[volumeID] ?? []
+                guard let first = volumeChapters.first else { continue }
+                progress?.currentChapterTitle = first.title
+                progress?.currentChapterID = first.id
+
+                let candidates = volumeID.split(separator: "|").compactMap { Int($0) }
+                if !candidates.isEmpty,
+                   let volume = allVolumes.first(where: { $0.id == volumeID }),
+                   let parsed = try? await service.downloadedVolume(
+                       aid: aid, candidateVIDs: candidates, volumeName: volume.title
+                   ), !parsed.chapters.isEmpty {
+                    // Store the whole volume in one pass: the pack is already in memory, so
+                    // writing its chapters costs nothing and marks them all as downloaded.
+                    for (offset, chapter) in parsed.chapters.enumerated() {
+                        guard offset < volume.chapters.count else { break }
+                        let link = volume.chapters[offset]
+                        let content = ChapterContent(
+                            novelID: aid,
+                            chapterID: link.id,
+                            title: chapter.title,
+                            blocks: chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
+                        )
+                        await store.saveChapter(content, for: aid)
+                        entry.storedChapterIDs.insert(link.id)
+                        progress?.currentChapterTitle = link.title
+                        progress?.currentChapterID = link.id
+                        progress?.completed = chapters.filter { entry.storedChapterIDs.contains($0.id) }.count
+                    }
+                    entry.updatedAt = Date()
+                    await store.saveManifest(entry)
+                    continue
+                }
+
+                for chapter in volumeChapters {
                 // Two attempts per chapter. The first request of a session pays the
                 // cold-start cost and used to fail silently, leaving a hole in the book —
                 // most visibly the first chapter, which then needed a second download.
@@ -159,8 +221,9 @@ public final class OfflineDownloadManager: ObservableObject {
                         }
                     }
                 }
-                // Counted against this download's own chapters for the same reason.
-                progress?.completed = chapters.filter { entry.storedChapterIDs.contains($0.id) }.count
+                    // Counted against this download's own chapters for the same reason.
+                    progress?.completed = chapters.filter { entry.storedChapterIDs.contains($0.id) }.count
+                }
             }
 
             entry.bytes = await store.usedBytes(for: aid)

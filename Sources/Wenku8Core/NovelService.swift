@@ -579,15 +579,46 @@ public struct NovelService: Sendable {
     }
 
     /// Downloads one volume's pack and splits it into chapters.
+    /// Downloads one volume, trying each candidate id until a usable pack comes back.
+    ///
+    /// The volume id is not printed anywhere on the site and its offset from the first
+    /// chapter id differs per book, so the candidates are probed rather than assumed.
+    public func downloadedVolume(
+        aid: Int,
+        candidateVIDs: [Int],
+        volumeName: String? = nil
+    ) async throws -> TextPackParser.ParsedVolume? {
+        for vid in candidateVIDs {
+            guard let parsed = try? await downloadedVolume(aid: aid, vid: vid, volumeName: volumeName),
+                  !parsed.chapters.isEmpty else { continue }
+            return parsed
+        }
+        return nil
+    }
+
     public func downloadedVolume(
         aid: Int,
         vid: Int,
         volumeName: String? = nil
     ) async throws -> TextPackParser.ParsedVolume? {
         guard let url = Self.textPackURL(aid: aid, vid: vid) else { return nil }
-        let response = try await client.get(url, referer: SiteDomain.current.webURL("/book/\(aid).htm").absoluteString)
+        // A volume pack is a few hundred kilobytes and this host is usually fast, but it
+        // stalls often enough that the session's 20-second limit cut a download off midway —
+        // a truncated pack then parsed as a volume with fewer chapters than the catalogue
+        // lists. The longer limit is headroom, not a fixed wait.
+        let response = try await client.get(
+            url,
+            referer: SiteDomain.current.webURL("/book/\(aid).htm").absoluteString,
+            timeout: 120
+        )
         guard !response.data.isEmpty else { return nil }
         return TextPackParser.parse(TextDecoding.decode(response.data), volumeName: volumeName)
+    }
+
+    /// Whether the site's book page carries the delisting notice.
+    public func isDelisted(aid: Int) async -> Bool {
+        guard let book = try? await client.desktop("/book/\(aid).htm") else { return false }
+        return DesktopParser.isDelisted(book)
     }
 
     /// One chapter of a delisted book, from its volume download.
@@ -607,18 +638,40 @@ public struct NovelService: Sendable {
         }
         guard !volumes.isEmpty else { return nil }
         for volume in volumes {
-            guard let position = volume.chapters.firstIndex(where: { $0.id == cid }),
-                  let vid = Int(volume.id) else { continue }
-            guard let parsed = try await downloadedVolume(aid: aid, vid: vid, volumeName: volume.title),
+            guard let position = volume.chapters.firstIndex(where: { $0.id == cid }) else { continue }
+            let candidates = volume.id.split(separator: "|").compactMap { Int($0) }
+            guard !candidates.isEmpty else { continue }
+            guard let parsed = try await downloadedVolume(
+                      aid: aid, candidateVIDs: candidates, volumeName: volume.title
+                  ),
                   position < parsed.chapters.count else { continue }
-            let chapter = parsed.chapters[position]
-            let blocks = chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
-            return ChapterContent(
-                novelID: aid,
-                chapterID: cid,
-                title: chapter.title,
-                blocks: blocks
-            )
+            // The pack is already in memory, so the whole volume is stored rather than the
+            // one chapter asked for: the download page, the shelf badge and the per-chapter
+            // ticks then describe the volume that was actually fetched.
+            var requested: ChapterContent?
+            for (offset, entry) in parsed.chapters.enumerated() {
+                guard offset < volume.chapters.count else { break }
+                let link = volume.chapters[offset]
+                let content = ChapterContent(
+                    novelID: aid,
+                    chapterID: link.id,
+                    title: entry.title,
+                    blocks: entry.paragraphs.map { ChapterContent.Block.paragraph($0) }
+                )
+                await offline.saveChapter(content, for: aid)
+                if link.id == cid { requested = content }
+            }
+            if let loaded = await offline.entry(for: aid) {
+                var updated = loaded
+                updated.storedChapterIDs.formUnion(volume.chapters.prefix(parsed.chapters.count).map(\.id))
+                updated.updatedAt = Date()
+                await offline.saveManifest(updated)
+            }
+            if let requested { return requested }
+            // The pack covers fewer chapters than the catalogue lists for this volume: the
+            // site's own download is incomplete for some volumes (第一卷 of 399 stops at
+            // chapter five of eight). Say so rather than showing a blank page.
+            return nil
         }
         return nil
     }
@@ -634,7 +687,13 @@ public struct NovelService: Sendable {
         let html = try await client.desktop("/novel/\(group)/\(aid)/index.htm")
         guard let parsed = DesktopParser.restrictedCatalogue(html) else { return [] }
         return parsed.volumes.map { entry in
-            Volume(id: String(entry.vid), title: entry.title, chapters: entry.chapters)
+            // The candidates travel in the id, `|`-separated, so a volume keeps every address
+            // it might have without widening `Volume`.
+            Volume(
+                id: entry.candidateVIDs.map(String.init).joined(separator: "|"),
+                title: entry.title,
+                chapters: entry.chapters
+            )
         }
     }
 
@@ -722,6 +781,9 @@ public struct NovelService: Sendable {
         if let restricted = try? await restrictedChapter(aid: aid, cid: cid) {
             await offline.saveChapter(restricted, for: aid)
             return restricted
+        }
+        if await isDelisted(aid: aid) {
+            throw Wenku8Error.unavailable("这一章暂时无法获取，请稍后重试。")
         }
         var pages: [ChapterContent] = []
         var page = 1

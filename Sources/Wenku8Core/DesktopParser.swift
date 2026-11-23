@@ -200,12 +200,22 @@ public enum DesktopParser {
     public struct RestrictedCatalogue: Sendable {
         public struct VolumeEntry: Sendable {
             public var title: String
-            public var vid: Int
+            /// Candidate volume ids for the download endpoint, most likely first.
+            ///
+            /// The page never prints a volume id, and the offset from the first chapter id is
+            /// not the same across books: one book's volumes sit at `cid - 1` and another's
+            /// at `cid - 2`, because the site's ids record how many rows were created with
+            /// the volume. So the ids that could be right are returned in order and the
+            /// first one that yields a usable pack wins.
+            public var candidateVIDs: [Int]
             public var chapters: [ChapterLink]
 
-            public init(title: String, vid: Int, chapters: [ChapterLink]) {
+            /// The first candidate, for callers that cannot probe.
+            public var vid: Int { candidateVIDs[0] }
+
+            public init(title: String, candidateVIDs: [Int], chapters: [ChapterLink]) {
                 self.title = title
-                self.vid = vid
+                self.candidateVIDs = candidateVIDs
                 self.chapters = chapters
             }
         }
@@ -231,11 +241,15 @@ public enum DesktopParser {
 
         func flush() {
             guard let title = currentTitle, !currentChapters.isEmpty else { return }
-            // The download endpoint takes a volume id, which the page never prints. It is one
-            // less than the volume's first chapter id — verified against every volume of a
-            // 17-volume book.
-            let vid = currentChapters[0].id - 1
-            volumes.append(.init(title: Markup.normalize(title), vid: vid, chapters: currentChapters))
+            // The download endpoint takes a volume id, which the page never prints, and the
+            // offset from the first chapter id varies by book (measured at both 1 and 2).
+            // Offer both and let the caller keep the one that downloads.
+            let first = currentChapters[0].id
+            volumes.append(.init(
+                title: Markup.normalize(title),
+                candidateVIDs: [first - 1, first - 2],
+                chapters: currentChapters
+            ))
             currentChapters = []
         }
 

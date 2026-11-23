@@ -178,8 +178,13 @@ public final class Wenku8Client: @unchecked Sendable {
         }
     }
 
-    public func get(_ url: URL, referer: String? = nil) async throws -> Response {
+    public func get(
+        _ url: URL,
+        referer: String? = nil,
+        timeout: TimeInterval? = nil
+    ) async throws -> Response {
         var request = URLRequest(url: url)
+        if let timeout { request.timeoutInterval = timeout }
         request.setValue(
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             forHTTPHeaderField: "Accept"
