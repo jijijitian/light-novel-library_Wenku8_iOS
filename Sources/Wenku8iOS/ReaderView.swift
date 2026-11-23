@@ -295,30 +295,47 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var verticalContent: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: paragraphSpacing) {
-                chapterTitle
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: paragraphSpacing) {
+                    chapterTitle
+                        // The anchor a new chapter scrolls to. Without one the view kept
+                        // whatever offset it had, so opening the next chapter from the bottom
+                        // of the previous one landed at the bottom of the new one.
+                        .id(Self.chapterTopID)
 
-                if let content = model.content {
-                    blocks(content)
-                    navigationButtons
-                } else {
-                    statusView
+                    if let content = model.content {
+                        blocks(content)
+                        navigationButtons
+                    } else {
+                        statusView
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                // Both insets are user-tunable and constant regardless of whether the
+                // control panel is showing: it floats *over* the prose, so toggling it
+                // never reflows a line.
+                .padding(.top, Self.topBarHeight + topInset)
+                .padding(.bottom, bottomInset)
+            }
+            .scrollIndicators(.hidden)
+            .onChange(of: model.current?.id) { _, _ in
+                // Reaching the top has to happen after the new chapter is laid out; doing it
+                // in the same update lands on the old height.
+                Task { @MainActor in
+                    await Task.yield()
+                    proxy.scrollTo(Self.chapterTopID, anchor: .top)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            // Both insets are user-tunable and constant regardless of whether the
-            // control panel is showing: it floats *over* the prose, so toggling it
-            // never reflows a line.
-            .padding(.top, Self.topBarHeight + topInset)
-            .padding(.bottom, bottomInset)
-        }
-        .scrollIndicators(.hidden)
-        .onTapGesture {
-            withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
+            .onTapGesture {
+                withAnimation(.snappy(duration: 0.22)) { showChrome.toggle() }
+            }
         }
     }
+
+    /// Identity of the point a chapter starts at, used to scroll there on a chapter change.
+    private static let chapterTopID = "chapter-top"
 
     // MARK: - Shared pieces
 

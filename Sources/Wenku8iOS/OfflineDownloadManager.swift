@@ -79,15 +79,25 @@ public final class OfflineDownloadManager: ObservableObject {
     /// downloads page shows nothing while a multi-megabyte volume is on the wire.
     public func noteAutomaticVolumeFetch(novelID: Int, chapterID: Int) {
         guard progress == nil else { return }
+        automaticBusyChapterID = chapterID
+        // No chapter id here: the downloads page names the volume, and a chapter id would make
+        // its row — and the chapter's own tick — report "downloading" for a chapter that is
+        // merely being read.
         progress = Progress(
             novelID: novelID,
             completed: 0,
             total: 1,
             novelTitle: Self.automaticVolumeTitle,
             currentChapterTitle: "所在分卷",
-            currentChapterID: chapterID
+            currentChapterID: nil
         )
     }
+
+    /// The chapter whose volume an automatic fetch is running for, if any.
+    ///
+    /// Kept apart from `progress`, so the downloads page can name it without the catalogue
+    /// treating the chapter as a queued download.
+    @Published public private(set) var automaticBusyChapterID: Int?
 
     /// Ends an automatic volume fetch, leaving a short "finished" note behind.
     ///
@@ -97,6 +107,7 @@ public final class OfflineDownloadManager: ObservableObject {
     /// seen, then clears itself.
     public func finishAutomaticVolumeFetch() {
         guard progress?.total == 1, progress?.novelTitle == Self.automaticVolumeTitle else { return }
+        automaticBusyChapterID = nil
         automaticFinish = "已下载分卷"
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(4))
@@ -104,6 +115,7 @@ public final class OfflineDownloadManager: ObservableObject {
                 guard let self else { return }
                 self.progress = nil
                 self.automaticFinish = nil
+                self.automaticBusyChapterID = nil
             }
         }
     }

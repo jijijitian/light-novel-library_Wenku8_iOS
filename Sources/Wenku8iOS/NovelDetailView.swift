@@ -426,6 +426,11 @@ struct NovelDetailView: View {
         }
     }
 
+    /// True while a volume is being fetched because a chapter of it is being read.
+    private var isAutomaticFetch: Bool {
+        downloadManager.automaticBusyChapterID != nil
+    }
+
     /// Whether this chapter is the one being fetched right now.
     private var downloadingChapterID: Int? {
         guard let progress = downloadManager.progress, progress.novelID == novelID else {
@@ -439,7 +444,7 @@ struct NovelDetailView: View {
     @ViewBuilder
     private func volumeStatusIcon(_ volume: Volume) -> some View {
         let ids = Set(volume.chapters.map(\.id))
-        let downloading = downloadingChapterID.map { ids.contains($0) } ?? false
+        let downloading = !isAutomaticFetch && (downloadingChapterID.map { ids.contains($0) } ?? false)
         let stored = volume.chapters.filter { cachedChapterIDs.contains($0.id) }.count
         if downloading {
             ProgressView()
@@ -488,7 +493,10 @@ struct NovelDetailView: View {
     /// Leading status for a chapter row.
     @ViewBuilder
     private func chapterStatusIcon(_ chapterID: Int) -> some View {
-        if downloadingChapterID == chapterID {
+        // Only a queued download turns a chapter's tick into a spinner. A volume being fetched
+        // because it is being read is not a download of that chapter, and showing it as one
+        // made the tick spin and then settle every time the chapter was opened.
+        if downloadingChapterID == chapterID, !isAutomaticFetch {
             ProgressView()
                 .controlSize(.mini)
                 .frame(width: 16, height: 16)
