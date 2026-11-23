@@ -120,6 +120,15 @@ struct DataSourceSettingsView: View {
         }
         .navigationTitle("数据来源")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            #if DEBUG
+            // `WENKU8_OPEN_COPYRIGHT=1` opens the notice directly, so its wording can be
+            // checked without tapping through.
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_COPYRIGHT"] != nil {
+                showCopyrightList = true
+            }
+            #endif
+        }
     }
 
     private func connectivityRow(_ check: NovelService.Connectivity) -> some View {

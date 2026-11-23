@@ -44,7 +44,7 @@ struct CopyrightNoticeSheet: View {
                         Text("应国内版权所有者要求，文库已停止下列小说的在线阅读与电子书下载服务。")
                             .font(.callout)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("这些作品在 App 内同样无法搜索或打开，与网络、账号无关。共 \(totalCount) 部。")
+                        Text("这些作品在 App 内同样无法搜索或打开，与网络、账号无关。共 \(totalCount) 部（部分）。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -76,7 +76,7 @@ struct CopyrightNoticeSheet: View {
                         .glassCard(cornerRadius: 22)
                     }
 
-                    Text("此列表不一定完整：文库可能在其他时间、以其他方式下架过作品，未在此列出的书也可能打不开。若遇到，可在 Issues 反馈。")
+                    Text("此列表不一定完整：文库可能在其他时间、以其他方式下架过作品，未在此列出的书也可能打不开。")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
