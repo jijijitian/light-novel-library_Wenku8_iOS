@@ -197,80 +197,6 @@ public enum DesktopParser {
     /// is taken down. The download endpoint wants a volume id, which that page never prints —
     /// but the volume id is one less than its first chapter's id, so the downloads can be
     /// addressed from the chapter ids alone.
-    public struct RestrictedCatalogue: Sendable {
-        public struct VolumeEntry: Sendable {
-            public var title: String
-            /// Candidate volume ids for the download endpoint, most likely first.
-            ///
-            /// The page never prints a volume id, and the offset from the first chapter id is
-            /// not the same across books: one book's volumes sit at `cid - 1` and another's
-            /// at `cid - 2`, because the site's ids record how many rows were created with
-            /// the volume. So the ids that could be right are returned in order and the
-            /// first one that yields a usable pack wins.
-            public var candidateVIDs: [Int]
-            public var chapters: [ChapterLink]
-
-            /// The first candidate, for callers that cannot probe.
-            public var vid: Int { candidateVIDs[0] }
-
-            public init(title: String, candidateVIDs: [Int], chapters: [ChapterLink]) {
-                self.title = title
-                self.candidateVIDs = candidateVIDs
-                self.chapters = chapters
-            }
-        }
-
-        public var volumes: [VolumeEntry]
-    }
-
-    public static func restrictedCatalogue(_ html: String) -> RestrictedCatalogue? {
-        // The page is a sequence of volume headings (bare text) followed by that volume's
-        // chapter links, `href="<cid>.htm">标题</a>`. One pass over both shapes keeps the
-        // chapters attached to the heading that precedes them.
-        let pattern = try? NSRegularExpression(
-            pattern: #"(第[零〇一二三四五六七八九十百千0-9]+卷[^<]{0,40})|href="(\d{5,7})\.htm">([^<]+)</a>"#,
-            options: [.dotMatchesLineSeparators]
-        )
-        let ns = html as NSString
-        let matches = pattern?.matches(in: html, range: NSRange(location: 0, length: ns.length)) ?? []
-        guard !matches.isEmpty else { return nil }
-
-        var volumes: [RestrictedCatalogue.VolumeEntry] = []
-        var currentTitle: String?
-        var currentChapters: [ChapterLink] = []
-
-        func flush() {
-            guard let title = currentTitle, !currentChapters.isEmpty else { return }
-            // The download endpoint takes a volume id, which the page never prints, and the
-            // offset from the first chapter id varies by book (measured at both 1 and 2).
-            // Offer both and let the caller keep the one that downloads.
-            let first = currentChapters[0].id
-            volumes.append(.init(
-                title: Markup.normalize(title),
-                candidateVIDs: [first - 1, first - 2],
-                chapters: currentChapters
-            ))
-            currentChapters = []
-        }
-
-        for match in matches {
-            if match.range(at: 1).location != NSNotFound {
-                flush()
-                currentTitle = ns.substring(with: match.range(at: 1))
-                continue
-            }
-            guard currentTitle != nil,
-                  let cid = Int(ns.substring(with: match.range(at: 2))) else { continue }
-            let title = Markup.normalize(
-                Markup.decodeEntities(ns.substring(with: match.range(at: 3)))
-            )
-            currentChapters.append(ChapterLink(id: cid, title: title))
-        }
-        flush()
-
-        return volumes.isEmpty ? nil : RestrictedCatalogue(volumes: volumes)
-    }
-
     /// True when the book page carries the delisting notice.
     ///
     /// The page renders 「因版权问题，文库不再提供该小说的在线阅读与下载服务！」 in place of the
@@ -708,7 +634,10 @@ public enum DesktopParser {
     /// `<a href="<cid>.htm">title</a>`. Books without volume headings keep their
     /// chapters in `<td class="css">`; both are handled.
     public static func volumes(_ html: String) -> [Volume] {
-        let headingPattern = #"<td[^>]*class="vcss"[^>]*>\s*([^<]*?)\s*</td>"#
+        // The row also carries the volume's download id, `vid="14835"`, which is what the
+        // pack endpoint takes. It is the only place the id is printed for a book whose
+        // download page has been taken down.
+        let headingPattern = #"<td[^>]*class="vcss"[^>]*?(?:vid="(\d+)")?[^>]*>\s*([^<]*?)\s*</td>"#
         let chapterPattern = #"<a\s+href="(\d+)\.htm"[^>]*>([^<]{1,80})</a>"#
         guard let headingRegex = try? NSRegularExpression(
                 pattern: headingPattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
@@ -719,16 +648,22 @@ public enum DesktopParser {
         let range = NSRange(html.startIndex..<html.endIndex, in: html)
         var volumes: [Volume] = []
         var currentTitle = "正文"
+        var currentVID: Int?
         var currentChapters: [ChapterLink] = []
         var seen = Set<Int>()
 
         // Walk both kinds of marker in document order so a volume heading closes
         // the previous volume and opens the next one.
-        var markers: [(location: Int, title: String?, chapter: ChapterLink?)] = []
+        var markers: [(location: Int, title: String?, vid: Int?, chapter: ChapterLink?)] = []
         for match in headingRegex.matches(in: html, range: range) {
-            guard let titleRange = Range(match.range(at: 1), in: html) else { continue }
+            guard let titleRange = Range(match.range(at: 2), in: html) else { continue }
             let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
-            markers.append((match.range.location, title.isEmpty ? nil : title, nil))
+            var vid: Int?
+            if match.range(at: 1).location != NSNotFound,
+               let vidRange = Range(match.range(at: 1), in: html) {
+                vid = Int(html[vidRange])
+            }
+            markers.append((match.range.location, title.isEmpty ? nil : title, vid, nil))
         }
         for match in chapterRegex.matches(in: html, range: range) {
             guard let cidRange = Range(match.range(at: 1), in: html),
@@ -736,13 +671,16 @@ public enum DesktopParser {
                   let cid = Int(html[cidRange]) else { continue }
             let title = Markup.normalize(Markup.decodeEntities(String(html[titleRange])))
             guard !title.isEmpty, seen.insert(cid).inserted else { continue }
-            markers.append((match.range.location, nil, ChapterLink(id: cid, title: title)))
+            markers.append((match.range.location, nil, nil, ChapterLink(id: cid, title: title)))
         }
         markers.sort { $0.location < $1.location }
 
         func flush() {
             guard !currentChapters.isEmpty else { return }
-            volumes.append(Volume(id: "\(volumes.count)", title: currentTitle, chapters: currentChapters))
+            // The page's own id when it has one; a book without volume headings keeps its
+            // chapters together under an id the caller never downloads by.
+            let identifier = currentVID.map(String.init) ?? "\(volumes.count)"
+            volumes.append(Volume(id: identifier, title: currentTitle, chapters: currentChapters))
             currentChapters = []
         }
 
@@ -750,6 +688,7 @@ public enum DesktopParser {
             if let title = marker.title {
                 flush()
                 currentTitle = title
+                currentVID = marker.vid
             } else if let chapter = marker.chapter {
                 currentChapters.append(chapter)
             }

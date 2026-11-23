@@ -545,12 +545,6 @@ public struct NovelService: Sendable {
         do {
             return try await fetchVolumes(aid: aid)
         } catch {
-            // A delisted book has no readable catalogue through the usual endpoints, but its
-            // index page still lists every volume and chapter.
-            if let rebuilt = try? await restrictedCatalogue(aid: aid), !rebuilt.isEmpty {
-                await offline.cacheVolumes(rebuilt, for: aid)
-                return rebuilt
-            }
             // Offline: rebuild the catalogue from the downloaded manifest so the
             // reader can still navigate a cached book.
             if let entry = await offline.entry(for: aid), !entry.chapterIDs.isEmpty {
@@ -579,23 +573,6 @@ public struct NovelService: Sendable {
     }
 
     /// Downloads one volume's pack and splits it into chapters.
-    /// Downloads one volume, trying each candidate id until a usable pack comes back.
-    ///
-    /// The volume id is not printed anywhere on the site and its offset from the first
-    /// chapter id differs per book, so the candidates are probed rather than assumed.
-    public func downloadedVolume(
-        aid: Int,
-        candidateVIDs: [Int],
-        volumeName: String? = nil
-    ) async throws -> TextPackParser.ParsedVolume? {
-        for vid in candidateVIDs {
-            guard let parsed = try? await downloadedVolume(aid: aid, vid: vid, volumeName: volumeName),
-                  !parsed.chapters.isEmpty else { continue }
-            return parsed
-        }
-        return nil
-    }
-
     public func downloadedVolume(
         aid: Int,
         vid: Int,
@@ -626,75 +603,33 @@ public struct NovelService: Sendable {
     /// The catalogue built from the index page keeps the chapter ids the site assigned, and a
     /// volume's id is one less than its first chapter's, so the chapter can be found again
     /// by asking for that volume's pack and matching the position within it.
+    /// One chapter of a delisted book.
+    ///
+    /// `packtxt.php` takes the chapter's own id as `vid` and answers with that chapter's
+    /// text — sometimes just the chapter, sometimes from it to the end of the volume, so the
+    /// response is cut at its headings. That makes a chapter addressable directly, without
+    /// knowing which volume it belongs to or what the volume's id is.
     private func restrictedChapter(aid: Int, cid: Int) async throws -> ChapterContent? {
-        let cached = await offline.cachedVolumes(for: aid)
-        let volumes: [Volume]
-        if let cached, !cached.isEmpty {
-            volumes = cached
-        } else if let rebuilt = try? await restrictedCatalogue(aid: aid) {
-            volumes = rebuilt
-        } else {
-            return nil
-        }
-        guard !volumes.isEmpty else { return nil }
-        for volume in volumes {
-            guard let position = volume.chapters.firstIndex(where: { $0.id == cid }) else { continue }
-            let candidates = volume.id.split(separator: "|").compactMap { Int($0) }
-            guard !candidates.isEmpty else { continue }
-            guard let parsed = try await downloadedVolume(
-                      aid: aid, candidateVIDs: candidates, volumeName: volume.title
-                  ),
-                  position < parsed.chapters.count else { continue }
-            // The pack is already in memory, so the whole volume is stored rather than the
-            // one chapter asked for: the download page, the shelf badge and the per-chapter
-            // ticks then describe the volume that was actually fetched.
-            var requested: ChapterContent?
-            for (offset, entry) in parsed.chapters.enumerated() {
-                guard offset < volume.chapters.count else { break }
-                let link = volume.chapters[offset]
-                let content = ChapterContent(
-                    novelID: aid,
-                    chapterID: link.id,
-                    title: entry.title,
-                    blocks: entry.paragraphs.map { ChapterContent.Block.paragraph($0) }
-                )
-                await offline.saveChapter(content, for: aid)
-                if link.id == cid { requested = content }
-            }
-            if let loaded = await offline.entry(for: aid) {
-                var updated = loaded
-                updated.storedChapterIDs.formUnion(volume.chapters.prefix(parsed.chapters.count).map(\.id))
-                updated.updatedAt = Date()
-                await offline.saveManifest(updated)
-            }
-            if let requested { return requested }
-            // The pack covers fewer chapters than the catalogue lists for this volume: the
-            // site's own download is incomplete for some volumes (第一卷 of 399 stops at
-            // chapter five of eight). Say so rather than showing a blank page.
-            return nil
-        }
-        return nil
+        guard let parsed = try await chapterPack(aid: aid, cid: cid),
+              let chapter = TextPackParser.singleChapter(parsed) else { return nil }
+        return ChapterContent(
+            novelID: aid,
+            chapterID: cid,
+            title: chapter.title,
+            blocks: chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
+        )
     }
 
-    /// A delisted book's catalogue, rebuilt from its index page.
-    ///
-    /// The endpoint that normally serves a catalogue returns an empty page for these books,
-    /// while `/novel/<group>/<aid>/index.htm` keeps the whole table of contents. The volume id
-    /// a download needs never appears on it, so it is derived from the volume's first chapter
-    /// id instead.
-    public func restrictedCatalogue(aid: Int) async throws -> [Volume] {
-        let group = max(0, aid / 1000)
-        let html = try await client.desktop("/novel/\(group)/\(aid)/index.htm")
-        guard let parsed = DesktopParser.restrictedCatalogue(html) else { return [] }
-        return parsed.volumes.map { entry in
-            // The candidates travel in the id, `|`-separated, so a volume keeps every address
-            // it might have without widening `Volume`.
-            Volume(
-                id: entry.candidateVIDs.map(String.init).joined(separator: "|"),
-                title: entry.title,
-                chapters: entry.chapters
-            )
-        }
+    /// The raw text of one chapter, fetched by its id.
+    private func chapterPack(aid: Int, cid: Int) async throws -> String? {
+        guard let url = Self.textPackURL(aid: aid, vid: cid) else { return nil }
+        let response = try await client.get(
+            url,
+            referer: SiteDomain.current.webURL("/book/\(aid).htm").absoluteString,
+            timeout: 120
+        )
+        guard !response.data.isEmpty, response.data.count > 500 else { return nil }
+        return TextDecoding.decode(response.data)
     }
 
     private func onlineVolumes(aid: Int) async throws -> [Volume] {

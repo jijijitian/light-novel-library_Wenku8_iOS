@@ -61,20 +61,20 @@ public enum TextPackParser {
     ///     `第二卷 青春猪头少年…` puts the whole title there, and headings without a 第…章 marker
     ///     (终章 / 后记 / 插图) can then be recognised by the same prefix.
     public static func parse(_ text: String, volumeName: String? = nil) -> ParsedVolume? {
-        let lines = text
+        let raw = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n")
 
-        // The name comes from the catalogue when the caller has it; otherwise it is whatever
-        // the first heading puts before its chapter marker.
-        let expected = volumeName?.trimmingCharacters(in: .whitespaces)
-        guard let firstIndex = lines.firstIndex(where: { headingName($0) != nil }),
-              let name = expected ?? headingName(lines[firstIndex]) else {
-            return nil
-        }
-        let volume = name
-
+        // The pack's shape, as measured across books: a heading sits on its own line, is
+        // preceded by a blank line, and is immediately followed by its first paragraph with
+        // no blank line between them. Every later paragraph is separated by a blank line. So
+        // the headings are exactly the lines that follow a blank line and have a non-blank
+        // line after them.
+        //
+        // The one exception is an illustration chapter, which has no paragraph of its own: it
+        // is followed by two blank lines when another chapter follows, and by the volume's
+        // separator at the end.
         var chapters: [ParsedChapter] = []
         var currentTitle: String?
         var body: [String] = []
@@ -86,38 +86,79 @@ public enum TextPackParser {
             body = []
         }
 
-        for line in lines[firstIndex...] {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { continue }
-            if trimmed.hasPrefix(bannerPrefix) { continue }
-
-            // A heading is the volume's name followed by something. Prose that mentions a
-            // chapter number does not carry the volume prefix, so it stays in the body.
-            if trimmed.hasPrefix(volume) {
-                let rest = String(trimmed.dropFirst(volume.count))
-                    .trimmingCharacters(in: .whitespaces)
-                if isChapterName(rest) {
-                    flush()
-                    currentTitle = rest
-                    continue
+        let count = raw.count
+        // The first line is a candidate too: a pack always opens with a banner line, but a
+        // caller may hand over text that starts straight at the first heading.
+        for index in 0..<count {
+            if index == 0 {
+                let line = raw[0].trimmingCharacters(in: .whitespaces)
+                let next = count > 1 ? raw[1].trimmingCharacters(in: .whitespaces) : ""
+                if !line.isEmpty, !line.hasPrefix(bannerPrefix), isHeading(line, next: next) {
+                    currentTitle = stripVolumePrefix(line, volumeName: volumeName ?? inferredVolumeName(raw))
                 }
+                continue
             }
-            // Without a catalogue name, fall back to the marker-based split.
-            if expected == nil, let (name, title) = splitHeading(trimmed), name == volume {
+            let line = raw[index].trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix(bannerPrefix) else { continue }
+            let previous = raw[index - 1].trimmingCharacters(in: .whitespaces)
+            let next = index + 1 < count ? raw[index + 1].trimmingCharacters(in: .whitespaces) : ""
+
+            if previous.isEmpty, isHeading(line, next: next) {
                 flush()
-                currentTitle = title
+                currentTitle = stripVolumePrefix(line, volumeName: volumeName ?? inferredVolumeName(raw))
                 continue
             }
-            if currentTitle == nil {
-                // The printer's notes before the first heading belong to no chapter.
-                continue
-            }
-            body.append(trimmed)
+            guard currentTitle != nil else { continue }
+            // The trailing site blurb is not content.
+            if line.hasPrefix("更多精彩热门") || line.hasPrefix("◆◇◆") { continue }
+            body.append(line)
         }
         flush()
 
         guard !chapters.isEmpty else { return nil }
-        return ParsedVolume(name: volume, chapters: chapters)
+        return ParsedVolume(name: volumeName ?? inferredVolumeName(raw), chapters: chapters)
+    }
+
+    /// The volume name the pack repeats before each heading, e.g. `第四卷`.
+    ///
+    /// Taken from the first heading: every heading carries the same prefix, and a volume that
+    /// titles itself puts that title there too.
+    public static func inferredVolumeName(_ lines: [String]) -> String {
+        let count = lines.count
+        for index in 1..<count {
+            let line = lines[index].trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix(bannerPrefix) else { continue }
+            let previous = lines[index - 1].trimmingCharacters(in: .whitespaces)
+            let next = index + 1 < count ? lines[index + 1].trimmingCharacters(in: .whitespaces) : ""
+            guard previous.isEmpty, isHeading(line, next: next) else { continue }
+            if let space = line.firstIndex(of: " ") {
+                return String(line[line.startIndex..<space])
+            }
+            return line
+        }
+        return ""
+    }
+
+    /// Removes the repeated `第四卷 ` before a chapter name.
+    static func stripVolumePrefix(_ line: String, volumeName: String) -> String {
+        guard !volumeName.isEmpty, line.hasPrefix(volumeName) else { return line }
+        let rest = String(line.dropFirst(volumeName.count)).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? line : rest
+    }
+
+    /// Whether a line that follows a blank line is a chapter heading.
+    ///
+    /// - Parameter next: the line after it; a heading's own first paragraph follows directly.
+    static func isHeading(_ line: String, next: String) -> Bool {
+        if line.hasPrefix("◆◇") || line.hasPrefix("更多精彩热门") { return false }
+        // An illustration chapter has no text of its own.
+        if line.hasSuffix("插图") || line.hasSuffix("彩页") { return true }
+        guard !next.isEmpty else { return false }
+        // A paragraph never starts right after another line without a blank between, so a
+        // non-blank follower is what distinguishes a heading from ordinary prose.
+        if next.hasPrefix("◆") || next.hasPrefix("更多精彩热门") { return false }
+        // Titles are short; prose that happens to follow a blank line runs long.
+        return line.count <= 60
     }
 
     /// The volume name a heading repeats, or nil when the line is not a heading.
@@ -155,6 +196,45 @@ public enum TextPackParser {
         // opens with the volume name runs long and ends in a full stop.
         guard rest.count <= 24, !rest.hasSuffix("。") else { return nil }
         return (token, rest)
+    }
+
+    /// Splits a single-chapter response into the one chapter it targets.
+    ///
+    /// `packtxt.php?vid=<cid>` answers with up to a whole volume: for one book it is that
+    /// chapter alone, for another it starts at the chapter and continues to the end of the
+    /// volume. The response is therefore cut at the headings, and the first one is the
+    /// chapter asked for.
+    public static func singleChapter(_ text: String) -> ParsedChapter? {
+        let lines = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let start = lines.firstIndex(where: { isLooseHeading($0) }) else { return nil }
+        let title = lines[start]
+        var body: [String] = []
+        for line in lines[(start + 1)...] {
+            if line.isEmpty { continue }
+            if line.hasPrefix(bannerPrefix) { continue }
+            // The next heading ends this chapter.
+            if isLooseHeading(line) { break }
+            body.append(line)
+        }
+        return ParsedChapter(title: title, paragraphs: body)
+    }
+
+    /// A heading in a single-chapter response, where no volume prefix repeats.
+    private static func isLooseHeading(_ line: String) -> Bool {
+        guard !line.isEmpty, line.count <= 48, !line.hasSuffix("。") else { return false }
+        guard !line.hasPrefix("台版"), !line.hasPrefix("扫图"), !line.hasPrefix("录入"),
+              !line.hasPrefix("修图"), !line.hasPrefix("翻译") else { return false }
+        let markers = ["第", "序", "终章", "后记", "插图", "尾声", "番外"]
+        guard markers.contains(where: { line.hasPrefix($0) }) else { return false }
+        // 「第X章」 must be a heading, not prose mentioning one.
+        if line.hasPrefix("第") {
+            return line.range(of: chapterMarker, options: .regularExpression) != nil
+                || line.range(of: #"^第[零〇一二三四五六七八九十百千0-9]+卷"#, options: .regularExpression) != nil
+        }
+        return true
     }
 
     /// A chapter id for a chapter that exists only inside a downloaded pack.
