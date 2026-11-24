@@ -24,9 +24,7 @@ struct SettingsView: View {
                         ChevronSpace()
                     }
                     Divider()
-                    NavigationLink {
-                        ReadingProgressView()
-                    } label: {
+                    NavigationLink(value: AppRouter.Route.readingProgress) {
                         PanelRow {
                             Label("阅读进度", systemImage: "book.pages")
                                 .labelIconFrame()
@@ -100,9 +98,7 @@ struct SettingsView: View {
 
     /// The header card: who is signed in, opening the account screen.
     private var profileCard: some View {
-        NavigationLink {
-            AccountView()
-        } label: {
+        NavigationLink(value: AppRouter.Route.account) {
             HStack(spacing: 12) {
                 AccountAvatar(url: account.profile?.avatarURL, size: 44)
                 VStack(alignment: .leading, spacing: 1) {

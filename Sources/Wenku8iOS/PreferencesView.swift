@@ -22,6 +22,10 @@ struct PreferencesView: View {
             VStack(spacing: 14) {
         // Two-level menu: the front page is a directory of sub-screens, so each
         // group of related options has room to breathe instead of one long form.
+        //
+        // These five open by destination rather than by route, which is safe only while they
+        // stay leaves — a screen that itself pushes through `router` must be routed by value, or
+        // the router rebuilds the stack from its own path and drops the screen in between.
         Panel(title: "存储与数据") {
             NavigationLink {
                 AppearanceSettingsView()

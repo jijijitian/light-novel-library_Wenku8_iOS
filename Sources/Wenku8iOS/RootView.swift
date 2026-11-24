@@ -195,6 +195,10 @@ struct RouteView: View {
             DataSourceSettingsView()
         case .preferences:
             PreferencesView()
+        case .readingProgress:
+            ReadingProgressView()
+        case .account:
+            AccountView()
         case .offlineLibrary:
             OfflineLibraryView()
         case .metadataCache:
