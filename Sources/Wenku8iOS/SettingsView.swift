@@ -22,10 +22,14 @@ struct SettingsView: View {
                 } label: {
                     Label("已收藏", systemImage: "books.vertical")
                 }
-                LabeledContent {
-                    Text("\(store.progress.count) 本").foregroundStyle(.secondary)
+                NavigationLink {
+                    ReadingProgressView()
                 } label: {
-                    Label("阅读进度", systemImage: "book.pages")
+                    LabeledContent {
+                        Text("\(store.progress.count) 本").foregroundStyle(.secondary)
+                    } label: {
+                        Label("阅读进度", systemImage: "book.pages")
+                    }
                 }
             }
 

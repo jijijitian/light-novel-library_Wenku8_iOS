@@ -41,9 +41,6 @@ struct ShelfView: View {
                     localShelfSection
                 }
 
-                if !progressNovels.isEmpty {
-                    progressSection
-                }
             }
             .padding(.horizontal, 18)
             .padding(.top, 8)
@@ -123,50 +120,6 @@ struct ShelfView: View {
         }
         .padding(14)
         .glassCard(cornerRadius: 24)
-    }
-
-    /// Books with a recorded reading position, from either shelf.
-    private var progressNovels: [NovelSummary] {
-        let source = account.isSignedIn
-            ? account.remoteShelf.map(\.novel)
-            : store.saved
-        return source.filter { store.progress(for: $0.id) != nil }
-    }
-
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "阅读进度", symbol: "timer")
-            ForEach(progressNovels) { novel in
-                if let progress = store.progress(for: novel.id) {
-                    Button {
-                        router.open(.novel(novel.id))
-                    } label: {
-                        HStack(spacing: 12) {
-                            CoverCard(url: novel.coverURL, title: novel.title, width: 44, height: 62)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(novel.title)
-                                    .font(.subheadline.weight(.semibold))
-                                    .lineLimit(1)
-                                Text(progress.chapterTitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                Text(relative(progress.updated))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(14)
-        .glassCard(cornerRadius: 22)
     }
 
     /// The site's shelf, grouped the way the website groups it.
