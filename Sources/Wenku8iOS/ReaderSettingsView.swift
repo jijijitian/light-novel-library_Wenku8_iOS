@@ -19,99 +19,117 @@ struct ReaderSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                slider(
-                    title: "字号",
-                    symbol: "textformat.size",
-                    value: $fontSize,
-                    range: ReaderPreferences.fontSizeRange,
-                    step: 1,
-                    suffix: "pt"
-                )
-                slider(
-                    title: "行距",
-                    symbol: "text.alignleft",
-                    value: $lineSpacing,
-                    range: ReaderPreferences.lineSpacingRange,
-                    step: 1
-                )
-                slider(
-                    title: "段间距",
-                    symbol: "text.justify.leading",
-                    value: $paragraphSpacing,
-                    range: ReaderPreferences.paragraphSpacingRange,
-                    step: 1
-                )
-
-                Button {
-                    fontSize = ReaderPreferences.defaultFontSize
-                    lineSpacing = ReaderPreferences.defaultLineSpacing
-                    paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
-                } label: {
-                    Label("恢复默认字号与间距", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(isDefaultTypography)
-            } header: {
-                Text("排版")
-            }
-
-            Section {
-                // A segmented Picker bound to @AppStorage does not reliably re-read
-                // the stored value inside a Form, so the selection goes through an
-                // explicit Binding.
-                Picker("翻页方式", selection: Binding(
-                    get: { ReaderLayout(rawValue: layoutRaw) ?? .vertical },
-                    set: { layoutRaw = $0.rawValue }
-                )) {
-                    ForEach(ReaderLayout.allCases) { layout in
-                        Label(layout.title, systemImage: layout.systemImage)
-                            .tag(layout)
+        ScrollView {
+            VStack(spacing: 14) {
+                Panel(title: "排版") {
+                    slider(
+                        title: "字号",
+                        symbol: "textformat.size",
+                        value: $fontSize,
+                        range: ReaderPreferences.fontSizeRange,
+                        step: 1,
+                        suffix: "pt"
+                    )
+                    Divider().opacity(0.4)
+                    slider(
+                        title: "行距",
+                        symbol: "text.alignleft",
+                        value: $lineSpacing,
+                        range: ReaderPreferences.lineSpacingRange,
+                        step: 1
+                    )
+                    Divider().opacity(0.4)
+                    slider(
+                        title: "段间距",
+                        symbol: "text.justify.leading",
+                        value: $paragraphSpacing,
+                        range: ReaderPreferences.paragraphSpacingRange,
+                        step: 1
+                    )
+                    Divider()
+                    Button {
+                        fontSize = ReaderPreferences.defaultFontSize
+                        lineSpacing = ReaderPreferences.defaultLineSpacing
+                        paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
+                    } label: {
+                        PanelRow {
+                            Label("恢复默认字号与间距", systemImage: "arrow.counterclockwise")
+                            Spacer(minLength: 0)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isDefaultTypography)
                 }
 
-                Toggle(isOn: $indentFirstLine) {
-                    describe(
-                        "首行缩进",
-                        symbol: "text.append",
-                        detail: "每段第一行缩进两个字符"
-                    )
-                }
-            } header: {
-                Text("布局")
-            }
+                Panel(title: "布局") {
+                    // A segmented `Picker` bound to `@AppStorage` does not reliably re-read the
+                    // stored value, so the selection goes through an explicit `Binding`.
+                    Picker("翻页方式", selection: Binding(
+                        get: { ReaderLayout(rawValue: layoutRaw) ?? .vertical },
+                        set: { layoutRaw = $0.rawValue }
+                    )) {
+                        ForEach(ReaderLayout.allCases) { layout in
+                            Text(layout.title).tag(layout)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
 
-            Section {
-                Toggle(isOn: $collapsedInfo) {
-                    describe(
-                        "沉浸式标题",
-                        symbol: "rectangle.topthird.inset.filled",
-                        detail: "收起菜单后隐藏状态栏与灵动岛"
+                    Divider()
+                    Toggle(isOn: $indentFirstLine) {
+                        describe(
+                            "首行缩进",
+                            symbol: "text.append",
+                            detail: "每段第一行缩进两个字符"
+                        )
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+
+                Panel(title: "沉浸式") {
+                    Toggle(isOn: $collapsedInfo) {
+                        describe(
+                            "沉浸式标题",
+                            symbol: "rectangle.topthird.inset.filled",
+                            detail: "收起菜单后隐藏状态栏与灵动岛"
+                        )
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+
+                    Divider().opacity(0.4)
+                    slider(
+                        title: "顶部留白",
+                        symbol: "arrow.up.to.line",
+                        value: $topInset,
+                        range: ReaderMetrics.insetRange,
+                        step: 2,
+                        suffix: "pt"
+                    )
+                    Divider().opacity(0.4)
+                    slider(
+                        title: "底部留白",
+                        symbol: "arrow.down.to.line",
+                        value: $bottomInset,
+                        range: ReaderMetrics.insetRange,
+                        step: 2,
+                        suffix: "pt"
                     )
                 }
-                slider(
-                    title: "顶部留白",
-                    symbol: "arrow.up.to.line",
-                    value: $topInset,
-                    range: ReaderMetrics.insetRange,
-                    step: 2,
-                    suffix: "pt"
-                )
-                slider(
-                    title: "底部留白",
-                    symbol: "arrow.down.to.line",
-                    value: $bottomInset,
-                    range: ReaderMetrics.insetRange,
-                    step: 2,
-                    suffix: "pt"
-                )
-            } header: {
-                Text("沉浸式")
-            } footer: {
+
                 Text("留白决定正文与屏幕上下边缘的距离。")
                     .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
+        .background { AppBackground() }
         .navigationTitle("阅读")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -137,6 +155,9 @@ struct ReaderSettingsView: View {
             }
             Slider(value: value, in: range, step: step)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .tint(.primary)
     }
 
     /// Title plus a caption, used by the toggles.

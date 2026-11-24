@@ -12,49 +12,29 @@ struct ActiveDownloadsView: View {
     @EnvironmentObject private var store: LibraryStore
 
     var body: some View {
-        List {
-            if let finished = manager.automaticFinish {
-                // A volume fetched while reading is over in about two seconds; this keeps it
-                // visible for a moment afterwards instead of vanishing before it is seen.
-                Section {
-                    Label(finished, systemImage: "checkmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if manager.progress == nil, let starting = manager.startingNovelID {
-                // The first request has not returned yet; say so rather than showing an
-                // empty page, which looked like the tap had done nothing.
-                Section {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("正在准备下载…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        Button {
-                            manager.cancel()
-                        } label: {
-                            Image(systemName: "pause.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(.orange)
+        ScrollView {
+            VStack(spacing: 14) {
+                if let finished = manager.automaticFinish {
+                    // A volume fetched while reading is over in about two seconds; this keeps it
+                    // visible for a moment afterwards instead of vanishing before it is seen.
+                    Panel {
+                        PanelRow {
+                            Label(finished, systemImage: "checkmark.circle")
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
                         }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("取消下载")
                     }
-                    .id(starting)
                 }
-            } else if let progress = manager.progress {
-                Section {
-                    VStack(alignment: .leading, spacing: 10) {
+
+                if manager.progress == nil, let starting = manager.startingNovelID {
+                    // The first request has not returned yet; say so rather than showing an
+                    // empty page, which looked like the tap had done nothing.
+                    Panel {
                         HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(progress.novelTitle)
-                                    .font(.subheadline.weight(.semibold))
-                                    .lineLimit(2)
-                                Text("\(progress.completed)/\(progress.total) 章")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            ProgressView()
+                            Text("正在准备下载…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
                             Button {
                                 manager.cancel()
@@ -64,30 +44,65 @@ struct ActiveDownloadsView: View {
                                     .foregroundStyle(.orange)
                             }
                             .buttonStyle(.borderless)
-                            .accessibilityLabel("暂停下载")
+                            .accessibilityLabel("取消下载")
                         }
-                        ProgressView(value: progress.fraction)
-                            .tint(AppTheme.accent)
-                        Text(progress.currentChapterTitle)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .id(starting)
                     }
-                    .padding(.vertical, 4)
-                } footer: {
+                } else if let progress = manager.progress {
+                    Panel {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(progress.novelTitle)
+                                        .font(.subheadline.weight(.semibold))
+                                        .lineLimit(2)
+                                    Text("\(progress.completed)/\(progress.total) 章")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Button {
+                                    manager.cancel()
+                                } label: {
+                                    Image(systemName: "pause.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.orange)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("暂停下载")
+                            }
+                            ProgressView(value: progress.fraction)
+                                .tint(AppTheme.accent)
+                            Text(progress.currentChapterTitle)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+
                     Text("下载在后台继续，可以离开这个页面。")
-                }
-            } else {
-                Section {
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
                     EmptyStateView(
                         symbol: "arrow.down.circle",
                         title: "没有正在下载的任务",
                         message: "在小说详情页的目录里选择要下载的分卷，进度会实时显示在这里。"
                     )
-                    .listRowBackground(Color.clear)
+                    .padding(.top, 40)
                 }
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
+        .background { AppBackground() }
         .navigationTitle("正在下载")
         .navigationBarTitleDisplayMode(.inline)
     }
