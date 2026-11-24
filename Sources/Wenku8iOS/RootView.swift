@@ -193,6 +193,8 @@ struct RouteView: View {
             HeatRankView()
         case .dataSource:
             DataSourceSettingsView()
+        case .offlineLibrary:
+            OfflineLibraryView()
         case .metadataCache:
             MetadataCacheView()
         }

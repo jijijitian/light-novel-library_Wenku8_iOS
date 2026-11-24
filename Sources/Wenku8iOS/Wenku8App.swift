@@ -217,6 +217,7 @@ final class AppRouter: ObservableObject {
         case heatRank
         case dataSource
         case metadataCache
+        case offlineLibrary
     }
 
     func open(_ route: Route) {

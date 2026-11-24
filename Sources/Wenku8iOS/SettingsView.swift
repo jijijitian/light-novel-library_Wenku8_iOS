@@ -77,9 +77,12 @@ struct SettingsView: View {
                     }
                 }
 
-                NavigationLink {
-                    OfflineLibraryView()
-                } label: {
+                // Routed by value, not by a `NavigationLink` destination.
+                //
+                // A destination view builds its own stack entry that the router cannot see,
+                // so opening a book from the list pushed onto the router's path while the
+                // list sat outside it — returning landed on 设置 instead of the list.
+                NavigationLink(value: AppRouter.Route.offlineLibrary) {
                     LabeledContent {
                         Text(offlineSummary)
                             .foregroundStyle(.secondary)
@@ -91,9 +94,7 @@ struct SettingsView: View {
                 // Metadata is cached separately from downloads, so it gets its own row:
                 // a reader can tell what the app holds offline even with nothing
                 // downloaded. It opens the list, because a bare count is not actionable.
-                NavigationLink {
-                    MetadataCacheView()
-                } label: {
+                NavigationLink(value: AppRouter.Route.metadataCache) {
                     LabeledContent {
                         Text(metadataSummary)
                             .foregroundStyle(.secondary)
