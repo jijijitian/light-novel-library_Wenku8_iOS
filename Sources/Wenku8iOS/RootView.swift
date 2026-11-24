@@ -19,7 +19,7 @@ struct RootView: View {
             case .rank: return "探索"
             case .search: return "搜索"
             case .shelf: return "书架"
-            case .settings: return "设置"
+            case .settings: return "我的"
             }
         }
 
@@ -29,7 +29,7 @@ struct RootView: View {
             case .rank: return "safari.fill"
             case .search: return "magnifyingglass"
             case .shelf: return "books.vertical.fill"
-            case .settings: return "gearshape.fill"
+            case .settings: return "person.crop.circle.fill"
             }
         }
     }

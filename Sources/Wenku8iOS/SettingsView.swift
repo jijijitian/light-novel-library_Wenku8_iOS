@@ -5,155 +5,42 @@ struct SettingsView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var router: AppRouter
-    @State private var showWeb = false
-    @State private var showLicense = false
     @State private var showLogin = false
     @State private var accountMessage: String?
-    @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
-    @State private var offlineCount = 0
-    @State private var offlineBytes: Int64 = 0
-    @State private var metadataCount = 0
-    @State private var metadataBytes = "0 KB"
-    @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
 
     var body: some View {
         Form {
-            Section {
-                HStack(spacing: 14) {
-                    Image(systemName: "books.vertical.fill")
-                        .font(.title2)
-                        .frame(width: 48, height: 48)
-                       .glassCard(cornerRadius: 14, tint: AppTheme.accent.opacity(0.4))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("轻小说文库").font(.headline)
-                        Text("iOS 版 · SwiftUI + Liquid Glass")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
+            profileSection
 
             accountSection
 
-            // Two-level menu: the front page is a directory of sub-screens, so each
-            // group of related options has room to breathe instead of one long form.
-            Section {
-                NavigationLink {
-                    AppearanceSettingsView()
-                } label: {
-                    LabeledContent {
-                        Text(appearanceTitle)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("外观", systemImage: "circle.lefthalf.filled")
-                    }
-                }
-
-                NavigationLink {
-                    ReaderSettingsView()
-                } label: {
-                    LabeledContent {
-                        Text(readerSummary)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("阅读", systemImage: "book")
-                    }
-                }
-            }
-
-            Section {
-                // An active transfer first: it is the thing that is happening now, and it
-                // used to share an icon with the storage row below it, which made the two
-                // hard to tell apart.
-                NavigationLink {
-                    ActiveDownloadsView()
-                } label: {
-                    LabeledContent {
-                        Text(downloadSummary)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("正在下载", systemImage: "arrow.down.circle.fill")
-                    }
-                }
-
-                // Routed by value, not by a `NavigationLink` destination.
-                //
-                // A destination view builds its own stack entry that the router cannot see,
-                // so opening a book from the list pushed onto the router's path while the
-                // list sat outside it — returning landed on 设置 instead of the list.
-                NavigationLink(value: AppRouter.Route.offlineLibrary) {
-                    LabeledContent {
-                        Text(offlineSummary)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("离线缓存", systemImage: "internaldrive")
-                    }
-                }
-
-                // Metadata is cached separately from downloads, so it gets its own row:
-                // a reader can tell what the app holds offline even with nothing
-                // downloaded. It opens the list, because a bare count is not actionable.
-                NavigationLink(value: AppRouter.Route.metadataCache) {
-                    LabeledContent {
-                        Text(metadataSummary)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("元数据缓存", systemImage: "tray.full")
-                    }
-                }
-
-                NavigationLink {
-                    DataSourceSettingsView()
-                } label: {
-                    LabeledContent {
-                        Text(domainTitle)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("数据来源", systemImage: "globe.asia.australia")
-                    }
-                }
-            } header: {
-                Text("存储与数据")
-            }
-
+            // Shelf totals describe the reader's own library, so they sit here rather than
+            // behind the settings entry.
             Section("书架") {
-                LabeledContent("已收藏", value: "\(store.saved.count) 本")
-                LabeledContent("阅读进度", value: "\(store.progress.count) 本")
-                Button(role: .destructive) {
-                    store.clearHistory()
+                LabeledContent {
+                    Text("\(store.saved.count) 本").foregroundStyle(.secondary)
                 } label: {
-                    Label("清空搜索历史", systemImage: "trash")
+                    Label("已收藏", systemImage: "books.vertical")
+                }
+                LabeledContent {
+                    Text("\(store.progress.count) 本").foregroundStyle(.secondary)
+                } label: {
+                    Label("阅读进度", systemImage: "book.pages")
                 }
             }
 
             Section {
                 NavigationLink {
-                    AboutSettingsView(onShowLicense: { showLicense = true })
+                    PreferencesView()
                 } label: {
-                    LabeledContent {
-                        Text(appVersion)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("关于", systemImage: "info.circle")
-                    }
+                    Label("设置", systemImage: "gearshape")
                 }
-
-                Button {
-                    showWeb = true
-                } label: {
-                    Label("打开文库网页版", systemImage: "safari")
-                }
-            } header: {
-                Text("关于")
-            } footer: {
-                Text("本应用为非官方第三方客户端，所有内容均来自轻小说文库网站，仅供学习交流使用。")
-                    .font(.footnote)
             }
+
         }
         .scrollContentBackground(.hidden)
         .background { AppBackground() }
-        .navigationTitle("设置")
+        .navigationTitle("我的")
         .task {
             #if DEBUG
             // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
@@ -166,50 +53,89 @@ struct SettingsView: View {
             }
             #endif
         }
-        .sheet(isPresented: $showWeb) {
-            WebSheet(url: SiteDomain.current.webURL("/"))
-        }
-        .sheet(isPresented: $showLicense) {
-            LicenseSheet()
-        }
         .sheet(isPresented: $showLogin) {
             LoginView()
         }
-        .task { await refreshOffline() }
     }
 
-    @ViewBuilder
-    private var accountSection: some View {
-        Section("文库账号") {
-            if account.isSignedIn {
-                HStack(spacing: 12) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(account.userName ?? "已登录").font(.subheadline.weight(.semibold))
-                        Text("已同步云端书架 \(account.remoteNovels.count) 本")
+    /// The version, shown under the profile block.
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
+    }
+
+    /// The header: who is signed in, and the app's own identity underneath.
+    ///
+    /// The screen is the reader's page rather than a settings list, so the account leads it and
+    /// the switches follow. A signed-out reader gets a sign-in invitation in the same place.
+    private var profileSection: some View {
+        Section {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.accent.opacity(0.16))
+                    Image(systemName: account.isSignedIn
+                          ? "person.crop.circle.fill" : "person.crop.circle")
+                        .font(.system(size: 26))
+                        .foregroundStyle(AppTheme.accent)
+                }
+                .frame(width: 54, height: 54)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(account.isSignedIn ? (account.userName ?? "已登录") : "未登录")
+                        .font(.title3.weight(.semibold))
+                    if account.isSignedIn {
+                        Text("云端书架 \(account.remoteNovels.count) 本")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if let latest = account.remoteShelf.compactMap(\.latestChapter).first {
-                            Text("最近阅读：\(latest.title)")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                    if account.isSyncingShelf {
-                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("登录后可同步书架与阅读进度")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
+                Spacer(minLength: 0)
+                if account.isSyncingShelf {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(.vertical, 6)
+
+            // No manual sync row: the shelf syncs when the account signs in and whenever the
+            // local shelf changes, so a button for it was a switch that did nothing a reader
+            // could not already rely on.
+            if !account.isSignedIn {
                 Button {
-                    Task {
-                        await account.syncShelf()
-                        accountMessage = "已同步云端书架"
-                    }
+                    showLogin = true
                 } label: {
-                    Label("立即同步书架", systemImage: "arrow.triangle.2.circlepath")
+                    Label("登录文库账号", systemImage: "person.badge.key")
+                }
+            }
+        } footer: {
+            HStack {
+                Text("轻小说文库 iOS 版")
+                Spacer()
+                Text(appVersion)
+            }
+            .font(.caption2)
+        }
+    }
+
+    /// The signed-in account's details and actions.
+    ///
+    /// Who is signed in lives in the header above, so this holds only what the header does not:
+    /// the most recent reading, and the two things a reader can do about the session.
+    @ViewBuilder
+    private var accountSection: some View {
+        if account.isSignedIn {
+            Section("文库账号") {
+                if let latest = account.remoteShelf.compactMap(\.latestChapter).first {
+                    LabeledContent {
+                        Text(latest.title).lineLimit(1)
+                    } label: {
+                        Label("最近阅读", systemImage: "book.pages")
+                    }
                 }
                 Button(role: .destructive) {
                     account.signOut()
@@ -217,85 +143,16 @@ struct SettingsView: View {
                 } label: {
                     Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
                 }
-            } else {
-                Button {
-                    showLogin = true
-                } label: {
-                    Label("登录文库账号", systemImage: "person.badge.key")
+                if let accountMessage {
+                    Text(accountMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text("登录后可把小说加入文库云端书架，并在多台设备间同步。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let accountMessage {
-                Text(accountMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private var appearanceTitle: String {
-        (AppAppearance(rawValue: appearanceRaw) ?? .system).title
-    }
 
-    /// Compact summary of the reading settings, shown on the row that opens them.
-    /// Read straight from storage: these values now live in `ReaderSettingsView`.
-    private var readerSummary: String {
-        let defaults = UserDefaults.standard
-        let raw = defaults.string(forKey: ReaderPreferences.layoutKey)
-            ?? ReaderLayout.vertical.rawValue
-        let layout = ReaderLayout(rawValue: raw) ?? .vertical
-        let stored = defaults.double(forKey: ReaderPreferences.fontSizeKey)
-        let size = stored > 0 ? stored : ReaderPreferences.defaultFontSize
-        return "\(layout.title) · \(Int(size))pt"
-    }
-
-    private var domainTitle: String {
-        (SiteDomain(rawValue: domainRaw) ?? .net).title
-    }
-
-    /// Books whose metadata is cached without any downloaded chapter.
-    private var metadataSummary: String {
-        guard metadataCount > 0 else { return "未缓存" }
-        return "\(metadataCount) 本 · \(metadataBytes)"
-    }
-
-    /// Current download state, shown on the row that opens it.
-    private var downloadSummary: String {
-        guard let progress = OfflineDownloadManager.shared.progress else { return "无任务" }
-        return "\(progress.completed)/\(progress.total) 章"
-    }
-
-    private var offlineSummary: String {
-        offlineCount == 0 ? "未下载" : "\(offlineCount) 本 · \(formatBytes(offlineBytes))"
-    }
-
-    private func refreshOffline() async {
-        // Two separate tallies: what can be read offline, and what is only described.
-        let downloaded = await OfflineStore.shared.downloadedEntries()
-        offlineCount = downloaded.count
-        // Only the downloaded books' own bytes, so this figure does not silently include
-        // the metadata cache reported on the row below.
-        offlineBytes = downloaded.reduce(0) { $0 + $1.bytes }
-
-        let all = await OfflineStore.shared.entries()
-        let metadataOnly = all.filter { $0.detail != nil && !$0.hasDownloadedChapters }
-        metadataCount = metadataOnly.count
-        metadataBytes = formatBytes(metadataOnly.reduce(0) { $0 + $1.bytes })
-    }
-
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
-
-    private var appVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(version) (\(build))"
-    }
 }
 
 struct LicenseSheet: View {
