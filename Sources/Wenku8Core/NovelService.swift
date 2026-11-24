@@ -899,8 +899,11 @@ public struct NovelService: Sendable {
         // was skipped, which is how a book's illustrations disappeared: the pack carries no
         // image links.
         if await isDelistedBook(aid: aid) {
+            // No second save: `restrictedChapter` stores the whole volume itself, and it marks an
+            // illustration chapter pending until its pictures land. Storing the returned chapter
+            // again here wrote it as complete — overriding that mark a moment after it was set,
+            // so the row showed "not stored" until the pictures arrived by another route.
             if let restricted = try? await restrictedChapter(aid: aid, cid: cid) {
-                await offline.saveChapter(restricted, for: aid)
                 return restricted
             }
             // An illustration chapter of a delisted book has no text at all: the site removed
@@ -914,7 +917,10 @@ public struct NovelService: Sendable {
                     title: await illustrationTitle(aid: aid, cid: cid) ?? "插图",
                     blocks: images.map { .image($0) }
                 )
-                await offline.saveChapter(content, for: aid)
+                // Same treatment as the volume pass: store the addresses, mark the chapter
+                // pending, and fetch the pictures behind it.
+                await offline.saveChapter(content, for: aid, awaitingPictures: true)
+                schedulePictureFetch(aid: aid, cid: cid, blocks: content.blocks)
                 return content
             }
             throw Wenku8Error.unavailable("这一章暂时无法获取，请稍后重试。")

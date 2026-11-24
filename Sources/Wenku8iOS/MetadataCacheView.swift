@@ -71,14 +71,11 @@ struct MetadataCacheView: View {
                         Section {
                             ForEach(items) { entry in
                                 row(entry)
-                                    // A confirmed delete must not be `onDelete`: that
-                                    // removes the row itself as soon as the swipe ends,
-                                    // without waiting for the data. The rows below slid up
-                                    // into the gap and dropped back when the list redrew
-                                    // with the entry still present. `swipeActions` only
-                                    // arms the button, so nothing moves until the delete
-                                    // actually happens.
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    // A long press rather than a swipe, matching the offline
+                                    // list. Swiping draws the row aside and the list re-measures
+                                    // during that animation, which made the rows below move.
+                                    // A menu leaves the layout alone.
+                                    .contextMenu {
                                         if kind.isDeletable {
                                             Button(role: .destructive) {
                                                 delete(entry)

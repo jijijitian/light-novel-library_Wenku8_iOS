@@ -246,7 +246,10 @@ public actor OfflineStore {
         guard var entry = entry(for: aid) else { return }
         if awaitingPictures {
             var pending = entry.pendingPictureIDs ?? []
-            guard pending.insert(content.chapterID).inserted else { return }
+            // Not a guard: a chapter can be written again while it is already pending, and
+            // returning early there left its record untouched — the row then read as "not
+            // stored" instead of "pictures on the way".
+            pending.insert(content.chapterID)
             entry.pendingPictureIDs = pending
             entry.storedChapterIDs.remove(content.chapterID)
         } else {
