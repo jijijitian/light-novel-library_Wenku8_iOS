@@ -129,6 +129,7 @@ final class AppRouter: ObservableObject {
     init(tab: RootView.AppTab? = nil) {
         self.tab = tab ?? Self.launchTab
         #if DEBUG
+        Self.applyLaunchShelfStyle()
         // `WENKU8_OPEN_CHAPTER=aid:cid` jumps straight into the reader, which is
         // needed to inspect the reader without hand-driving the UI. The chapter
         // list is empty here, so `ReaderView` shows the chapter it just loaded
@@ -188,6 +189,14 @@ final class AppRouter: ObservableObject {
         if let raw = ProcessInfo.processInfo.environment["WENKU8_OPEN_REVIEWS"],
            let aid = Int(raw) {
             homePath = [.novel(aid), .reviews(aid)]
+        }
+        #endif
+    }
+
+    private static func applyLaunchShelfStyle() {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_SHELF_STYLE"] {
+            UserDefaults.standard.set(raw, forKey: ShelfStyle.storageKey)
         }
         #endif
     }

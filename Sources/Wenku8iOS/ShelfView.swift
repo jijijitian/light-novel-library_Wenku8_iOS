@@ -17,6 +17,12 @@ struct ShelfView: View {
     /// Cover files stored on this device, keyed by book.
     @State private var localCovers: [Int: URL] = [:]
     @State private var showLogin = false
+    /// The layout the reader picked in 设置.
+    @AppStorage(ShelfStyle.storageKey) private var styleRaw = ShelfStyle.list.rawValue
+
+    private var style: ShelfStyle {
+        ShelfStyle(rawValue: styleRaw) ?? .list
+    }
 
     enum CacheState {
         case partial
@@ -114,8 +120,12 @@ struct ShelfView: View {
     private var localShelfSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             TagChip(text: "\(store.saved.count) 本收藏", systemImage: "bookmark.fill")
-            NovelGrid(novels: store.saved) { novel in
-                router.open(.novel(novel.id))
+            if style == .grid {
+                shelfGrid(store.saved)
+            } else {
+                NovelGrid(novels: store.saved) { novel in
+                    router.open(.novel(novel.id))
+                }
             }
         }
         .padding(14)
@@ -130,22 +140,26 @@ struct ShelfView: View {
     @ViewBuilder
     private var cloudShelfSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                SectionHeader(title: "文库书架", symbol: "cloud")
-                Spacer()
-                if account.isSyncingShelf {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button {
-                        // Full two-way sync, so the local shelf is uploaded too.
-                        Task { await syncNow() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.footnote)
+            // The grid is a wall of covers under a title that already says this is the shelf;
+            // the heading and its refresh button only framed it. A pull refreshes either way.
+            if style != .grid {
+                HStack(spacing: 10) {
+                    SectionHeader(title: "文库书架", symbol: "cloud")
+                    Spacer()
+                    if account.isSyncingShelf {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button {
+                            // Full two-way sync, so the local shelf is uploaded too.
+                            Task { await syncNow() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.footnote)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("刷新文库书架")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("刷新文库书架")
                 }
             }
 
@@ -183,6 +197,8 @@ struct ShelfView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 6)
+            } else if style == .grid {
+                shelfGrid(account.remoteShelf.map(\.novel))
             } else {
                 VStack(spacing: 0) {
                     ForEach(account.remoteShelf) { entry in
@@ -199,8 +215,53 @@ struct ShelfView: View {
                 }
             }
         }
-        .padding(14)
-        .glassCard(cornerRadius: 22)
+        // In the grid the covers are the content, so the panel's material and border are left
+        // off: a box around a wall of pictures reads as a frame around the page.
+        .padding(style == .grid ? 0 : 14)
+        .modifier(ShelfPanelBackground(isGrid: style == .grid))
+    }
+
+    /// The shelf as a grid of large covers with the title beneath, the way the home screen
+    /// presents books. Used when the reader picks that layout in 设置.
+    private func shelfGrid(_ novels: [NovelSummary]) -> some View {
+        // The same column rules the home screen uses, so three covers fit across a phone and a
+        // shelf looks like the shelves elsewhere in the app. A wider minimum fitted only two.
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 14)],
+            alignment: .leading,
+            spacing: 16
+        ) {
+            ForEach(novels) { novel in
+                Button {
+                    router.open(.novel(novel.id))
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        // The stored cover when there is one, so the shelf stays a wall of
+                        // pictures rather than refetching each on every visit.
+                        CoverCard(
+                            url: localCovers[novel.id] ?? novel.coverURL,
+                            title: novel.title,
+                            width: 96,
+                            height: 96 * 1.42
+                        )
+                        Text(novel.title)
+                            .font(.caption)
+                            .lineLimit(2, reservesSpace: true)
+                            .multilineTextAlignment(.leading)
+                            .frame(width: 96, alignment: .topLeading)
+                        if let author = novel.author, !author.isEmpty {
+                            Text(author)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .frame(width: 96, alignment: .topLeading)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     /// Offline state for a shelf book: a green tick when fully cached, a half-filled
@@ -366,5 +427,21 @@ struct ShelfView: View {
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+/// Draws the glass panel behind a shelf section, except in the grid layout.
+///
+/// The list is a set of rows on a surface; the grid is a wall of covers, and a surface behind it
+/// only frames the wall.
+private struct ShelfPanelBackground: ViewModifier {
+    var isGrid: Bool
+
+    func body(content: Content) -> some View {
+        if isGrid {
+            content
+        } else {
+            content.glassCard(cornerRadius: 22)
+        }
     }
 }
