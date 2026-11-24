@@ -152,7 +152,11 @@ struct OfflineLibraryView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
+        // A floating glass card rather than a bar across the bottom: the bar was a second surface
+        // under the list, and these two screens are otherwise panels on the page.
+        .glassCard(cornerRadius: 20)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 8)
     }
 
     /// Deletes the stored chapters of every picked volume.
