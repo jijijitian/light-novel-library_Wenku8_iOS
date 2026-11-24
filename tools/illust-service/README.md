@@ -8,8 +8,11 @@
 ## 接口
 
 ```
-GET /illust?aid=<aid>&cid=<cid>
+GET /illust?cid=<cid>[&aid=<aid>]
 ```
+
+章节 id 全站唯一，且是数据库主键，所以**查缓存只需要 cid**。`aid` 只在未命中、需要向中转
+请求时才用得上（中转的 action 需要它）。已缓存的章节可以只传 `cid`。
 
 响应（图片地址为绝对地址）：
 
@@ -30,6 +33,8 @@ GET /illust?aid=<aid>&cid=<cid>
 | `cached: false` | 本次向中转取得，已写入数据库 |
 | `cached: true` | 直接来自数据库 |
 | `images: []` | 该章没有插图。同样是有效结果，也会被缓存 |
+| 404 `not cached; pass aid to fetch it` | 未缓存且没传 aid，无法代为获取 |
+| 400 | cid 缺失或不是整数；aid 传了但不是整数 |
 | 502 | 中转不可用。此时不写库，下次请求会重试 |
 
 另有 `GET /health` 返回 `{"ok": true}`。
