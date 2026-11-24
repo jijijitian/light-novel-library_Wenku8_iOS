@@ -26,6 +26,14 @@ public actor OfflineStore {
         public var chapterIDs: [Int]
         public var chapterTitles: [Int: String]
         public var storedChapterIDs: Set<Int>
+
+        /// Chapters whose text is stored but whose pictures are still being fetched.
+        ///
+        /// An illustration chapter is stored with its addresses at once, because waiting on two
+        /// dozen pictures would hold up the whole volume. Until they arrive the chapter is not
+        /// a usable offline copy, so it sits here rather than in `storedChapterIDs`. Optional so
+        /// manifests written before this field still decode.
+        public var pendingPictureIDs: Set<Int>?
         public var coverFile: String?
         public var updatedAt: Date
         public var bytes: Int64
@@ -221,13 +229,43 @@ public actor OfflineStore {
     /// file without it left a chapter on disk that the app still called missing — which is
     /// what happened to every chapter read through the reader rather than the download
     /// screen.
-    public func saveChapter(_ content: ChapterContent, for aid: Int) {
+    /// Stores one chapter's file.
+    ///
+    /// - Parameter awaitingPictures: true when the chapter holds picture addresses whose bytes
+    ///   have not arrived yet. Such a chapter is not a usable offline copy, so it is marked
+    ///   pending rather than stored, and the badge does not claim otherwise.
+    public func saveChapter(
+        _ content: ChapterContent,
+        for aid: Int,
+        awaitingPictures: Bool = false
+    ) {
         try? fileManager.createDirectory(at: chaptersDirectory(for: aid), withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(content) else { return }
         try? data.write(to: chapterURL(for: aid, cid: content.chapterID), options: .atomic)
 
         guard var entry = entry(for: aid) else { return }
-        guard entry.storedChapterIDs.insert(content.chapterID).inserted else { return }
+        if awaitingPictures {
+            var pending = entry.pendingPictureIDs ?? []
+            guard pending.insert(content.chapterID).inserted else { return }
+            entry.pendingPictureIDs = pending
+            entry.storedChapterIDs.remove(content.chapterID)
+        } else {
+            guard entry.storedChapterIDs.insert(content.chapterID).inserted else { return }
+            var pending = entry.pendingPictureIDs ?? []
+            pending.remove(content.chapterID)
+            entry.pendingPictureIDs = pending
+        }
+        entry.updatedAt = Date()
+        saveManifest(entry)
+    }
+
+    /// Moves a chapter from pending to stored once its pictures are on disk.
+    public func markPicturesStored(for aid: Int, cid: Int) {
+        guard var entry = entry(for: aid) else { return }
+        var pending = entry.pendingPictureIDs ?? []
+        guard pending.remove(cid) != nil else { return }
+        entry.pendingPictureIDs = pending
+        entry.storedChapterIDs.insert(cid)
         entry.updatedAt = Date()
         saveManifest(entry)
     }

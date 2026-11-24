@@ -254,6 +254,7 @@ struct NovelDetailView: View {
         .task {
             if let entry = await OfflineStore.shared.entry(for: novelID) {
                 cachedChapterIDs = entry.storedChapterIDs
+                pendingPictureIDs = entry.pendingPictureIDs ?? []
             }
             await loadPalette()
             await model.load(novelID: novelID)
@@ -360,6 +361,7 @@ struct NovelDetailView: View {
         let entry = await OfflineStore.shared.entry(for: novelID)
         offlineEntry = entry
         cachedChapterIDs = entry?.storedChapterIDs ?? []
+        pendingPictureIDs = entry?.pendingPictureIDs ?? []
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
@@ -501,6 +503,13 @@ struct NovelDetailView: View {
                 .controlSize(.mini)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("正在下载")
+        } else if pendingPictureIDs.contains(chapterID) {
+            // The text is on disk and the pictures are still coming: a spinner is the honest
+            // mark, because the chapter is not readable offline yet.
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("正在下载插图")
         } else if cachedChapterIDs.contains(chapterID) {
             Image(systemName: "circle.fill")
                 .font(.caption)
@@ -676,6 +685,8 @@ struct NovelDetailView: View {
 
     /// Chapters of this book that are stored on the device.
     @State private var cachedChapterIDs = Set<Int>()
+    /// Chapters whose text is stored but whose pictures are still arriving.
+    @State private var pendingPictureIDs = Set<Int>()
 
     /// Whether this book is on the shelf, checking the account as well.
     ///
