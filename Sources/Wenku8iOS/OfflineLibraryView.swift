@@ -468,11 +468,10 @@ struct StoredBookRow: View {
                     if isSelecting {
                         tick(isOn: isPicked(volume))
                     }
+                    // No extra lead: the book's title starts a cover-width in, and the
+                    // disclosure has already indented this block by that same amount — adding
+                    // more put the volume titles past the title they should line up with.
                     volumeRow(volume)
-                        // The negative indent that lines the titles up with the book title is
-                        // applied here rather than to the whole block, so the tick above keeps
-                        // its place inside the panel.
-                        .padding(.leading, -Self.disclosureIndent)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
