@@ -319,6 +319,10 @@ struct StoredBookRow: View {
     /// Owned by the row, so a pass over the list cannot reset it.
     @State private var isExpanded = false
 
+    /// The indent a disclosure adds to its content, cancelled so volume titles align with the
+    /// book title rather than starting under the chevron.
+    static let disclosureIndent: CGFloat = 18
+
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             ForEach(stored) { volume in
@@ -332,6 +336,10 @@ struct StoredBookRow: View {
                         }
                     }
             }
+            // A disclosure indents its content to line up under the label's chevron, which put
+            // the volume titles well to the right of the book title above them. Pulling the
+            // block back by that indent lines the two up.
+            .padding(.leading, -Self.disclosureIndent)
         } label: {
             header(live)
         }
