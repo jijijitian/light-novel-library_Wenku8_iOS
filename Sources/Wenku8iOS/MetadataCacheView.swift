@@ -258,24 +258,24 @@ struct MetadataCacheView: View {
                 if isSelecting {
                     selectionMark(for: entry, deletable: deletable)
                 }
-                Button {
-                    // Picking replaces opening: the row is a choice, not a link, while the
-                    // list is being picked from.
-                    if isSelecting {
-                        guard deletable else { return }
-                        if pickedBooks.contains(entry.novelID) {
-                            pickedBooks.remove(entry.novelID)
-                        } else {
-                            pickedBooks.insert(entry.novelID)
+                rowLabel(entry)
+                    .contentShape(Rectangle())
+                    // Tapping the label opens the book; the disclosure's own chevron is the
+                    // separate control that opens the panel. A button spanning the whole label
+                    // used to swallow the chevron, so the panel could not be opened at all.
+                    .onTapGesture {
+                        guard !isSelecting else {
+                            if deletable {
+                                if pickedBooks.contains(entry.novelID) {
+                                    pickedBooks.remove(entry.novelID)
+                                } else {
+                                    pickedBooks.insert(entry.novelID)
+                                }
+                            }
+                            return
                         }
-                    } else {
                         router.open(.novel(entry.novelID))
                     }
-                } label: {
-                    rowLabel(entry)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
             // The label must claim the row's whole width, or the disclosure has nothing to
             // put the content under and lays it out beside it instead.
@@ -286,6 +286,10 @@ struct MetadataCacheView: View {
         }
     }
 
+    /// The tick shown at a row's leading edge while picking.
+    ///
+    /// A group whose entries cannot be deleted keeps a faint tick rather than none: the column
+    /// stays aligned, and the fade says "not this one" without hiding it.
     private func rowLabel(_ entry: OfflineStore.Entry) -> some View {
         HStack(spacing: 12) {
             // The stored file, not the remote URL: this screen is about what is held

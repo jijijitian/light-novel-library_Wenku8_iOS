@@ -32,11 +32,24 @@ struct Panel<Content: View>: View {
     }
 }
 
+/// The vertical room a panel row takes.
+///
+/// One number for the whole app: 52 rather than the 44 a control needs, because these rows are
+/// read rather than just tapped, and at 44 the lists looked cramped. A screen that wants otherwise
+/// passes its own value to `PanelRow`.
+enum PanelMetrics {
+    static let rowHeight: CGFloat = 52
+}
+
 /// One row inside a `Panel`: leading label, trailing value, consistent height.
 struct PanelRow<Content: View>: View {
     @ViewBuilder var content: Content
+    /// Vertical room a row takes. One number for every row in the app, so a screen that wants
+    /// more or less says so at the call site rather than by copying the padding.
+    var minHeight: CGFloat = PanelMetrics.rowHeight
 
-    init(@ViewBuilder content: () -> Content) {
+    init(minHeight: CGFloat = PanelMetrics.rowHeight, @ViewBuilder content: () -> Content) {
+        self.minHeight = minHeight
         self.content = content()
     }
 
@@ -45,8 +58,8 @@ struct PanelRow<Content: View>: View {
             content
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 7)
-        .frame(minHeight: 44)
+        .padding(.vertical, 10)
+        .frame(minHeight: minHeight)
         // Rows sit inside links, and a link tints its whole label; naming the colour here keeps
         // the text the ordinary label colour rather than the accent.
         .foregroundStyle(.primary)
