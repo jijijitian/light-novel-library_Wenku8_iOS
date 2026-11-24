@@ -21,3 +21,6 @@ DerivedData/
 
 # Relay v2 reverse-engineering scratch (oracle already emulates the real library)
 /work/tools/mewx/__pycache__
+
+# Local working notes — kept on this machine only, never pushed.
+/notes
