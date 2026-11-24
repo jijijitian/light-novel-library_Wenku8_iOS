@@ -2,6 +2,18 @@
 
 每个版本面向使用者的变化。安装包见 [Releases](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/releases)。
 
+## 1.6.4
+
+**变更**
+
+- 账号页支持下拉刷新
+
+**修复**
+
+- 修复暂停下载后插图章节显示已缓存却一直加载
+- 修复元数据缓存的大小一直显示为 Zero KB
+- 修复账号页头像与卡片边缘贴合
+
 ## 1.6.3
 
 **变更**
