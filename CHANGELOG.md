@@ -2,6 +2,12 @@
 
 每个版本面向使用者的变化。安装包见 [Releases](https://github.com/jijijitian/light-novel-library_Wenku8_iOS/releases)。
 
+## 1.6.5
+
+**变更**
+
+- 书架支持列表与网格两种排列，可在设置中切换
+
 ## 1.6.4
 
 **变更**
