@@ -262,6 +262,8 @@ struct OfflineLibraryView: View {
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
+                        // Inside a button the title would take the accent colour.
+                        .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
                 if let author = entry.author, !author.isEmpty {
@@ -346,42 +348,56 @@ struct OfflineLibraryView: View {
     }
 
     /// The list itself, kept apart so the alert is not attached to it.
+    ///
+    /// A `List` draws its rows on the system's background, which the rest of the app hides; the
+    /// rows then read as holes rather than as the glass panels every other screen uses.
     @ViewBuilder
     private var listContent: some View {
-        List {
-            if entries.isEmpty {
-                Section {
+        ScrollView {
+            VStack(spacing: 14) {
+                if entries.isEmpty {
                     EmptyStateView(
                         symbol: "arrow.down.circle",
                         title: "还没有下载的小说",
                         message: "在小说详情页的目录里选择要下载的分卷，即可离线阅读。"
                     )
-                    .listRowBackground(Color.clear)
-                }
-            } else {
-                Section {
-                    ForEach(entries) { entry in
-                        bookRow(entry)
-                            // A long press rather than a swipe.
-                            //
-                            // Swiping draws the row aside and back, and the list re-measures
-                            // during that animation — with a row expanded, everything below it
-                            // visibly jumped. The context menu changes nothing about the row's
-                            // layout, so the delete can be armed without any movement.
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    pendingDeleteBookID = entry.novelID
-                                    pendingDeleteBookTitle = entry.title
-                                } label: {
-                                    Label("删除", systemImage: "trash")
+                    .padding(.top, 40)
+                } else {
+                    Panel {
+                        ForEach(entries) { entry in
+                            bookRow(entry)
+                                // A long press rather than a swipe.
+                                //
+                                // Swiping draws the row aside and back, and the list re-measures
+                                // during that animation — with a row expanded, everything below it
+                                // visibly jumped. The context menu changes nothing about the row's
+                                // layout, so the delete can be armed without any movement.
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        pendingDeleteBookID = entry.novelID
+                                        pendingDeleteBookTitle = entry.title
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
+                                    }
                                 }
+                            if entry.id != entries.last?.id {
+                                Divider()
                             }
+                        }
                     }
-                } footer: {
+
                     Text("共 \(entries.count) 本 · \(formatBytes(totalBytes))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
                 }
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
+        .background { AppBackground() }
     }
 
     private func refresh() async {
@@ -485,6 +501,8 @@ struct StoredBookRow: View {
             .onTapGesture {
                 if isSelecting { onPickBook() } else { onOpen() }
             }
+            // The row sits inside a link's label, and a link tints everything it contains.
+            .tint(.primary)
         }
     }
 

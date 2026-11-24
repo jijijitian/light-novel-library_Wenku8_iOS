@@ -71,6 +71,15 @@ struct SettingsView: View {
             if ProcessInfo.processInfo.environment["WENKU8_OPEN_METADATA"] != nil {
                 router.open(.metadataCache)
             }
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_PREFERENCES"] != nil {
+                router.open(.preferences)
+            }
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_PROGRESS"] != nil {
+                router.open(.readingProgress)
+            }
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_OFFLINE"] != nil {
+                router.open(.offlineLibrary)
+            }
             #endif
         }
     }

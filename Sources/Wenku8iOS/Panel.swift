@@ -19,7 +19,7 @@ struct Panel<Content: View>: View {
             if let title {
                 Text(title)
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 16)
             }
             VStack(spacing: 0) {
@@ -47,6 +47,12 @@ struct PanelRow<Content: View>: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
         .frame(minHeight: 44)
+        // Rows sit inside links, and a link tints its whole label; naming the colour here keeps
+        // the text the ordinary label colour rather than the accent.
+        .foregroundStyle(.primary)
+        // A row inside a link would otherwise take the accent colour for its text and icons;
+        // `tint` is what the link uses, so it is cleared here rather than at every call site.
+        .tint(.primary)
         .contentShape(Rectangle())
     }
 }

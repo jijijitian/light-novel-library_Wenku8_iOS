@@ -61,82 +61,76 @@ struct MetadataCacheView: View {
     }
 
     var body: some View {
-        List {
-            if entries.isEmpty {
-                Section {
+        ScrollView {
+            VStack(spacing: 14) {
+                if entries.isEmpty {
                     EmptyStateView(
                         symbol: "tray",
                         title: "还没有元数据缓存",
                         message: "书架上的书籍会自动缓存元数据，断网时也能看到书名、封面和简介。"
                     )
-                    .listRowBackground(Color.clear)
-                }
-            } else {
-                ForEach(Kind.allCases) { kind in
-                    let items = grouped[kind] ?? []
-                    if !items.isEmpty {
-                        Section {
-                            ForEach(items) { entry in
-                                row(entry, deletable: kind.isDeletable)
-                                    // A long press rather than a swipe, matching the offline
-                                    // list. Swiping draws the row aside and the list re-measures
-                                    // during that animation, which made the rows below move.
-                                    // A menu leaves the layout alone.
-                                    .contextMenu {
-                                        if kind.isDeletable, !isSelecting {
-                                            Button(role: .destructive) {
-                                                delete(entry)
-                                            } label: {
-                                                Label("删除", systemImage: "trash")
+                    .padding(.top, 40)
+                } else {
+                    ForEach(Kind.allCases) { kind in
+                        let items = grouped[kind] ?? []
+                        if !items.isEmpty {
+                            Panel(title: kind.title) {
+                                ForEach(items) { entry in
+                                    row(entry, deletable: kind.isDeletable)
+                                        // A long press rather than a swipe, matching the
+                                        // offline list. Swiping draws the row aside and the list
+                                        // re-measures during that animation.
+                                        .contextMenu {
+                                            if kind.isDeletable, !isSelecting {
+                                                Button(role: .destructive) {
+                                                    delete(entry)
+                                                } label: {
+                                                    Label("删除", systemImage: "trash")
+                                                }
                                             }
                                         }
+                                    if entry.id != items.last?.id {
+                                        Divider()
                                     }
-                            }
-                            if kind.isDeletable, !items.isEmpty {
-                                // One entry per book is fine for a few, but clearing the
-                                // whole group should not require swiping them one by one.
-                                Button(role: .destructive) {
-                                    pendingClearAll = true
-                                } label: {
-                                    Label("清除全部", systemImage: "trash")
+                                }
+                                if kind.isDeletable, !items.isEmpty {
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        pendingClearAll = true
+                                    } label: {
+                                        PanelRow {
+                                            Label("清除全部", systemImage: "trash")
+                                            Spacer(minLength: 0)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
-                        } header: {
-                            Text(kind.title)
-                        } footer: {
+
                             if !kind.isDeletable {
                                 Text(kind == .shelf
                                     ? "书架上的书会保留元数据，以便离线查看。"
                                     : "已下载书籍的元数据随书籍保留。")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 16)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
-                }
-                Section {
-                    EmptyView()
-                } footer: {
+
                     Text("共 \(entries.count) 本 · \(totalLabel)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
                 }
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
-        .safeAreaInset(edge: .bottom) {
-            if let undoEntry {
-                HStack(spacing: 12) {
-                    Text("已删除「\(undoEntry.title)」")
-                        .font(.footnote)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Button("撤销") { undoDelete() }
-                        .font(.footnote.weight(.semibold))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .background { AppBackground() }
         .navigationTitle(isSelecting ? "已选 \(pickedBooks.count) 本" : "元数据缓存")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -286,6 +280,9 @@ struct MetadataCacheView: View {
             // The label must claim the row's whole width, or the disclosure has nothing to
             // put the content under and lays it out beside it instead.
             .frame(maxWidth: .infinity, alignment: .leading)
+            // A disclosure sits inside a link here, and a link tints everything it contains —
+            // this keeps the row's text in the ordinary label colour.
+            .tint(.primary)
         }
     }
 
@@ -305,6 +302,9 @@ struct MetadataCacheView: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    // The row is a button, and a button tints its label; the title reads as
+                    // ordinary text rather than as something tappable.
+                    .foregroundStyle(.primary)
                 if let author = entry.author, !author.isEmpty {
                     Text(author)
                         .font(.caption)
