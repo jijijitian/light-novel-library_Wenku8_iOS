@@ -501,16 +501,19 @@ struct StoredBookRow: View {
                     // The cache rows share one height with the metadata list, so the two read as
                     // the same kind of thing.
                     .frame(minHeight: PanelMetrics.coverRowHeight, alignment: .leading)
+                    // The gesture sits on the content, as it does on the metadata row. On the
+                    // enclosing `HStack` it competed with the stack's own layout and the tap
+                    // only landed on part of the row.
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isSelecting { onPickBook() } else { onOpen() }
+                    }
             }
             // Wide, but short of the trailing edge: the disclosure draws its chevron there, and
             // a label reaching it swallowed the tap — the arrow opened the book instead of the
             // volume list.
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.trailing, Self.chevronHitWidth)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if isSelecting { onPickBook() } else { onOpen() }
-            }
             // The row sits inside a link's label, and a link tints everything it contains.
             .tint(.primary)
         }
