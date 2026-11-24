@@ -106,6 +106,13 @@ public final class OfflineDownloadManager: ObservableObject {
     /// re-read what was stored and kept showing the chapters as uncached.
     @Published public private(set) var catalogueRevision = 0
 
+    /// The volume being fetched right now, for books that are downloaded a volume at a time.
+    ///
+    /// A delisted book arrives as one pack per volume, so every chapter of that volume is
+    /// fetched at once. Naming only the current chapter made the rest look untouched while
+    /// they were already on their way.
+    @Published public private(set) var downloadingVolumeChapterIDs: Set<Int> = []
+
     /// Tells the catalogue that what is stored has changed.
     public func noteStorageChanged() {
         catalogueRevision &+= 1
@@ -278,6 +285,8 @@ public final class OfflineDownloadManager: ObservableObject {
             // asked for and the rest arrive with it.
             progress?.currentChapterTitle = pending[0].title
             progress?.currentChapterID = pending[0].id
+            // The whole volume is in flight, so every one of its chapters is marked.
+            downloadingVolumeChapterIDs = Set(volume.chapters.map(\.id))
 
             var fetched = false
             for attempt in 0..<2 where !fetched {
@@ -295,6 +304,7 @@ public final class OfflineDownloadManager: ObservableObject {
             }
             guard fetched else { continue }
 
+            downloadingVolumeChapterIDs = []
             // The volume wrote its own chapters; read back what it stored so the count reflects
             // reality rather than an assumption.
             if let refreshed = await store.entry(for: aid) { entry = refreshed }

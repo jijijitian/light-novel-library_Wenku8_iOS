@@ -454,22 +454,25 @@ struct NovelDetailView: View {
     @ViewBuilder
     private func volumeStatusIcon(_ volume: Volume) -> some View {
         let ids = Set(volume.chapters.map(\.id))
-        let downloading = !isAutomaticFetch && (downloadingChapterID.map { ids.contains($0) } ?? false)
+        let downloading = !isAutomaticFetch
+            && (downloadingChapterID.map { ids.contains($0) } ?? false
+                || !downloadManager.downloadingVolumeChapterIDs.isDisjoint(with: ids))
         let stored = volume.chapters.filter { cachedChapterIDs.contains($0.id) }.count
         if downloading {
             ProgressView()
                 .controlSize(.mini)
+                .scaleEffect(0.82)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("正在下载")
         } else if stored > 0 && stored == volume.chapters.count {
             Image(systemName: "circle.fill")
-                .font(.caption)
+                .font(.system(size: 9))
                 .foregroundStyle(.quaternary)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("已下载")
         } else if stored > 0 {
             Image(systemName: "circle.lefthalf.filled")
-                .font(.caption)
+                .font(.system(size: 9))
                 .foregroundStyle(.secondary)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("部分下载")
@@ -502,37 +505,43 @@ struct NovelDetailView: View {
 
     /// Leading status for a chapter row.
     @ViewBuilder
+    /// The mark in front of a chapter.
+    ///
+    /// Every state occupies the same box and is centred inside it. A `ProgressView` sizes itself
+    /// smaller than the circles and sits off-centre, which made a spinning row look indented
+    /// compared with its neighbours.
     private func chapterStatusIcon(_ chapterID: Int) -> some View {
-        // Only a queued download turns a chapter's tick into a spinner. A volume being fetched
-        // because it is being read is not a download of that chapter, and showing it as one
-        // made the tick spin and then settle every time the chapter was opened.
-        if downloadingChapterID == chapterID, !isAutomaticFetch {
-            ProgressView()
-                .controlSize(.mini)
-                .frame(width: 16, height: 16)
-                .accessibilityLabel("正在下载")
-        } else if pendingPictureIDs.contains(chapterID) {
-            // The text is on disk and the pictures are still coming: a spinner is the honest
-            // mark, because the chapter is not readable offline yet.
-            ProgressView()
-                .controlSize(.mini)
-                .frame(width: 16, height: 16)
-                .accessibilityLabel("正在下载插图")
-        } else if cachedChapterIDs.contains(chapterID) {
-            Image(systemName: "circle.fill")
-                .font(.caption)
-                .foregroundStyle(.quaternary)
-                .frame(width: 16, height: 16)
-                .accessibilityLabel("已下载")
-        } else {
-            // Chapters always report: "this one is not stored" is the question the list
-            // answers row by row, whether or not the book has any download at all.
-            Image(systemName: "circle")
-                .font(.caption)
-                .foregroundStyle(.quaternary)
-                .frame(width: 16, height: 16)
-                .accessibilityLabel("未下载")
+        Group {
+            if downloadManager.downloadingVolumeChapterIDs.contains(chapterID)
+                || (downloadingChapterID == chapterID && !isAutomaticFetch) {
+                // A whole volume arrives at once, so all of its chapters spin together rather
+                // than one at a time as the loop reaches them.
+                ProgressView()
+                    .controlSize(.mini)
+                    .scaleEffect(0.82)
+                    .accessibilityLabel("正在下载")
+            } else if pendingPictureIDs.contains(chapterID) {
+                // The text is on disk and the pictures are still coming: a spinner is the honest
+                // mark, because the chapter is not readable offline yet.
+                ProgressView()
+                    .controlSize(.mini)
+                    .scaleEffect(0.82)
+                    .accessibilityLabel("正在下载插图")
+            } else if cachedChapterIDs.contains(chapterID) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
+                    .accessibilityLabel("已下载")
+            } else {
+                // Chapters always report: "this one is not stored" is the question the list
+                // answers row by row, whether or not the book has any download at all.
+                Image(systemName: "circle")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.quaternary)
+                    .accessibilityLabel("未下载")
+            }
         }
+        .frame(width: 16, height: 16)
     }
 
     /// Entry to this book's review list.
@@ -625,28 +634,37 @@ struct NovelDetailView: View {
                             Button {
                                 openChapter(volume: volume, index: index)
                             } label: {
-                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                // Centred rather than baseline-aligned: a `ProgressView` has no
+                                // text baseline, so it aligned to the bottom of the row while the
+                                // circles aligned to the text, and the spinner sat low.
+                                HStack(alignment: .center, spacing: 6) {
                                     // Status leads the row: a spinner while this chapter is
                                     // being fetched, a download mark once it is on disk, and
                                     // an empty circle when it is not. Reading position stays
                                     // at the trailing edge so the two never compete.
                                     chapterStatusIcon(chapter.id)
-                                    // The number separates chapters at a glance and gives the
-                                    // list a left edge to read down; the title stays the only
-                                    // thing at full weight.
-                                    Text("\(index + 1)")
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                        .frame(minWidth: 18, alignment: .trailing)
-                                    Text(chapter.title)
-                                        .font(.footnote)
-                                        .multilineTextAlignment(.leading)
-                                        .lineLimit(2)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    if store.progress(for: novelID)?.chapterID == chapter.id {
-                                        Image(systemName: "bookmark.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.tint)
+                                    // The text keeps its own baseline alignment: with the mark
+                                    // centred in the row, the number and the title must still
+                                    // sit on one line, or the number drifts off the first line
+                                    // of a two-line title.
+                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                        // The number separates chapters at a glance and gives the
+                                        // list a left edge to read down; the title stays the only
+                                        // thing at full weight.
+                                        Text("\(index + 1)")
+                                            .font(.caption2.monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                            .frame(minWidth: 18, alignment: .trailing)
+                                        Text(chapter.title)
+                                            .font(.footnote)
+                                            .multilineTextAlignment(.leading)
+                                            .lineLimit(2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        if store.progress(for: novelID)?.chapterID == chapter.id {
+                                            Image(systemName: "bookmark.fill")
+                                                .font(.caption2)
+                                                .foregroundStyle(.tint)
+                                        }
                                     }
                                 }
                                 .padding(.vertical, 9)
