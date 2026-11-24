@@ -637,7 +637,7 @@ struct NovelDetailView: View {
                                 // Centred rather than baseline-aligned: a `ProgressView` has no
                                 // text baseline, so it aligned to the bottom of the row while the
                                 // circles aligned to the text, and the spinner sat low.
-                                HStack(alignment: .center, spacing: 6) {
+                                HStack(alignment: .center, spacing: 3) {
                                     // Status leads the row: a spinner while this chapter is
                                     // being fetched, a download mark once it is on disk, and
                                     // an empty circle when it is not. Reading position stays
@@ -683,12 +683,17 @@ struct NovelDetailView: View {
                     }
                     .padding(.top, 4)
                 } label: {
-                    HStack(spacing: 8) {
+                    HStack(alignment: .center, spacing: 3) {
                         // The volume carries its own state, so a collapsed volume still
                         // shows whether it is being fetched, stored, or neither.
                         volumeStatusIcon(volume)
+                        // A long volume title wraps, and a `Text` centres its second line by
+                        // default — the wrapped title looked indented against every chapter
+                        // below it.
                         Text(volume.title)
                             .font(.subheadline.weight(.semibold))
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .tint(.primary)
