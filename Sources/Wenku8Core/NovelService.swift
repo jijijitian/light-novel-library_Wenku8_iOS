@@ -691,6 +691,11 @@ public struct NovelService: Sendable {
             let target = start + offset
             guard target < volume.chapters.count else { break }
             let link = volume.chapters[target]
+            // The pack carries no pictures, so an illustration chapter would be stored as an
+            // empty page and marked as cached — and the empty copy would then win over the
+            // fetch that can actually fill it. It is left unstored, so opening it goes to the
+            // illustration service.
+            if isIllustrationEntry(link.title), chapter.paragraphs.isEmpty { continue }
             let content = ChapterContent(
                 novelID: aid,
                 chapterID: link.id,
@@ -808,6 +813,20 @@ public struct NovelService: Sendable {
                 await offline.saveChapter(restricted, for: aid)
                 return restricted
             }
+            // An illustration chapter of a delisted book has no text at all: the site removed
+            // the page, and the volume pack stops before it. The addresses are fetched from
+            // the illustration service instead, which is what the reader shows.
+            if let images = try? await illustrationServiceImages(aid: aid, cid: cid),
+               !images.isEmpty {
+                let content = ChapterContent(
+                    novelID: aid,
+                    chapterID: cid,
+                    title: await illustrationTitle(aid: aid, cid: cid) ?? "插图",
+                    blocks: images.map { .image($0) }
+                )
+                await offline.saveChapter(content, for: aid)
+                return content
+            }
             throw Wenku8Error.unavailable("这一章暂时无法获取，请稍后重试。")
         }
         var pages: [ChapterContent] = []
@@ -856,6 +875,45 @@ public struct NovelService: Sendable {
             throw Wenku8Error.unavailable("该章节没有可显示的正文")
         }
         return ChapterContent(novelID: aid, chapterID: cid, title: title, blocks: blocks)
+    }
+
+    /// Illustration addresses for a chapter the site no longer serves.
+    ///
+    /// A delisted book loses every reading page, so its illustration chapter cannot be read from
+    /// either the volume pack or the desktop page. The addresses are still held by the relay, and
+    /// a small service fronting it caches them per chapter; this asks that service.
+    ///
+    /// - Returns: the picture addresses, or `nil` when the service cannot be reached. An empty
+    ///   array means the chapter has no pictures, which is a real answer.
+    private func illustrationServiceImages(aid: Int, cid: Int) async throws -> [URL]? {
+        guard let base = IllustrationService.baseURL else { return nil }
+        var components = URLComponents(url: base.appendingPathComponent("illust"),
+                                       resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "aid", value: String(aid)),
+            URLQueryItem(name: "cid", value: String(cid)),
+            // The assembled form: the reader shows these directly, and the payload is a few
+            // hundred bytes either way.
+            URLQueryItem(name: "format", value: "url"),
+        ]
+        guard let url = components?.url else { return nil }
+        let response = try await client.get(url, timeout: 20)
+        guard response.status == 200,
+              let payload = try? JSONDecoder().decode(IllustrationReply.self, from: response.data)
+        else { return nil }
+        return payload.images.compactMap { URL(string: $0) }
+    }
+
+    /// Whether a chapter is an illustration by its catalogue title.
+    private func isIllustrationEntry(_ title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        return trimmed == "插图" || trimmed == "彩页" || trimmed.hasSuffix("插图")
+    }
+
+    /// The catalogue's title for a chapter, so the reader's heading matches the list.
+    private func illustrationTitle(aid: Int, cid: Int) async -> String? {
+        guard let volumes = await offline.cachedVolumes(for: aid) else { return nil }
+        return volumes.flatMap(\.chapters).first { $0.id == cid }?.title
     }
 
     /// The illustrations on a chapter's desktop page.
