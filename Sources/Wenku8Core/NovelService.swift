@@ -613,6 +613,17 @@ public struct NovelService: Sendable {
     /// could be stored one place out — every chapter holding its neighbour's text. Those files
     /// looked cached and were never replaced. Comparing the title catches them, and a mismatch
     /// sends the chapter back through the fetch that writes it correctly.
+    /// Whether every picture a chapter refers to is on disk.
+    ///
+    /// A chapter stored from the illustration service holds addresses; the bytes are written
+    /// alongside it. A copy whose pictures are missing would render as empty boxes offline.
+    private func picturesAreStored(_ content: ChapterContent, aid: Int) async -> Bool {
+        for case let .image(url) in content.blocks {
+            if await offline.imageURL(for: aid, remote: url) == nil { return false }
+        }
+        return true
+    }
+
     /// An empty cached chapter of a delisted book is not a usable answer.
     ///
     /// The volume pack carries no pictures, so an illustration chapter used to be stored as an
@@ -672,14 +683,16 @@ public struct NovelService: Sendable {
     /// the chapter whose id was requested, and the catalogue lists that volume's chapters in
     /// the same order.
     private func restrictedChapter(aid: Int, cid: Int) async throws -> ChapterContent? {
-        guard let text = try await chapterPack(aid: aid, cid: cid) else { return nil }
-
-        // The volume this chapter belongs to, from the stored catalogue.
         let volumes = await offline.cachedVolumes(for: aid) ?? []
+
+        // The pack is addressed by the volume's own id, which the catalogue row carries. An
+        // illustration chapter has no pack of its own — the volume download stops before it —
+        // so asking for it by chapter id returned nothing, and opening the illustration first
+        // left the whole volume unfilled.
         guard let volume = volumes.first(where: { $0.chapters.contains(where: { $0.id == cid }) }),
-              let start = volume.chapters.firstIndex(where: { $0.id == cid })
-        else {
-            // No catalogue: fall back to the single chapter the pack starts with.
+              let vid = Int(volume.id) else {
+            // No catalogue: the chapter id is all there is, so use it.
+            guard let text = try await chapterPack(aid: aid, cid: cid) else { return nil }
             guard let single = TextPackParser.singleChapter(text) else { return nil }
             let content = ChapterContent(
                 novelID: aid, chapterID: cid, title: single.title,
@@ -689,6 +702,13 @@ public struct NovelService: Sendable {
             return content
         }
 
+        guard let text = try await chapterPack(aid: aid, cid: vid) else { return nil }
+
+        // The pack was addressed by the volume's id, so it begins at the volume's first
+        // chapter — regardless of which chapter was asked for.
+        guard volume.chapters.contains(where: { $0.id == cid }) else { return nil }
+        let start = 0
+
         let parsed = TextPackParser.parse(text, volumeName: volume.title)
         let chapters = parsed?.chapters ?? []
         var requested: ChapterContent?
@@ -696,17 +716,40 @@ public struct NovelService: Sendable {
             let target = start + offset
             guard target < volume.chapters.count else { break }
             let link = volume.chapters[target]
-            // The pack carries no pictures, so an illustration chapter would be stored as an
-            // empty page and marked as cached — and the empty copy would then win over the
-            // fetch that can actually fill it. It is left unstored, so opening it goes to the
-            // illustration service.
-            if isIllustrationEntry(link.title), chapter.paragraphs.isEmpty { continue }
-            let content = ChapterContent(
-                novelID: aid,
-                chapterID: link.id,
-                title: chapter.title,
-                blocks: chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
-            )
+            let content: ChapterContent
+            if isIllustrationEntry(link.title), chapter.paragraphs.isEmpty {
+                // The pack carries no pictures, so this chapter's blocks come from the
+                // illustration service. Fetching it here means the whole volume is stored by
+                // one pass, pictures included, instead of leaving a hole the reader fills on
+                // first open.
+                if let images = try? await illustrationServiceImages(aid: aid, cid: link.id),
+                   !images.isEmpty {
+                    content = ChapterContent(
+                        novelID: aid,
+                        chapterID: link.id,
+                        title: link.title,
+                        blocks: images.map { .image($0) }
+                    )
+                    // Store the pictures too: a chapter whose blocks point at addresses that
+                    // were never fetched still needs the network to display.
+                    for url in images {
+                        if let data = try? await client.imageData(url) {
+                            await offline.saveImage(data, for: aid, remote: url)
+                        }
+                    }
+                } else {
+                    // The service could not answer: leave it unstored rather than caching a
+                    // blank page, so opening it retries.
+                    continue
+                }
+            } else {
+                content = ChapterContent(
+                    novelID: aid,
+                    chapterID: link.id,
+                    title: chapter.title,
+                    blocks: chapter.paragraphs.map { ChapterContent.Block.paragraph($0) }
+                )
+            }
             await offline.saveChapter(content, for: aid)
             if link.id == cid { requested = content }
         }
@@ -806,7 +849,12 @@ public struct NovelService: Sendable {
         // A downloaded chapter always wins, which is what makes offline reading
         // work at all.
         if let cached = await offline.chapter(aid, cid: cid) {
-            let matches = await cacheMatchesCatalogue(cached, aid: aid, cid: cid)
+            // A chapter whose pictures were never fetched still needs the network to display,
+            // so it counts as stored only when every one of them is on disk.
+            var matches = await picturesAreStored(cached, aid: aid)
+            if matches {
+                matches = await cacheMatchesCatalogue(cached, aid: aid, cid: cid)
+            }
             // An empty chapter of a delisted book came from a build that stored the pack's
             // illustration placeholder; it holds nothing, so it is not an answer.
             var emptyForDelisted = false
@@ -814,6 +862,22 @@ public struct NovelService: Sendable {
                 emptyForDelisted = await isDelistedBook(aid: aid)
             }
             if matches, !emptyForDelisted { return cached }
+
+            // The chapter itself is fine; only its pictures are missing. Fetching just those
+            // is cheaper than rebuilding the chapter, and it repairs a copy stored before
+            // pictures were written alongside it.
+            if !cached.blocks.isEmpty, !matches, await cacheMatchesCatalogue(cached, aid: aid, cid: cid) {
+                var stored = true
+                for case let .image(url) in cached.blocks {
+                    if await offline.imageURL(for: aid, remote: url) != nil { continue }
+                    if let data = try? await client.imageData(url) {
+                        await offline.saveImage(data, for: aid, remote: url)
+                    } else {
+                        stored = false
+                    }
+                }
+                if stored { return cached }
+            }
         }
         // The pack path is for delisted books only. Trying it first for everyone cost an
         // extra request per chapter, and — worse — when it happened to succeed the WAP path

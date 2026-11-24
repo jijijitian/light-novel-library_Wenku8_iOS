@@ -178,6 +178,15 @@ public final class Wenku8Client: @unchecked Sendable {
         }
     }
 
+    /// Fetches an image, which needs no referer and no HTML accept header.
+    public func imageData(_ url: URL, timeout: TimeInterval = 30) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
+    }
+
     public func get(
         _ url: URL,
         referer: String? = nil,
