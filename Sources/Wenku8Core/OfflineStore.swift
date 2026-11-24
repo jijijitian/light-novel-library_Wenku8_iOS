@@ -99,7 +99,7 @@ public actor OfflineStore {
         public var currentTitle: String
     }
 
-    private let root: URL
+    private nonisolated let root: URL
     private let fileManager = FileManager.default
 
     public init(root: URL? = nil) {
@@ -145,6 +145,19 @@ public actor OfflineStore {
         let digest = SHA256.hash(Array(url.absoluteString.utf8))
         let hex = digest.prefix(12).map { String(format: "%02x", $0) }.joined()
         return "\(hex).img"
+    }
+
+    /// The stored copy of a picture, looked up without awaiting.
+    ///
+    /// The store is an actor, so its own lookup has to be awaited; this reads the same path from
+    /// the file system directly. The reader asks while building a view, where a nil answer sends
+    /// the picture to the network even though it is already on disk.
+    public nonisolated func storedImageURLSync(for aid: Int, remote: URL) -> URL? {
+        let path = root
+            .appendingPathComponent("\(aid)", isDirectory: true)
+            .appendingPathComponent("images", isDirectory: true)
+            .appendingPathComponent(Self.imageFileName(for: remote))
+        return FileManager.default.fileExists(atPath: path.path) ? path : nil
     }
 
     public func imageURL(for aid: Int, remote: URL) -> URL? {

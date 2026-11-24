@@ -84,6 +84,13 @@ final class ReaderViewModel: ObservableObject {
     func localImageURL(for remote: URL) -> URL? {
         let key = remote.absoluteString
         if let cached = localImages[key] { return cached }
+        // A stored copy is checked synchronously first: the lookup was asynchronous and returned
+        // nil on its first call, so a chapter whose pictures were downloaded still went to the
+        // network for them and showed a loading gap that looked like nothing was cached.
+        if let local = OfflineStore.shared.storedImageURLSync(for: novelID, remote: remote) {
+            localImages[key] = local
+            return local
+        }
         Task { [weak self] in
             guard let self else { return }
             guard let local = await OfflineStore.shared.imageURL(for: novelID, remote: remote) else { return }
