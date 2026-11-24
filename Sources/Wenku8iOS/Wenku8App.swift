@@ -152,6 +152,19 @@ final class AppRouter: ObservableObject {
            let aid = Int(raw) {
             homePath = [.novel(aid)]
         }
+        // `WENKU8_START_DOWNLOAD=aid` starts a download on launch, so the downloader's
+        // behaviour can be checked on a device without driving the menu by hand.
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_START_DOWNLOAD"],
+           let aid = Int(raw) {
+            OfflineDownloadManager.shared.download(novelID: aid)
+        }
+        // `WENKU8_START_DOWNLOAD_VOLUME=aid:vid` downloads one volume instead of the whole book.
+        if let raw = ProcessInfo.processInfo.environment["WENKU8_START_DOWNLOAD_VOLUME"] {
+            let parts = raw.split(separator: ":")
+            if parts.count == 2, let aid = Int(parts[0]) {
+                OfflineDownloadManager.shared.download(novelID: aid, volumeIDs: [String(parts[1])])
+            }
+        }
         // `WENKU8_OPEN_TAG_CLOUD=1` opens Tags云集 directly.
         if ProcessInfo.processInfo.environment["WENKU8_OPEN_TAG_CLOUD"] != nil {
             rankPath = [.tagCloud]

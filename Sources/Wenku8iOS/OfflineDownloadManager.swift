@@ -178,8 +178,24 @@ public final class OfflineDownloadManager: ObservableObject {
                 currentChapterID: missing.first?.id
             )
 
-            // Every chapter is addressable on its own, delisted books included, so this is
-            // the only path: one request per chapter, no volume grouping.
+            // A delisted book is fetched a whole volume at a time: the pack endpoint answers
+            // with an entire volume, and one chapter's fetch stores all of its siblings. Asking
+            // per chapter would then read the same volume from disk once per chapter, so the
+            // loop below goes volume by volume for these books.
+            if await service.isRestricted(aid) {
+                await downloadDelisted(
+                    aid: aid,
+                    volumes: selected,
+                    chapters: chapters,
+                    entry: &entry
+                )
+                entry.bytes = await store.usedBytes(for: aid)
+                entry.updatedAt = Date()
+                await store.saveManifest(entry)
+                progress = nil
+                return
+            }
+
             for chapter in missing {
                 if Task.isCancelled { break }
                 progress?.currentChapterTitle = chapter.title
@@ -226,6 +242,51 @@ public final class OfflineDownloadManager: ObservableObject {
             lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             progress = nil
             startingNovelID = nil
+        }
+    }
+
+    /// Downloads a delisted book one volume at a time.
+    ///
+    /// The pack endpoint hands back an entire volume, and the chapter fetch that reads it stores
+    /// every chapter of that volume on the way through — pictures included. One request per
+    /// volume is therefore enough, and asking again for each of its chapters only re-reads what
+    /// was just written.
+    private func downloadDelisted(
+        aid: Int,
+        volumes: [Volume],
+        chapters: [ChapterLink],
+        entry: inout OfflineStore.Entry
+    ) async {
+        for volume in volumes {
+            if Task.isCancelled { break }
+            let pending = volume.chapters.filter { !entry.storedChapterIDs.contains($0.id) }
+            guard !pending.isEmpty else { continue }
+
+            // Any chapter of the volume fetches the whole of it, so the first pending one is
+            // asked for and the rest arrive with it.
+            progress?.currentChapterTitle = pending[0].title
+            progress?.currentChapterID = pending[0].id
+
+            var fetched = false
+            for attempt in 0..<2 where !fetched {
+                do {
+                    _ = try await service.chapter(aid: aid, cid: pending[0].id)
+                    fetched = true
+                } catch {
+                    if attempt == 1 {
+                        lastError = (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                    } else {
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                    }
+                }
+            }
+            guard fetched else { continue }
+
+            // The volume wrote its own chapters; read back what it stored so the count reflects
+            // reality rather than an assumption.
+            if let refreshed = await store.entry(for: aid) { entry = refreshed }
+            progress?.completed = chapters.filter { entry.storedChapterIDs.contains($0.id) }.count
         }
     }
 
