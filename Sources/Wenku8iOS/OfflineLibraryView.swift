@@ -489,8 +489,10 @@ struct StoredBookRow: View {
             }
             // A disclosure indents its content to line up under the label's chevron, which put
             // the volume titles well to the right of the book title above them. Pulling the
-            // block back by that indent lines the two up.
+            // block back by that indent lines the two up, and the vertical padding keeps the
+            // volumes off the rows above and below them.
             .padding(.leading, -Self.disclosureIndent)
+            .padding(.vertical, 10)
         } label: {
             HStack(spacing: 8) {
                 // Picking the book takes every stored volume it has; picking all of them by

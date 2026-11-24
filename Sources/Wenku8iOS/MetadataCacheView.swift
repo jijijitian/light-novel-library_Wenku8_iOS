@@ -254,6 +254,9 @@ struct MetadataCacheView: View {
             }
         )) {
             cachedDetail(for: entry)
+                // Room above and below: the panel's own padding is cancelled by the disclosure's
+                // inset, so without this the detail ran into the rows on either side.
+                .padding(.vertical, 10)
         } label: {
             HStack(spacing: 8) {
                 // The tick belongs to the label, not to the whole row: an overlay over the row
