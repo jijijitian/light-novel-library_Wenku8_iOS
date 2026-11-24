@@ -174,6 +174,10 @@ final class AppRouter: ObservableObject {
         if ProcessInfo.processInfo.environment["WENKU8_OPEN_RANK_BOARDS"] != nil {
             rankPath = [.rankBoards]
         }
+        // `WENKU8_OPEN_LIBRARY_BROWSE=1` opens 按文库浏览 directly.
+        if ProcessInfo.processInfo.environment["WENKU8_OPEN_LIBRARY_BROWSE"] != nil {
+            rankPath = [.libraryBrowse]
+        }
         // `WENKU8_OPEN_HEAT=1` opens the heat ranking directly.
         if ProcessInfo.processInfo.environment["WENKU8_OPEN_HEAT"] != nil {
             rankPath = [.heatRank]
