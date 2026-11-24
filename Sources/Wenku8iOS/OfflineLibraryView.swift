@@ -463,10 +463,16 @@ struct StoredBookRow: View {
             ForEach(stored) { volume in
                 HStack(spacing: 8) {
                     // A volume is a choice of its own while picking, so it gets its own tick.
+                    // The tick sits outside the block that is pulled back below, or that pull
+                    // would carry it past the panel's edge.
                     if isSelecting {
                         tick(isOn: isPicked(volume))
                     }
                     volumeRow(volume)
+                        // The negative indent that lines the titles up with the book title is
+                        // applied here rather than to the whole block, so the tick above keeps
+                        // its place inside the panel.
+                        .padding(.leading, -Self.disclosureIndent)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -484,11 +490,7 @@ struct StoredBookRow: View {
                     }
                 }
             }
-            // A disclosure indents its content to line up under the label's chevron, which put
-            // the volume titles well to the right of the book title above them. Pulling the
-            // block back by that indent lines the two up, and the vertical padding keeps the
-            // volumes off the rows above and below them.
-            .padding(.leading, -Self.disclosureIndent)
+            // The vertical padding keeps the volumes off the rows above and below them.
             .padding(.vertical, 10)
         } label: {
             HStack(spacing: 8) {
