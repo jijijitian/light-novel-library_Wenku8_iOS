@@ -6,7 +6,7 @@ has no page to read the image URLs from. The relay still returns them, and the i
 the same one the website uses, so the list is fetched once per chapter and stored under the
 chapter id.
 
-  GET /illust?aid=<aid>&cid=<cid>
+  GET /illust?cid=<cid>[&aid=<aid>]
 
 A chapter with no pictures answers with an empty list, which is a valid and permanent answer —
 the reply is stored either way, so a chapter is asked of the relay at most once.
@@ -54,7 +54,6 @@ def db():
         conn.execute(
             "CREATE TABLE IF NOT EXISTS illustration ("
             " cid INTEGER PRIMARY KEY,"
-            " aid INTEGER NOT NULL,"
             " paths TEXT NOT NULL,"
             " fetched_at INTEGER NOT NULL,"
             " source TEXT NOT NULL)"
@@ -99,21 +98,34 @@ def relay_chapter_images(aid, cid):
 def stored(cid):
     with _db_lock:
         row = db().execute(
-            "SELECT aid, paths FROM illustration WHERE cid = ?", (cid,)
+            "SELECT paths FROM illustration WHERE cid = ?", (cid,)
         ).fetchone()
     if row is None:
         return None
-    return {"aid": row[0], "paths": json.loads(row[1]), "cached": True}
+    return {"paths": json.loads(row[0]), "cached": True}
 
 
-def store(aid, cid, paths, source):
+def store(cid, paths, source):
     with _db_lock:
         db().execute(
-            "INSERT OR REPLACE INTO illustration (cid, aid, paths, fetched_at, source)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (cid, aid, json.dumps(paths), int(time.time()), source),
+            "INSERT OR REPLACE INTO illustration (cid, paths, fetched_at, source)"
+            " VALUES (?, ?, ?, ?)",
+            (cid, json.dumps(paths), int(time.time()), source),
         )
         db().commit()
+
+
+def book_of(paths):
+    """The book id a stored row belongs to, read from its first path.
+
+    A path is `<aid//1000>/<aid>/<cid>/<picture>.jpg`, so the second segment is the book.
+    Returns None for a chapter with no pictures, which says nothing about its book.
+    """
+    for entry in paths:
+        parts = entry.split("/")
+        if len(parts) == 4:
+            return int(parts[1])
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -141,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             self._send(502, {"error": "relay unavailable: %s" % error})
             return None
-        store(aid, cid, paths, "relay")
+        store(cid, paths, "relay")
         return {"aid": aid, "paths": paths, "cached": False}
 
     def do_GET(self):
@@ -193,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
         if hit is not None:
             self._send(200, {
                 "cid": cid,
-                "aid": hit["aid"],
+                "aid": aid if aid is not None else book_of(hit["paths"]),
                 "cached": hit["cached"],
                 "images": [IMAGE_HOST + p for p in hit["paths"]],
             })

@@ -87,17 +87,19 @@ systemctl enable --now wk8illust
 
 | 字段 | 说明 |
 | --- | --- |
-| `cid` | 章节 id |
-| `aid` | 作品 id |
+| `cid` | 章节 id，主键 |
 | `paths` | 图片路径的 JSON 数组（不含域名） |
 | `fetched_at` | 取得时间（Unix 秒） |
 | `source` | 数据来源，目前为 `relay` |
+
+作品 id 没有单独存：每条路径本身就以它开头（`<aid//1000>/<aid>/<cid>/<图片>.jpg`），
+再存一列只是重复同一个值。响应里的 `aid` 因此优先回显调用方传入的值，没传时从路径解析。
 
 查看缓存情况：
 
 ```bash
 sqlite3 /opt/wk8illust/illust.db \
-  "SELECT cid, aid, source, json_array_length(paths) AS n FROM illustration ORDER BY fetched_at DESC LIMIT 20;"
+  "SELECT cid, source, json_array_length(paths) AS n FROM illustration ORDER BY fetched_at DESC LIMIT 20;"
 ```
 
 ## 中转凭据
