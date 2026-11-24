@@ -16,11 +16,12 @@ struct SettingsView: View {
                 Panel(title: "书架") {
                     PanelRow {
                         Label("已收藏", systemImage: "books.vertical")
+                            .labelIconFrame()
                         Spacer(minLength: 0)
                         Text("\(shelfCount) 本").foregroundStyle(.secondary)
-                        // The row beside it carries a chevron; this one keeps the same trailing
-                        // gap so the two counts line up.
-                        Spacer().frame(width: 18)
+                        // The row beside it carries a chevron; this one reserves the same space
+                        // so the two counts sit in one column.
+                        ChevronSpace()
                     }
                     Divider()
                     NavigationLink {
@@ -28,6 +29,7 @@ struct SettingsView: View {
                     } label: {
                         PanelRow {
                             Label("阅读进度", systemImage: "book.pages")
+                                .labelIconFrame()
                             Spacer(minLength: 0)
                             Text("\(store.progress.count) 本").foregroundStyle(.secondary)
                             Chevron()

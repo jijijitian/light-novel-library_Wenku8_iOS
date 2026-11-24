@@ -57,5 +57,44 @@ struct Chevron: View {
         Image(systemName: "chevron.right")
             .font(.footnote.weight(.semibold))
             .foregroundStyle(.tertiary)
+            .frame(width: Self.width, alignment: .trailing)
+    }
+
+    /// The width every row reserves at its trailing edge, so a row without an indicator keeps
+    /// its value in the same column as one that has it.
+    static let width: CGFloat = 24
+}
+
+/// The space a row leaves where a link row would draw its chevron.
+///
+/// A plain row used to end at the panel's padding, which put its value a chevron's width to the
+/// right of the value above it.
+struct ChevronSpace: View {
+    var body: some View {
+        // A fixed frame on an empty view, not `Color.clear`: a clear colour has no intrinsic
+        // width of its own and collapsed to nothing inside the row's `HStack`.
+        Color.clear
+            .frame(width: Chevron.width, height: 1)
+            .layoutPriority(0)
+    }
+}
+
+extension View {
+    /// Gives a `Label`'s icon a fixed width.
+    ///
+    /// Two rows in a panel drew icons of different widths — `books.vertical` is wider than
+    /// `book.pages` — so their titles started at different points and the list looked ragged.
+    func labelIconFrame() -> some View {
+        labelStyle(FixedWidthLabelStyle())
+    }
+}
+
+private struct FixedWidthLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon
+                .frame(width: 22, alignment: .center)
+            configuration.title
+        }
     }
 }
