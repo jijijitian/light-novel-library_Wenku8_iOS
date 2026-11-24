@@ -613,6 +613,11 @@ public struct NovelService: Sendable {
     /// could be stored one place out — every chapter holding its neighbour's text. Those files
     /// looked cached and were never replaced. Comparing the title catches them, and a mismatch
     /// sends the chapter back through the fetch that writes it correctly.
+    /// An empty cached chapter of a delisted book is not a usable answer.
+    ///
+    /// The volume pack carries no pictures, so an illustration chapter used to be stored as an
+    /// empty page; those files are still on devices that ran that build. Treating one as a miss
+    /// sends it to the illustration service, which is what can actually fill it.
     private func cacheMatchesCatalogue(_ cached: ChapterContent, aid: Int, cid: Int) async -> Bool {
         guard let volumes = await offline.cachedVolumes(for: aid),
               let link = volumes.flatMap(\.chapters).first(where: { $0.id == cid })
@@ -800,9 +805,15 @@ public struct NovelService: Sendable {
     public func chapter(aid: Int, cid: Int) async throws -> ChapterContent {
         // A downloaded chapter always wins, which is what makes offline reading
         // work at all.
-        if let cached = await offline.chapter(aid, cid: cid),
-           await cacheMatchesCatalogue(cached, aid: aid, cid: cid) {
-            return cached
+        if let cached = await offline.chapter(aid, cid: cid) {
+            let matches = await cacheMatchesCatalogue(cached, aid: aid, cid: cid)
+            // An empty chapter of a delisted book came from a build that stored the pack's
+            // illustration placeholder; it holds nothing, so it is not an answer.
+            var emptyForDelisted = false
+            if cached.blocks.isEmpty {
+                emptyForDelisted = await isDelistedBook(aid: aid)
+            }
+            if matches, !emptyForDelisted { return cached }
         }
         // The pack path is for delisted books only. Trying it first for everyone cost an
         // extra request per chapter, and — worse — when it happened to succeed the WAP path
