@@ -2,6 +2,9 @@ import SwiftUI
 import Wenku8Core
 
 struct SettingsView: View {
+    /// Whether the one-per-launch shelf sync has run.
+    private static var didSyncThisLaunch = false
+
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var router: AppRouter
@@ -56,12 +59,18 @@ struct SettingsView: View {
         }
         .background { AppBackground() }
         .navigationTitle("我的")
+        // The same gesture the shelf has: the numbers above are the account's, so a pull
+        // re-reads them. Nothing here waits on the network to appear.
+        .refreshable { await refreshFromNetwork() }
         .task {
             // The identity comes from the stored copy, so it is on screen at once; the account
             // screen refreshes it. The shelf totals are restored the same way — they are what
             // the shelf screen paints from, and without them the count here read zero.
             account.loadStoredProfile()
             account.restoreCachedShelf()
+            // The shelf totals come from the cache, which is only as fresh as the last sync;
+            // one pass on arrival keeps them from being a version behind.
+            await syncShelfIfNeeded()
             #if DEBUG
             // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
             // check can be looked at without driving the UI.
@@ -87,10 +96,30 @@ struct SettingsView: View {
         }
     }
 
-    /// The header: who is signed in, and the app's own identity underneath.
+    /// Silently brings the shelf totals up to date.
     ///
-    /// The screen is the reader's page rather than a settings list, so the account leads it and
-    /// the switches follow. A signed-out reader gets a sign-in invitation in the same place.
+    /// Once per launch rather than once per visit: the shelf screen does the same, and re-syncing
+    /// every time this tab is opened made the numbers flicker for no reason.
+    private func syncShelfIfNeeded() async {
+        guard !Self.didSyncThisLaunch else { return }
+        Self.didSyncThisLaunch = true
+        await syncShelf()
+    }
+
+    /// The refresh gesture: always syncs, because pulling is a deliberate ask.
+    private func refreshFromNetwork() async {
+        account.loadStoredProfile()
+        await syncShelf()
+        if account.isSignedIn {
+            await account.refreshProfile()
+        }
+    }
+
+    private func syncShelf() async {
+        guard account.isSignedIn || !account.remoteNovels.isEmpty else { return }
+        await Task { await account.syncShelf() }.value
+    }
+
     /// How many books the shelf holds.
     ///
     /// The shelf screen shows the account's shelf once signed in, so counting only the local
