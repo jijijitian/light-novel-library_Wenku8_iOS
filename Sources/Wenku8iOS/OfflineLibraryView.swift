@@ -23,6 +23,13 @@ struct OfflineLibraryView: View {
     /// Cover files stored on this device, keyed by book.
     @State private var localCovers: [Int: URL] = [:]
 
+    /// Whether the list is being picked from rather than read.
+    @State private var isSelecting = false
+    /// Picked volumes, keyed "book:volume" so one volume of one book is one entry.
+    @State private var pickedVolumes: Set<String> = []
+    /// Confirming a multi-delete.
+    @State private var confirmingMultiDelete = false
+
     /// A volume queued for deletion, with the book it belongs to.
     struct PendingVolume: Identifiable {
         let id = UUID()
@@ -40,8 +47,41 @@ struct OfflineLibraryView: View {
         ZStack {
             listContent
         }
-        .navigationTitle("离线缓存")
+        .navigationTitle(isSelecting ? "已选 \(pickedVolumes.count) 卷" : "离线缓存")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if isSelecting {
+                    Button("完成") {
+                        isSelecting = false
+                        pickedVolumes.removeAll()
+                    }
+                } else {
+                    Menu {
+                        Button {
+                            isSelecting = true
+                            pickedVolumes.removeAll()
+                        } label: {
+                            Label("选择并删除", systemImage: "checkmark.circle")
+                        }
+                        .disabled(entries.isEmpty)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBar
+            }
+        }
+        .alert("删除选中的 \(pickedVolumes.count) 卷？", isPresented: $confirmingMultiDelete) {
+            Button("删除", role: .destructive) { deletePicked() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只删除选中分卷已下载的章节，书籍元数据保留。")
+        }
         .task { await refresh() }
         .onChange(of: manager.progress) { _, newValue in
             // Keep in step as each chapter lands, so a finished volume updates immediately
@@ -92,6 +132,45 @@ struct OfflineLibraryView: View {
         }
     }
 
+    /// The bar under the list while picking.
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            Text("\(pickedVolumes.count) 卷")
+                .font(.subheadline.weight(.medium))
+            Spacer(minLength: 0)
+            Button {
+                confirmingMultiDelete = true
+            } label: {
+                Label("删除", systemImage: "trash")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .disabled(pickedVolumes.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// Deletes the stored chapters of every picked volume.
+    private func deletePicked() {
+        let picks = pickedVolumes
+        pickedVolumes.removeAll()
+        isSelecting = false
+        Task {
+            for pick in picks {
+                let parts = pick.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, let aid = Int(parts[0]) else { continue }
+                let volumeID = String(parts[1])
+                guard let entry = entries.first(where: { $0.novelID == aid }),
+                      let volume = entry.volumes?.first(where: { $0.id == volumeID })
+                else { continue }
+                let held = Set(volume.chapters.map(\.id)).intersection(entry.storedChapterIDs)
+                _ = await OfflineStore.shared.deleteChapters(held, for: aid)
+            }
+            await refresh()
+        }
+    }
+
     private func deleteVolume() {
         guard let volume = pendingDeleteVolume else { return }
         pendingDeleteVolume = nil
@@ -136,6 +215,26 @@ struct OfflineLibraryView: View {
                     title: volume.title,
                     chapterIDs: Set(held.map(\.id))
                 )
+            },
+            isSelecting: isSelecting,
+            picked: pickedVolumes,
+            onPickBook: {
+                // Picking the book takes all of its stored volumes, or clears them when they
+                // are all picked already.
+                let keys = storedVolumes(entry).map { "\(entry.novelID):\($0.id)" }
+                if keys.allSatisfy({ pickedVolumes.contains($0) }) {
+                    pickedVolumes.subtract(keys)
+                } else {
+                    pickedVolumes.formUnion(keys)
+                }
+            },
+            onPickVolume: { volume in
+                let key = "\(entry.novelID):\(volume.id)"
+                if pickedVolumes.contains(key) {
+                    pickedVolumes.remove(key)
+                } else {
+                    pickedVolumes.insert(key)
+                }
             }
         )
     }
@@ -316,6 +415,22 @@ struct StoredBookRow: View {
     var onOpen: () -> Void
     var onDeleteVolume: (Volume) -> Void
 
+    /// Picking mode: rows select instead of opening.
+    var isSelecting: Bool = false
+    /// Every picked volume, keyed `book:volume`.
+    var picked: Set<String> = []
+    var onPickBook: () -> Void = {}
+    var onPickVolume: (Volume) -> Void = { _ in }
+
+    /// Whether every stored volume of this book is picked.
+    private var allPicked: Bool {
+        !stored.isEmpty && stored.allSatisfy { picked.contains("\(entry.novelID):\($0.id)") }
+    }
+
+    private func isPicked(_ volume: Volume) -> Bool {
+        picked.contains("\(entry.novelID):\(volume.id)")
+    }
+
     /// Owned by the row, so a pass over the list cannot reset it.
     @State private var isExpanded = false
 
@@ -326,22 +441,54 @@ struct StoredBookRow: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             ForEach(stored) { volume in
-                volumeRow(volume)
-                    // Same reason as the book rows: a menu leaves the layout alone.
-                    .contextMenu {
+                HStack(spacing: 8) {
+                    // A volume is a choice of its own while picking, so it gets its own tick.
+                    if isSelecting {
+                        tick(isOn: isPicked(volume))
+                    }
+                    volumeRow(volume)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isSelecting { onPickVolume(volume) }
+                }
+                // A menu leaves the layout alone, which is why deleting does not move the rows
+                // below it.
+                .contextMenu {
+                    if !isSelecting {
                         Button(role: .destructive) {
                             onDeleteVolume(volume)
                         } label: {
                             Label("删除本卷", systemImage: "trash")
                         }
                     }
+                }
             }
             // A disclosure indents its content to line up under the label's chevron, which put
             // the volume titles well to the right of the book title above them. Pulling the
             // block back by that indent lines the two up.
             .padding(.leading, -Self.disclosureIndent)
         } label: {
-            header(live)
+            HStack(spacing: 8) {
+                // Picking the book takes every stored volume it has; picking all of them by
+                // hand fills this in — the same rule in both directions.
+                if isSelecting {
+                    tick(isOn: allPicked)
+                }
+                header(live)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if isSelecting { onPickBook() } else { onOpen() }
+            }
         }
+    }
+
+    /// A tick in a fixed-width box, so rows do not shift as the label changes.
+    private func tick(isOn: Bool) -> some View {
+        Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+            .font(.body)
+            .foregroundStyle(isOn ? AppTheme.accent : Color.secondary)
+            .frame(width: 22)
     }
 }

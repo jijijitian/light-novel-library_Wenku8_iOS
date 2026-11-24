@@ -24,6 +24,13 @@ struct MetadataCacheView: View {
     /// Cover files stored on this device, keyed by book.
     @State private var localCovers: [Int: URL] = [:]
 
+    /// Whether the list is being picked from rather than read.
+    @State private var isSelecting = false
+    /// Picked books, by novel id.
+    @State private var pickedBooks: Set<Int> = []
+    /// Confirming a multi-delete.
+    @State private var confirmingMultiDelete = false
+
     /// Three kinds, in the order they matter to the reader.
     ///
     /// Entries the reader cannot afford to lose are not offered for deletion: a shelf book
@@ -70,13 +77,13 @@ struct MetadataCacheView: View {
                     if !items.isEmpty {
                         Section {
                             ForEach(items) { entry in
-                                row(entry)
+                                row(entry, deletable: kind.isDeletable)
                                     // A long press rather than a swipe, matching the offline
                                     // list. Swiping draws the row aside and the list re-measures
                                     // during that animation, which made the rows below move.
                                     // A menu leaves the layout alone.
                                     .contextMenu {
-                                        if kind.isDeletable {
+                                        if kind.isDeletable, !isSelecting {
                                             Button(role: .destructive) {
                                                 delete(entry)
                                             } label: {
@@ -130,8 +137,41 @@ struct MetadataCacheView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .navigationTitle("元数据缓存")
+        .navigationTitle(isSelecting ? "已选 \(pickedBooks.count) 本" : "元数据缓存")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if isSelecting {
+                    Button("完成") {
+                        isSelecting = false
+                        pickedBooks.removeAll()
+                    }
+                } else {
+                    Menu {
+                        Button {
+                            isSelecting = true
+                            pickedBooks.removeAll()
+                        } label: {
+                            Label("选择并删除", systemImage: "checkmark.circle")
+                        }
+                        .disabled((grouped[.opened] ?? []).isEmpty)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBar
+            }
+        }
+        .alert("删除选中的 \(pickedBooks.count) 本？", isPresented: $confirmingMultiDelete) {
+            Button("删除", role: .destructive) { deletePicked() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只删除这些书籍的缓存元数据。")
+        }
         .task {
             // Puts the cached shelf in memory before the rows are classified, so the list
             // is right on first sight rather than after a visit to the shelf tab.
@@ -146,6 +186,38 @@ struct MetadataCacheView: View {
         }
     }
 
+    /// The bar under the list while picking.
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            Text("\(pickedBooks.count) 本")
+                .font(.subheadline.weight(.medium))
+            Spacer(minLength: 0)
+            Button {
+                confirmingMultiDelete = true
+            } label: {
+                Label("删除", systemImage: "trash")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .disabled(pickedBooks.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// Deletes the picked books' cached metadata.
+    private func deletePicked() {
+        let picks = pickedBooks
+        pickedBooks.removeAll()
+        isSelecting = false
+        Task {
+            for id in picks {
+                await OfflineStore.shared.delete(id)
+            }
+            await refresh()
+        }
+    }
+
     /// Drops the metadata of every book that is neither on the shelf nor downloaded.
     ///
     /// Shelf and downloaded books are excluded by the same rule the rows use, so this can
@@ -157,7 +229,21 @@ struct MetadataCacheView: View {
         await refresh()
     }
 
-    private func row(_ entry: OfflineStore.Entry) -> some View {
+    /// The tick shown at a row's leading edge while picking.
+    ///
+    /// A group whose entries cannot be deleted keeps a faint tick rather than none: the column
+    /// stays aligned, and the fade says "not this one" without hiding it.
+    private func selectionMark(for entry: OfflineStore.Entry, deletable: Bool) -> some View {
+        let picked = pickedBooks.contains(entry.novelID)
+        return Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+            .font(.body)
+            .foregroundStyle(picked ? AppTheme.accent : Color.secondary)
+            .opacity(deletable ? 1 : 0.25)
+            .frame(width: 22)
+            .padding(.leading, 2)
+    }
+
+    private func row(_ entry: OfflineStore.Entry, deletable: Bool = true) -> some View {
         // A disclosure, matching the offline list. Toggling a `VStack` by hand swapped the
         // content in one step, so the row's height jumped instead of animating.
         DisclosureGroup(isExpanded: Binding(
@@ -168,14 +254,34 @@ struct MetadataCacheView: View {
         )) {
             cachedDetail(for: entry)
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                // The tick belongs to the label, not to the whole row: an overlay over the row
+                // also covered the panel that opens beneath it.
+                if isSelecting {
+                    selectionMark(for: entry, deletable: deletable)
+                }
                 Button {
-                    router.open(.novel(entry.novelID))
+                    // Picking replaces opening: the row is a choice, not a link, while the
+                    // list is being picked from.
+                    if isSelecting {
+                        guard deletable else { return }
+                        if pickedBooks.contains(entry.novelID) {
+                            pickedBooks.remove(entry.novelID)
+                        } else {
+                            pickedBooks.insert(entry.novelID)
+                        }
+                    } else {
+                        router.open(.novel(entry.novelID))
+                    }
                 } label: {
                     rowLabel(entry)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
+            // The label must claim the row's whole width, or the disclosure has nothing to
+            // put the content under and lays it out beside it instead.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
