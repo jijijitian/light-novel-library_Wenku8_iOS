@@ -99,6 +99,18 @@ public final class OfflineDownloadManager: ObservableObject {
     /// treating the chapter as a queued download.
     @Published public private(set) var automaticBusyChapterID: Int?
 
+    /// Bumped whenever a stored chapter's state changes outside a queued download.
+    ///
+    /// Reading a delisted chapter stores a whole volume, and that volume's pictures finish
+    /// arriving later still. Neither goes through `progress`, so the catalogue had no reason to
+    /// re-read what was stored and kept showing the chapters as uncached.
+    @Published public private(set) var catalogueRevision = 0
+
+    /// Tells the catalogue that what is stored has changed.
+    public func noteStorageChanged() {
+        catalogueRevision &+= 1
+    }
+
     /// Ends an automatic volume fetch, leaving a short "finished" note behind.
     ///
     /// A volume download takes about two seconds, so clearing the row the moment it lands

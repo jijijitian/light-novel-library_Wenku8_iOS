@@ -274,6 +274,14 @@ struct NovelDetailView: View {
             Task { await refreshOffline() }
             if newValue == nil { Task { await refreshOffline() } }
         }
+        // Reading a delisted chapter stores a whole volume, and that volume's pictures arrive
+        // later still — neither is a queued download, so `progress` never moves and the marks
+        // never updated.
+        .onReceive(NotificationCenter.default.publisher(for: OfflineStore.manifestDidChangeNotification)) { note in
+            guard let changed = note.userInfo?[OfflineStore.manifestNovelIDKey] as? Int,
+                  changed == novelID else { return }
+            Task { await refreshOffline() }
+        }
         .sheet(item: $webItem) { item in
             WebSheet(url: item.url)
         }
@@ -752,6 +760,13 @@ struct NovelDetailView: View {
     private func openChapter(volume: Volume, index: Int) {
         let chapters = allChapters()
         guard let start = chapters.firstIndex(where: { $0.id == volume.chapters[index].id }) else { return }
+        // A delisted book's chapter cannot be read from the site at all: its text comes from a
+        // volume pack, and that pack is what the downloader fetches. Opening a chapter therefore
+        // asks for its volume first, so the catalogue shows the work and the chapter is stored
+        // by the same path a queued download uses, pictures and all.
+        if model.detail?.isRestricted == true {
+            downloadManager.download(novelID: novelID, volumeIDs: [volume.id])
+        }
         router.open(.reader(novelID: novelID, chapters: chapters, startIndex: start))
     }
 }

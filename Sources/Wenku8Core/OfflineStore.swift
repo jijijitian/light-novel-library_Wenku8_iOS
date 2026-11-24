@@ -270,10 +270,23 @@ public actor OfflineStore {
         saveManifest(entry)
     }
 
+    /// Posted when a book's manifest is rewritten, so a screen showing it can re-read.
+    ///
+    /// The store is in the core module and the catalogue is a view; a notification is the seam
+    /// between them that does not make the core depend on the UI.
+    public static let manifestDidChangeNotification = Notification.Name("Wenku8ManifestDidChange")
+    /// The `novelID` of the book whose manifest changed, in the notification's user info.
+    public static let manifestNovelIDKey = "novelID"
+
     public func saveManifest(_ entry: Entry) {
         try? fileManager.createDirectory(at: directory(for: entry.novelID), withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(entry) else { return }
         try? data.write(to: manifestURL(for: entry.novelID), options: .atomic)
+        NotificationCenter.default.post(
+            name: Self.manifestDidChangeNotification,
+            object: nil,
+            userInfo: [Self.manifestNovelIDKey: entry.novelID]
+        )
     }
 
     public func saveImage(_ data: Data, for aid: Int, remote: URL) {
