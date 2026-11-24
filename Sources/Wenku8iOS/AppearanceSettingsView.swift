@@ -4,11 +4,6 @@ import SwiftUI
 struct AppearanceSettingsView: View {
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
     @AppStorage(CoverPalette.storageKey) private var coverTint = false
-    @AppStorage(ShelfStyle.storageKey) private var shelfStyleRaw = ShelfStyle.list.rawValue
-
-    private var shelfStyle: ShelfStyle {
-        ShelfStyle(rawValue: shelfStyleRaw) ?? .list
-    }
 
     private var appearance: AppAppearance {
         AppAppearance(rawValue: appearanceRaw) ?? .system
@@ -32,37 +27,6 @@ struct AppearanceSettingsView: View {
                                 Label(mode.title, systemImage: mode.systemImage)
                                 Spacer(minLength: 0)
                                 if appearance == mode {
-                                    Image(systemName: "checkmark")
-                                        .font(.footnote.weight(.semibold))
-                                        .foregroundStyle(AppTheme.accent)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                Panel(title: "书架样式") {
-                    ForEach(Array(ShelfStyle.allCases.enumerated()), id: \.element) { index, style in
-                        if index > 0 {
-                            Divider().opacity(0.4)
-                        }
-                        Button {
-                            shelfStyleRaw = style.rawValue
-                        } label: {
-                            PanelRow {
-                                Label {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(style.title)
-                                        Text(style.detail)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                } icon: {
-                                    Image(systemName: style.systemImage)
-                                }
-                                Spacer(minLength: 0)
-                                if shelfStyle == style {
                                     Image(systemName: "checkmark")
                                         .font(.footnote.weight(.semibold))
                                         .foregroundStyle(AppTheme.accent)

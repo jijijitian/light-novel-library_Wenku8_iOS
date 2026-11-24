@@ -21,13 +21,6 @@ enum ShelfStyle: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var detail: String {
-        switch self {
-        case .list: return "封面在左，标题与最近阅读在右"
-        case .grid: return "大封面，标题在下方"
-        }
-    }
-
     var systemImage: String {
         switch self {
         case .list: return "list.bullet"

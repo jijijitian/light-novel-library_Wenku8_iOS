@@ -10,6 +10,7 @@ struct PreferencesView: View {
     @EnvironmentObject private var store: LibraryStore
     @AppStorage("site.domain") private var domainRaw = SiteDomain.net.rawValue
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
+    @AppStorage(ShelfStyle.storageKey) private var shelfStyleRaw = ShelfStyle.list.rawValue
     @State private var offlineCount = 0
     @State private var offlineBytes: Int64 = 0
     @State private var metadataCount = 0
@@ -45,6 +46,17 @@ struct PreferencesView: View {
                     Label("阅读", systemImage: "book")
                     Spacer(minLength: 0)
                     Text(readerSummary).foregroundStyle(.secondary)
+                    Chevron()
+                }
+            }
+
+            NavigationLink {
+                ShelfStyleView()
+            } label: {
+                PanelRow {
+                    Label("书架样式", systemImage: "square.grid.2x2")
+                    Spacer(minLength: 0)
+                    Text(shelfStyleTitle).foregroundStyle(.secondary)
                     Chevron()
                 }
             }
@@ -144,6 +156,11 @@ struct PreferencesView: View {
         .sheet(isPresented: $showLicense) {
             LicenseSheet()
         }
+    }
+
+    /// The chosen shelf layout, shown on the row that opens it.
+    private var shelfStyleTitle: String {
+        (ShelfStyle(rawValue: shelfStyleRaw) ?? .list).title
     }
 
     private var appearanceTitle: String {
