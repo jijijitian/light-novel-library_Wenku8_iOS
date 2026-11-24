@@ -5,6 +5,7 @@ import Wenku8Core
 struct AccountView: View {
     @EnvironmentObject private var account: AccountStore
     @State private var showLogin = false
+    @State private var showRegister = false
 
     /// A refresh against a warm connection can finish before the indicator is seen, which reads as
     /// the gesture being ignored. The same floor the home screen uses: a wait, not a delay.
@@ -83,11 +84,27 @@ struct AccountView: View {
                         }
                     }
                     .buttonStyle(.plain)
+
+                    Divider().opacity(0.4)
+
+                    Button {
+                        showRegister = true
+                    } label: {
+                        PanelRow {
+                            Label("注册文库账号", systemImage: "person.badge.plus")
+                            // No chevron: the row opens a page in the browser rather than
+                            // pushing a screen, and the two rows then read alike.
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
                 Text("登录后可把小说加入文库云端书架，并在多台设备间同步。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
                     .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             }
             .padding(.horizontal, 18)
@@ -104,6 +121,11 @@ struct AccountView: View {
         .refreshable { await refresh() }
         .sheet(isPresented: $showLogin) {
             LoginView()
+        }
+        // The registration form is a page on the site, not something this app can post to, so it
+        // opens in the browser. The address follows the mirror picked in 数据来源.
+        .sheet(isPresented: $showRegister) {
+            WebSheet(url: SiteDomain.current.webURL("/register.php"))
         }
         .task {
             account.loadStoredProfile()
