@@ -255,17 +255,14 @@ struct OfflineLibraryView: View {
                 height: 56
             )
             VStack(alignment: .leading, spacing: 3) {
-                Button {
-                    router.open(.novel(entry.novelID))
-                } label: {
-                    Text(entry.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        // Inside a button the title would take the accent colour.
-                        .foregroundStyle(.primary)
-                }
-                .buttonStyle(.plain)
+                // Plain text, not a button: the row's own tap opens the book, and a button here
+                // swallowed that tap over the title — which made the row feel unresponsive to
+                // open while the metadata list, with no button, did not.
+                Text(entry.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.primary)
                 if let author = entry.author, !author.isEmpty {
                     Text(author)
                         .font(.caption)
