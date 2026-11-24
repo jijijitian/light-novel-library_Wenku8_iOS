@@ -80,6 +80,9 @@ struct SettingsView: View {
             if ProcessInfo.processInfo.environment["WENKU8_OPEN_OFFLINE"] != nil {
                 router.open(.offlineLibrary)
             }
+            if ProcessInfo.processInfo.environment["WENKU8_OPEN_ACCOUNT"] != nil {
+                router.open(.account)
+            }
             #endif
         }
     }

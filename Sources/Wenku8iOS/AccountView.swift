@@ -25,7 +25,9 @@ struct AccountView: View {
                             ProgressView().controlSize(.small)
                         }
                     }
-                    .padding(.vertical, 2)
+                    // Inset like a `PanelRow`: without it the avatar met the panel's edge.
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                 }
 
                 // What the site prints on the account's own page. The shelf total belongs to
@@ -43,7 +45,10 @@ struct AccountView: View {
                             Text("正在载入账号信息…")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
                 }
 
@@ -110,7 +115,8 @@ struct AccountView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-            .padding(.vertical, 2)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         } else {
             PanelRow {
                 Text(field.label)
