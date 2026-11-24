@@ -30,9 +30,11 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink {
-                    PreferencesView()
-                } label: {
+                // Routed by value like the screens behind it. A destination view builds a stack
+                // entry the router cannot see, so opening the cache lists from inside it pushed
+                // onto the router's path while the settings page sat outside it — the screen
+                // appeared to open 设置 again before the list.
+                NavigationLink(value: AppRouter.Route.preferences) {
                     Label("设置", systemImage: "gearshape")
                 }
             }

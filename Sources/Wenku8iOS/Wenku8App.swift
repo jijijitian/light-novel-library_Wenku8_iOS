@@ -218,6 +218,7 @@ final class AppRouter: ObservableObject {
         case dataSource
         case metadataCache
         case offlineLibrary
+        case preferences
     }
 
     func open(_ route: Route) {
