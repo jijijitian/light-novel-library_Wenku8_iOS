@@ -26,7 +26,7 @@ struct PreferencesView: View {
         // These five open by destination rather than by route, which is safe only while they
         // stay leaves — a screen that itself pushes through `router` must be routed by value, or
         // the router rebuilds the stack from its own path and drops the screen in between.
-        Panel(title: "存储与数据") {
+        Panel(title: "外观与阅读") {
             NavigationLink {
                 AppearanceSettingsView()
             } label: {
@@ -50,7 +50,7 @@ struct PreferencesView: View {
             }
         }
 
-        Panel {
+        Panel(title: "存储与数据") {
             // An active transfer first: it is the thing that is happening now, and it
             // used to share an icon with the storage row below it, which made the two
             // hard to tell apart.
