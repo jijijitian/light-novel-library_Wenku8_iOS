@@ -62,7 +62,7 @@ struct OfflineLibraryView: View {
                             isSelecting = true
                             pickedVolumes.removeAll()
                         } label: {
-                            Label("选择并删除", systemImage: "checkmark.circle")
+                            Label("选择", systemImage: "checkmark.circle")
                         }
                         .disabled(entries.isEmpty)
                     } label: {
@@ -142,8 +142,12 @@ struct OfflineLibraryView: View {
                 confirmingMultiDelete = true
             } label: {
                 Label("删除", systemImage: "trash")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
             }
+            .buttonStyle(.bordered)
+            .tint(.red)
             .disabled(pickedVolumes.isEmpty)
         }
         .padding(.horizontal, 16)

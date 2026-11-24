@@ -152,7 +152,7 @@ struct MetadataCacheView: View {
                             isSelecting = true
                             pickedBooks.removeAll()
                         } label: {
-                            Label("选择并删除", systemImage: "checkmark.circle")
+                            Label("选择", systemImage: "checkmark.circle")
                         }
                         .disabled((grouped[.opened] ?? []).isEmpty)
                     } label: {
@@ -196,8 +196,12 @@ struct MetadataCacheView: View {
                 confirmingMultiDelete = true
             } label: {
                 Label("删除", systemImage: "trash")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
             }
+            .buttonStyle(.bordered)
+            .tint(.red)
             .disabled(pickedBooks.isEmpty)
         }
         .padding(.horizontal, 16)
