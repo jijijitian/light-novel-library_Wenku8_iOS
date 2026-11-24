@@ -5,7 +5,6 @@ import Wenku8Core
 struct AccountView: View {
     @EnvironmentObject private var account: AccountStore
     @State private var showLogin = false
-    @State private var message: String?
 
     var body: some View {
         ScrollView {
@@ -51,7 +50,6 @@ struct AccountView: View {
                 Panel {
                     Button(role: .destructive) {
                         account.signOut()
-                        message = "已退出登录"
                     } label: {
                         PanelRow {
                             Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
@@ -61,10 +59,6 @@ struct AccountView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.red)
                 }
-                Text(message ?? "退出后本地书架与阅读进度仍然保留，云端书架需要重新登录才能查看。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
             } else {
                 Panel {
                     Button {
