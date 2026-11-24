@@ -194,7 +194,17 @@ public actor OfflineStore {
         for dir in dirs {
             let manifest = dir.appendingPathComponent("manifest.json")
             guard let data = try? Data(contentsOf: manifest),
-                  let entry = try? JSONDecoder().decode(Entry.self, from: data) else { continue }
+                  var entry = try? JSONDecoder().decode(Entry.self, from: data) else { continue }
+            // Manifests written before the size was measured carry a zero, and a book that only
+            // has metadata never took the download path that would have corrected it. Measuring
+            // here heals those on sight; nothing is written until the value differs.
+            if entry.bytes == 0 {
+                let measured = usedBytes(for: entry.novelID)
+                if measured > 0 {
+                    entry.bytes = measured
+                    saveManifest(entry)
+                }
+            }
             result.append(entry)
         }
         return result.sorted { $0.updatedAt > $1.updatedAt }
@@ -390,6 +400,7 @@ public actor OfflineStore {
         entry.title = detail.title
         entry.author = detail.author.isEmpty ? nil : detail.author
         entry.updatedAt = Date()
+        entry.bytes = usedBytes(for: detail.id)
         saveManifest(entry)
     }
 
@@ -404,6 +415,9 @@ public actor OfflineStore {
             entry.author = detail.author.isEmpty ? nil : detail.author
             if let coverFile { entry.coverFile = coverFile }
             entry.updatedAt = Date()
+            // The metadata itself and the cover both take space, so the figure is measured
+            // rather than left at whatever it was before this write.
+            entry.bytes = usedBytes(for: detail.id)
             saveManifest(entry)
             return
         }
@@ -416,7 +430,9 @@ public actor OfflineStore {
             storedChapterIDs: [],
             coverFile: coverFile,
             updatedAt: Date(),
-            bytes: 0,
+            // Was a literal zero, which is why every metadata-only book reported Zero KB — the
+            // cover and the manifest are on disk and take space.
+            bytes: usedBytes(for: detail.id),
             detail: detail
         ))
     }
@@ -430,6 +446,9 @@ public actor OfflineStore {
     public func attachCover(_ coverFile: String?, for aid: Int) async {
         guard let coverFile, var entry = entry(for: aid) else { return }
         entry.coverFile = coverFile
+        // The cover is part of what a metadata-only book occupies, and it lands after the
+        // detail does, so this is where the figure first becomes non-zero.
+        entry.bytes = usedBytes(for: aid)
         saveManifest(entry)
     }
 
@@ -446,6 +465,7 @@ public actor OfflineStore {
             entry.chapterTitles = titles
         }
         entry.updatedAt = Date()
+        entry.bytes = usedBytes(for: aid)
         saveManifest(entry)
     }
 
