@@ -47,9 +47,14 @@ public enum UserProfileParser {
     /// Every row is `<td class="odd">label</td><td class="even">value</td>`; the label keeps its
     /// trailing colon, which is stripped.
     public static func parse(_ html: String) -> UserProfile? {
-        // Addresses are unescaped first, so a cell reads as its address rather than the
-        // placeholder Cloudflare leaves behind.
-        let html = unprotectEmails(html)
+        // Comments are removed before anything is read: the page keeps rows the site has retired
+        // inside `<!-- -->`, and a parser that ignores the markers reports fields the site no
+        // longer shows.
+        let html = unprotectEmails(html.replacingOccurrences(
+            of: "<!--[\\s\\S]*?-->",
+            with: "",
+            options: .regularExpression
+        ))
         guard let regex = try? NSRegularExpression(
             pattern: #"<td[^>]*class="odd"[^>]*>(.*?)</td>\s*<td[^>]*class="even"[^>]*>(.*?)</td>"#,
             options: [.dotMatchesLineSeparators, .caseInsensitive]
@@ -58,11 +63,15 @@ public enum UserProfileParser {
         var fields: [UserProfile.Field] = []
         var seen = Set<String>()
         let range = NSRange(location: 0, length: ns.length)
+        // Labels the account left blank are dropped rather than shown as empty rows: this
+        // account has no MSN, website or signature, and a row of nothing says only that.
+        let blankLabels: Set<String> = ["MSN", "网站", "用户签名", "推广链接"]
         for match in regex.matches(in: html, range: range) {
             let label = clean(ns.substring(with: match.range(at: 1)))
                 .trimmingCharacters(in: CharacterSet(charactersIn: "：:"))
             let value = clean(ns.substring(with: match.range(at: 2)))
-            guard !label.isEmpty, !value.isEmpty, seen.insert(label).inserted else { continue }
+            guard !label.isEmpty, !value.isEmpty, !blankLabels.contains(label),
+                  seen.insert(label).inserted else { continue }
             fields.append(UserProfile.Field(label: label, value: value))
         }
         guard !fields.isEmpty else { return nil }

@@ -32,7 +32,7 @@ struct AccountView: View {
                 // the shelf, not here.
                 if let profile = account.profile {
                     Section("用户信息") {
-                        ForEach(profile.fields.filter { $0.label != "推广链接" }) { field in
+                        ForEach(profile.fields) { field in
                             fieldRow(field)
                         }
                     }
