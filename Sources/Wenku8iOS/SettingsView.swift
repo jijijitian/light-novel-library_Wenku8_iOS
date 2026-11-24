@@ -7,40 +7,50 @@ struct SettingsView: View {
     @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        Form {
-            profileSection
+        ScrollView {
+            VStack(spacing: 14) {
+                profileCard
 
-            // Shelf totals describe the reader's own library, so they sit here rather than
-            // behind the settings entry.
-            Section("书架") {
-                LabeledContent {
-                    Text("\(store.saved.count) 本").foregroundStyle(.secondary)
-                } label: {
-                    Label("已收藏", systemImage: "books.vertical")
-                }
-                NavigationLink {
-                    ReadingProgressView()
-                } label: {
-                    LabeledContent {
-                        Text("\(store.progress.count) 本").foregroundStyle(.secondary)
-                    } label: {
-                        Label("阅读进度", systemImage: "book.pages")
+                // Shelf totals describe the reader's own library, so they sit here rather than
+                // behind the settings entry.
+                Panel(title: "书架") {
+                    PanelRow {
+                        Label("已收藏", systemImage: "books.vertical")
+                        Spacer(minLength: 0)
+                        Text("\(store.saved.count) 本").foregroundStyle(.secondary)
                     }
+                    Divider()
+                    NavigationLink {
+                        ReadingProgressView()
+                    } label: {
+                        PanelRow {
+                            Label("阅读进度", systemImage: "book.pages")
+                            Spacer(minLength: 0)
+                            Text("\(store.progress.count) 本").foregroundStyle(.secondary)
+                            Chevron()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Panel {
+                    // Routed by value like the screens behind it. A destination view builds a
+                    // stack entry the router cannot see, so opening the cache lists from inside
+                    // it pushed onto the router's path while the settings page sat outside it.
+                    NavigationLink(value: AppRouter.Route.preferences) {
+                        PanelRow {
+                            Label("设置", systemImage: "gearshape")
+                            Spacer(minLength: 0)
+                            Chevron()
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-
-            Section {
-                // Routed by value like the screens behind it. A destination view builds a stack
-                // entry the router cannot see, so opening the cache lists from inside it pushed
-                // onto the router's path while the settings page sat outside it — the screen
-                // appeared to open 设置 again before the list.
-                NavigationLink(value: AppRouter.Route.preferences) {
-                    Label("设置", systemImage: "gearshape")
-                }
-            }
-
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
-        .scrollContentBackground(.hidden)
         .background { AppBackground() }
         .navigationTitle("我的")
         .task {
@@ -64,37 +74,33 @@ struct SettingsView: View {
     ///
     /// The screen is the reader's page rather than a settings list, so the account leads it and
     /// the switches follow. A signed-out reader gets a sign-in invitation in the same place.
-    private var profileSection: some View {
-        Section {
-            // A compact row that opens the account: the identity is worth showing, but not
-            // worth half a screen on a page whose job is a list of places to go.
-            NavigationLink {
-                AccountView()
-            } label: {
-                HStack(spacing: 12) {
-                    AccountAvatar(url: account.profile?.avatarURL, size: 40)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(account.isSignedIn ? (account.userName ?? "已登录") : "未登录")
-                            .font(.headline)
-                        // Signed in, the name is the whole row: the shelf total is on the
-                        // account screen, and under the name it was a second identity line.
-                        if !account.isSignedIn {
-                            Text("登录后可同步书架与阅读进度")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if account.isSyncingShelf {
-                        ProgressView().controlSize(.small)
+    /// The header card: who is signed in, opening the account screen.
+    private var profileCard: some View {
+        NavigationLink {
+            AccountView()
+        } label: {
+            HStack(spacing: 12) {
+                AccountAvatar(url: account.profile?.avatarURL, size: 44)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(account.isSignedIn ? (account.userName ?? "已登录") : "未登录")
+                        .font(.headline)
+                    if !account.isSignedIn {
+                        Text("登录后可同步书架与阅读进度")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .padding(.vertical, 1)
+                Spacer(minLength: 0)
+                if account.isSyncingShelf {
+                    ProgressView().controlSize(.small)
+                }
+                Chevron()
             }
+            .padding(14)
+            .glassCard(cornerRadius: 22)
         }
+        .buttonStyle(.plain)
     }
-
 }
 
 struct LicenseSheet: View {

@@ -8,9 +8,10 @@ struct AccountView: View {
     @State private var message: String?
 
     var body: some View {
-        Form {
+        ScrollView {
+            VStack(spacing: 14) {
             if account.isSignedIn {
-                Section {
+                Panel {
                     HStack(spacing: 12) {
                         AccountAvatar(url: account.profile?.avatarURL, size: 52)
                         VStack(alignment: .leading, spacing: 2) {
@@ -31,13 +32,13 @@ struct AccountView: View {
                 // What the site prints on the account's own page. The shelf total belongs to
                 // the shelf, not here.
                 if let profile = account.profile {
-                    Section("用户信息") {
+                    Panel(title: "用户信息") {
                         ForEach(profile.fields) { field in
                             fieldRow(field)
                         }
                     }
                 } else if account.isLoadingProfile {
-                    Section {
+                    Panel {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
                             Text("正在载入账号信息…")
@@ -47,35 +48,45 @@ struct AccountView: View {
                     }
                 }
 
-                Section {
+                Panel {
                     Button(role: .destructive) {
                         account.signOut()
                         message = "已退出登录"
                     } label: {
-                        Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                        PanelRow {
+                            Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                            Spacer(minLength: 0)
+                        }
                     }
-                } footer: {
-                    if let message {
-                        Text(message).font(.caption)
-                    } else {
-                        Text("退出后本地书架与阅读进度仍然保留，云端书架需要重新登录才能查看。")
-                            .font(.caption2)
-                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
                 }
+                Text(message ?? "退出后本地书架与阅读进度仍然保留，云端书架需要重新登录才能查看。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
             } else {
-                Section {
+                Panel {
                     Button {
                         showLogin = true
                     } label: {
-                        Label("登录文库账号", systemImage: "person.badge.key")
+                        PanelRow {
+                            Label("登录文库账号", systemImage: "person.badge.key")
+                            Spacer(minLength: 0)
+                        }
                     }
-                } footer: {
-                    Text("登录后可把小说加入文库云端书架，并在多台设备间同步。")
-                        .font(.caption2)
+                    .buttonStyle(.plain)
                 }
+                Text("登录后可把小说加入文库云端书架，并在多台设备间同步。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
             }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
-        .scrollContentBackground(.hidden)
         .background { AppBackground() }
         .navigationTitle("账号")
         .navigationBarTitleDisplayMode(.inline)
@@ -107,7 +118,9 @@ struct AccountView: View {
             }
             .padding(.vertical, 2)
         } else {
-            LabeledContent(field.label) {
+            PanelRow {
+                Text(field.label)
+                Spacer(minLength: 0)
                 Text(field.value)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)

@@ -18,45 +18,46 @@ struct PreferencesView: View {
     @State private var showLicense = false
 
     var body: some View {
-        Form {
+        ScrollView {
+            VStack(spacing: 14) {
         // Two-level menu: the front page is a directory of sub-screens, so each
         // group of related options has room to breathe instead of one long form.
-        Section {
+        Panel(title: "存储与数据") {
             NavigationLink {
                 AppearanceSettingsView()
             } label: {
-                LabeledContent {
-                    Text(appearanceTitle)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("外观", systemImage: "circle.lefthalf.filled")
+                    Spacer(minLength: 0)
+                    Text(appearanceTitle).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
 
             NavigationLink {
                 ReaderSettingsView()
             } label: {
-                LabeledContent {
-                    Text(readerSummary)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("阅读", systemImage: "book")
+                    Spacer(minLength: 0)
+                    Text(readerSummary).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
         }
 
-        Section {
+        Panel {
             // An active transfer first: it is the thing that is happening now, and it
             // used to share an icon with the storage row below it, which made the two
             // hard to tell apart.
             NavigationLink {
                 ActiveDownloadsView()
             } label: {
-                LabeledContent {
-                    Text(downloadSummary)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("正在下载", systemImage: "arrow.down.circle.fill")
+                    Spacer(minLength: 0)
+                    Text(downloadSummary).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
 
@@ -66,11 +67,11 @@ struct PreferencesView: View {
             // so opening a book from the list pushed onto the router's path while the
             // list sat outside it — returning landed on 设置 instead of the list.
             NavigationLink(value: AppRouter.Route.offlineLibrary) {
-                LabeledContent {
-                    Text(offlineSummary)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("离线缓存", systemImage: "internaldrive")
+                    Spacer(minLength: 0)
+                    Text(offlineSummary).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
 
@@ -78,53 +79,58 @@ struct PreferencesView: View {
             // a reader can tell what the app holds offline even with nothing
             // downloaded. It opens the list, because a bare count is not actionable.
             NavigationLink(value: AppRouter.Route.metadataCache) {
-                LabeledContent {
-                    Text(metadataSummary)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("元数据缓存", systemImage: "tray.full")
+                    Spacer(minLength: 0)
+                    Text(metadataSummary).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
 
             NavigationLink {
                 DataSourceSettingsView()
             } label: {
-                LabeledContent {
-                    Text(domainTitle)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("数据来源", systemImage: "globe.asia.australia")
+                    Spacer(minLength: 0)
+                    Text(domainTitle).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
-        } header: {
-            Text("存储与数据")
         }
 
-        Section {
+        Panel(title: "关于") {
             NavigationLink {
                 AboutSettingsView(onShowLicense: { showLicense = true })
             } label: {
-                LabeledContent {
-                    Text(appVersion)
-                        .foregroundStyle(.secondary)
-                } label: {
+                PanelRow {
                     Label("关于", systemImage: "info.circle")
+                    Spacer(minLength: 0)
+                    Text(appVersion).foregroundStyle(.secondary)
+                    Chevron()
                 }
             }
 
             Button {
                 showWeb = true
             } label: {
-                Label("打开文库网页版", systemImage: "safari")
+                PanelRow {
+                    Label("打开文库网页版", systemImage: "safari")
+                    Spacer(minLength: 0)
+                }
             }
-        } header: {
-            Text("关于")
-        } footer: {
-            Text("本应用为非官方第三方客户端，所有内容均来自轻小说文库网站，仅供学习交流使用。")
-                .font(.footnote)
+            .buttonStyle(.plain)
         }
+
+                Text("本应用为非官方第三方客户端，所有内容均来自轻小说文库网站，仅供学习交流使用。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 30)
         }
-        .scrollContentBackground(.hidden)
         .background { AppBackground() }
         .navigationTitle("设置")
         .task { await refreshOffline() }
