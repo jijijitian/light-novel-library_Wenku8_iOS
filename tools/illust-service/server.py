@@ -6,7 +6,7 @@ has no page to read the image URLs from. The relay still returns them, and the i
 the same one the website uses, so the list is fetched once per chapter and stored under the
 chapter id.
 
-  GET /illust?cid=<cid>[&aid=<aid>]
+  GET /illust?aid=<aid>&cid=<cid>
 
 A chapter with no pictures answers with an empty list, which is a valid and permanent answer —
 the reply is stored either way, so a chapter is asked of the relay at most once.
@@ -166,22 +166,16 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         query = parse_qs(parsed.query)
-        # The chapter id is the only thing a lookup needs — it is the primary key, and it is
-        # unique across the whole site. The book id is required only when the answer has to be
-        # fetched, because that is what the relay's action takes.
+        # Both are required. The chapter id addresses the cache — it is the primary key and is
+        # unique across the whole site, so a lookup never reads the book id. The book id is
+        # carried anyway because a miss needs it to build the relay action, and a caller cannot
+        # know in advance whether its request will be one.
         try:
             cid = int(query.get("cid", [""])[0])
+            aid = int(query.get("aid", [""])[0])
         except ValueError:
-            self._send(400, {"error": "cid must be an integer"})
+            self._send(400, {"error": "aid and cid are required and must be integers"})
             return
-        aid_text = query.get("aid", [""])[0]
-        aid = None
-        if aid_text:
-            try:
-                aid = int(aid_text)
-            except ValueError:
-                self._send(400, {"error": "aid must be an integer when given"})
-                return
 
         hit = stored(cid)
         if hit is None:
@@ -191,12 +185,6 @@ class Handler(BaseHTTPRequestHandler):
             with gate:
                 hit = stored(cid)
                 if hit is None:
-                    if aid is None:
-                        self._send(404, {
-                            "error": "not cached; pass aid to fetch it",
-                            "cid": cid,
-                        })
-                        return
                     hit = self._fetch(aid, cid)
                     if hit is None:
                         return
@@ -205,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
         if hit is not None:
             self._send(200, {
                 "cid": cid,
-                "aid": aid if aid is not None else book_of(hit["paths"]),
+                "aid": aid,
                 "cached": hit["cached"],
                 "images": [IMAGE_HOST + p for p in hit["paths"]],
             })
