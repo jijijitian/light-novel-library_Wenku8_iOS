@@ -964,19 +964,19 @@ public struct NovelService: Sendable {
         guard let base = IllustrationService.baseURL else { return nil }
         var components = URLComponents(url: base.appendingPathComponent("illust"),
                                        resolvingAgainstBaseURL: false)
+        // The compact reply: picture ids only. The address is built here, because the host
+        // lays pictures out by book group, book, chapter and picture — all of which this side
+        // already knows, and repeating them in the reply would only cost bandwidth.
         components?.queryItems = [
             URLQueryItem(name: "aid", value: String(aid)),
             URLQueryItem(name: "cid", value: String(cid)),
-            // The assembled form: the reader shows these directly, and the payload is a few
-            // hundred bytes either way.
-            URLQueryItem(name: "format", value: "url"),
         ]
         guard let url = components?.url else { return nil }
         let response = try await client.get(url, timeout: 20)
         guard response.status == 200,
               let payload = try? JSONDecoder().decode(IllustrationReply.self, from: response.data)
         else { return nil }
-        return payload.images.compactMap { URL(string: $0) }
+        return payload.pids.compactMap { IllustrationURL.address(aid: aid, cid: cid, pid: $0) }
     }
 
     /// Whether a chapter is an illustration by its catalogue title.
