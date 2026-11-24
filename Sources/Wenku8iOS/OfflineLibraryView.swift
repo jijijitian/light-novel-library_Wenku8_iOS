@@ -458,6 +458,9 @@ struct StoredBookRow: View {
     /// book title rather than starting under the chevron.
     static let disclosureIndent: CGFloat = 18
 
+    /// Room kept clear at the row's trailing edge for the disclosure's own chevron.
+    static let chevronHitWidth: CGFloat = 36
+
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             ForEach(stored) { volume in
@@ -496,7 +499,15 @@ struct StoredBookRow: View {
                     tick(isOn: allPicked)
                 }
                 header(live)
+                    // The cache rows share one height with the metadata list, so the two read as
+                    // the same kind of thing.
+                    .frame(minHeight: PanelMetrics.coverRowHeight, alignment: .leading)
             }
+            // Wide, but short of the trailing edge: the disclosure draws its chevron there, and
+            // a label reaching it swallowed the tap — the arrow opened the book instead of the
+            // volume list.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, Self.chevronHitWidth)
             .contentShape(Rectangle())
             .onTapGesture {
                 if isSelecting { onPickBook() } else { onOpen() }
@@ -504,6 +515,8 @@ struct StoredBookRow: View {
             // The row sits inside a link's label, and a link tints everything it contains.
             .tint(.primary)
         }
+        // The chevron is drawn beside the label, so the inset goes on the control as a whole.
+        .padding(.horizontal, 16)
     }
 
     /// A tick in a fixed-width box, so rows do not shift as the label changes.

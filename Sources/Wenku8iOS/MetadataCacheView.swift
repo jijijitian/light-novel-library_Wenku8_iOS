@@ -231,6 +231,9 @@ struct MetadataCacheView: View {
     ///
     /// A group whose entries cannot be deleted keeps a faint tick rather than none: the column
     /// stays aligned, and the fade says "not this one" without hiding it.
+    /// Room kept clear at a row's trailing edge for the disclosure's chevron.
+    static let chevronHitWidth: CGFloat = 36
+
     private func selectionMark(for entry: OfflineStore.Entry, deletable: Bool) -> some View {
         let picked = pickedBooks.contains(entry.novelID)
         return Image(systemName: picked ? "checkmark.circle.fill" : "circle")
@@ -259,6 +262,8 @@ struct MetadataCacheView: View {
                     selectionMark(for: entry, deletable: deletable)
                 }
                 rowLabel(entry)
+                    // Matches the offline list's rows, so the two read alike.
+                    .frame(minHeight: PanelMetrics.coverRowHeight, alignment: .leading)
                     .contentShape(Rectangle())
                     // Tapping the label opens the book; the disclosure's own chevron is the
                     // separate control that opens the panel. A button spanning the whole label
@@ -277,13 +282,21 @@ struct MetadataCacheView: View {
                         router.open(.novel(entry.novelID))
                     }
             }
-            // The label must claim the row's whole width, or the disclosure has nothing to
-            // put the content under and lays it out beside it instead.
+            // Wide, but not to the trailing edge: the disclosure's chevron lives there, and a
+            // label spanning the full width left it a few pixels to be tapped — a tap opened the
+            // book instead of the panel.
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The trailing gap belongs to the label: the disclosure draws its chevron outside the
+            // label, so leaving room here keeps the arrow off the text. The inset that keeps the
+            // row off the panel's edge goes on the control as a whole, not here as well.
+            .padding(.trailing, Self.chevronHitWidth)
             // A disclosure sits inside a link here, and a link tints everything it contains —
             // this keeps the row's text in the ordinary label colour.
             .tint(.primary)
         }
+        // The chevron is drawn beside the label rather than inside it, so the inset goes on the
+        // control as a whole; `Panel` only insets vertically.
+        .padding(.horizontal, 16)
     }
 
     /// The tick shown at a row's leading edge while picking.

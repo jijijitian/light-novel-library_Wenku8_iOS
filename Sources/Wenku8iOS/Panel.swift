@@ -34,11 +34,15 @@ struct Panel<Content: View>: View {
 
 /// The vertical room a panel row takes.
 ///
-/// One number for the whole app: 52 rather than the 44 a control needs, because these rows are
-/// read rather than just tapped, and at 44 the lists looked cramped. A screen that wants otherwise
-/// passes its own value to `PanelRow`.
+/// Two numbers, not one: a row of labels wants room around its text, while a row carrying a cover
+/// is as tall as the cover. Forcing both onto one value made the settings rows loose and the cache
+/// rows tight.
 enum PanelMetrics {
-    static let rowHeight: CGFloat = 52
+    /// Rows whose content is text and an icon — the settings and account screens.
+    static let rowHeight: CGFloat = 50
+    /// Rows carrying a cover thumbnail: the two cache screens. Taller than a labels row because
+    /// the cover needs the room, and because these rows carry three lines of text.
+    static let coverRowHeight: CGFloat = 72
 }
 
 /// One row inside a `Panel`: leading label, trailing value, consistent height.
