@@ -2,9 +2,6 @@ import SwiftUI
 import Wenku8Core
 
 struct SettingsView: View {
-    /// Whether the one-per-launch shelf sync has run.
-    private static var didSyncThisLaunch = false
-
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var router: AppRouter
@@ -59,66 +56,52 @@ struct SettingsView: View {
         }
         .background { AppBackground() }
         .navigationTitle("我的")
-        // The same gesture the shelf has: the numbers above are the account's, so a pull
-        // re-reads them. Nothing here waits on the network to appear.
-        .refreshable { await refreshFromNetwork() }
         .task {
             // The identity comes from the stored copy, so it is on screen at once; the account
             // screen refreshes it. The shelf totals are restored the same way — they are what
             // the shelf screen paints from, and without them the count here read zero.
             account.loadStoredProfile()
             account.restoreCachedShelf()
-            // The shelf totals come from the cache, which is only as fresh as the last sync;
-            // one pass on arrival keeps them from being a version behind.
-            await syncShelfIfNeeded()
             #if DEBUG
-            // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
-            // check can be looked at without driving the UI.
-            if ProcessInfo.processInfo.environment["WENKU8_OPEN_DATA_SOURCE"] != nil {
-                router.open(.dataSource)
-            }
-            if ProcessInfo.processInfo.environment["WENKU8_OPEN_METADATA"] != nil {
-                router.open(.metadataCache)
-            }
-            if ProcessInfo.processInfo.environment["WENKU8_OPEN_PREFERENCES"] != nil {
-                router.open(.preferences)
-            }
-            if ProcessInfo.processInfo.environment["WENKU8_OPEN_PROGRESS"] != nil {
-                router.open(.readingProgress)
-            }
-            if ProcessInfo.processInfo.environment["WENKU8_OPEN_OFFLINE"] != nil {
-                router.open(.offlineLibrary)
-            }
-            if ProcessInfo.processInfo.environment["WENKU8_OPEN_ACCOUNT"] != nil {
-                router.open(.account)
+            // The launch hooks run once per process. `.task` runs again whenever this screen is
+            // built, which a tab switch can cause — and the path they push stays put, so the
+            // screen kept opening on whatever a previous run had asked for.
+            if !Self.didRunLaunchHooks {
+                Self.didRunLaunchHooks = true
+                Self.runLaunchHooks(router: router)
             }
             #endif
         }
     }
 
-    /// Silently brings the shelf totals up to date.
-    ///
-    /// Once per launch rather than once per visit: the shelf screen does the same, and re-syncing
-    /// every time this tab is opened made the numbers flicker for no reason.
-    private func syncShelfIfNeeded() async {
-        guard !Self.didSyncThisLaunch else { return }
-        Self.didSyncThisLaunch = true
-        await syncShelf()
-    }
+    #if DEBUG
+    /// Whether this process has already acted on the launch environment.
+    private static var didRunLaunchHooks = false
 
-    /// The refresh gesture: always syncs, because pulling is a deliberate ask.
-    private func refreshFromNetwork() async {
-        account.loadStoredProfile()
-        await syncShelf()
-        if account.isSignedIn {
-            await account.refreshProfile()
+    /// Opens whichever screen the environment asked for, so a debug launch can land on it
+    /// without driving the UI.
+    private static func runLaunchHooks(router: AppRouter) {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["WENKU8_OPEN_DATA_SOURCE"] != nil {
+            router.open(.dataSource)
+        }
+        if environment["WENKU8_OPEN_METADATA"] != nil {
+            router.open(.metadataCache)
+        }
+        if environment["WENKU8_OPEN_PREFERENCES"] != nil {
+            router.open(.preferences)
+        }
+        if environment["WENKU8_OPEN_PROGRESS"] != nil {
+            router.open(.readingProgress)
+        }
+        if environment["WENKU8_OPEN_OFFLINE"] != nil {
+            router.open(.offlineLibrary)
+        }
+        if environment["WENKU8_OPEN_ACCOUNT"] != nil {
+            router.open(.account)
         }
     }
-
-    private func syncShelf() async {
-        guard account.isSignedIn || !account.remoteNovels.isEmpty else { return }
-        await Task { await account.syncShelf() }.value
-    }
+    #endif
 
     /// How many books the shelf holds.
     ///

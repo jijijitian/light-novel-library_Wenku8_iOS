@@ -886,21 +886,19 @@ public struct NovelService: Sendable {
             }
             if matches, !emptyForDelisted { return cached }
 
-            // The chapter itself is fine; only its pictures are missing. Fetching just those
-            // is cheaper than rebuilding the chapter, and it repairs a copy stored before
-            // pictures were written alongside it.
+            // The chapter itself is fine; only its pictures are missing — a copy stored by a
+            // download that was interrupted before they arrived.
+            //
+            // The addresses are returned at once and the pictures fill in behind, rather than
+            // fetched here: a page of two dozen illustrations took long enough that the reader
+            // sat on a spinner the whole time, and a cancelled task left the chapter looking
+            // cached with nothing on disk. The chapter is marked pending so no screen claims it
+            // is complete until the bytes are there.
             let titleMatches = await cacheMatchesCatalogue(cached, aid: aid, cid: cid)
             if !cached.blocks.isEmpty, !matches, titleMatches {
-                var stored = true
-                for case let .image(url) in cached.blocks {
-                    if offline.storedImageURLSync(for: aid, remote: url) != nil { continue }
-                    if let data = try? await client.imageData(url) {
-                        await offline.saveImage(data, for: aid, remote: url)
-                    } else {
-                        stored = false
-                    }
-                }
-                if stored { return cached }
+                await offline.saveChapter(cached, for: aid, awaitingPictures: true)
+                schedulePictureFetch(aid: aid, cid: cid, blocks: cached.blocks)
+                return cached
             }
         }
         // The pack path is for delisted books only. Trying it first for everyone cost an

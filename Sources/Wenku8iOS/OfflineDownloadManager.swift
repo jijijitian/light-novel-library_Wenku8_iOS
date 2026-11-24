@@ -226,16 +226,36 @@ public final class OfflineDownloadManager: ObservableObject {
                 for attempt in 0..<2 where !stored {
                     do {
                         let content = try await service.chapter(aid: aid, cid: chapter.id)
-                        await store.saveChapter(content, for: aid)
-                        // Illustrations are part of the chapter, so fetch them too.
-                        for case let .image(url) in content.blocks {
-                            if let data = try? await fetch(url) {
-                                await store.saveImage(data, for: aid, remote: url)
+                        // The chapter is stored before its pictures are, so it is marked as
+                        // waiting for them until they land. Storing it as complete first is what
+                        // left an interrupted download claiming an illustration chapter was
+                        // cached while its pictures were still missing.
+                        let needsPictures = content.blocks.contains { block in
+                            guard case .image(let url) = block else { return false }
+                            return store.storedImageURLSync(for: aid, remote: url) == nil
+                        }
+                        await store.saveChapter(content, for: aid, awaitingPictures: needsPictures)
+                        if needsPictures {
+                            // Illustrations are part of the chapter, so fetch them too — and
+                            // only then does the chapter count as stored.
+                            var complete = true
+                            for case let .image(url) in content.blocks {
+                                if store.storedImageURLSync(for: aid, remote: url) != nil { continue }
+                                if let data = try? await fetch(url) {
+                                    await store.saveImage(data, for: aid, remote: url)
+                                } else {
+                                    complete = false
+                                }
+                            }
+                            if complete {
+                                await store.markPicturesStored(for: aid, cid: chapter.id)
                             }
                         }
                         // `saveChapter` writes the record too; this copy only feeds the
                         // progress count below.
-                        entry.storedChapterIDs.insert(chapter.id)
+                        if let refreshed = await store.entry(for: aid) {
+                            entry = refreshed
+                        }
                         stored = true
                     } catch {
                         // A failing chapter must not abort the whole book. It stays out of

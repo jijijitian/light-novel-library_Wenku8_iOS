@@ -6,7 +6,15 @@ struct AccountView: View {
     @EnvironmentObject private var account: AccountStore
     @State private var showLogin = false
 
+    /// A refresh against a warm connection can finish before the indicator is seen, which reads as
+    /// the gesture being ignored. The same floor the home screen uses: a wait, not a delay.
+    private static let minimumRefreshDuration: Duration = .milliseconds(1200)
+
     var body: some View {
+        // The account's own details are short enough to fit the screen, and a scroll view that
+        // fits has no range for `.refreshable` to arm its pull against. Sizing the content to the
+        // viewport gives it one.
+        GeometryReader { proxy in
         ScrollView {
             VStack(spacing: 14) {
             if account.isSignedIn {
@@ -85,19 +93,35 @@ struct AccountView: View {
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .padding(.bottom, 30)
+            .frame(minHeight: proxy.size.height, alignment: .top)
         }
+        .scrollBounceBehavior(.always)
         .background { AppBackground() }
         .navigationTitle("账号")
         .navigationBarTitleDisplayMode(.inline)
-        // A pull re-reads the figures; the identity comes from the stored copy, so the page is
+        // A pull re-reads the profile; the identity comes from the stored copy, so the page is
         // never blank while the request is in flight.
-        .refreshable { await account.refreshProfile() }
+        .refreshable { await refresh() }
         .sheet(isPresented: $showLogin) {
             LoginView()
         }
         .task {
             account.loadStoredProfile()
             await account.refreshProfile()
+        }
+        }
+    }
+
+    /// Re-reads the account's details.
+    ///
+    /// The work runs in an unstructured task for the reason the home screen's refresh does:
+    /// `.refreshable` runs its closure in a task SwiftUI cancels as soon as the content is rebuilt.
+    private func refresh() async {
+        let started = ContinuousClock.now
+        await Task { await account.refreshProfile() }.value
+        let deadline = started + Self.minimumRefreshDuration
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 
