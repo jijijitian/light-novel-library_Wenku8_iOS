@@ -158,7 +158,16 @@ struct MetadataCacheView: View {
     }
 
     private func row(_ entry: OfflineStore.Entry) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // A disclosure, matching the offline list. Toggling a `VStack` by hand swapped the
+        // content in one step, so the row's height jumped instead of animating.
+        DisclosureGroup(isExpanded: Binding(
+            get: { expanded.contains(entry.novelID) },
+            set: { isOpen in
+                if isOpen { expanded.insert(entry.novelID) } else { expanded.remove(entry.novelID) }
+            }
+        )) {
+            cachedDetail(for: entry)
+        } label: {
             HStack(spacing: 10) {
                 Button {
                     router.open(.novel(entry.novelID))
@@ -166,30 +175,6 @@ struct MetadataCacheView: View {
                     rowLabel(entry)
                 }
                 .buttonStyle(.plain)
-
-                // A separate control from the row itself: the row opens the book, this
-                // opens what is cached for it.
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        if expanded.contains(entry.novelID) {
-                            expanded.remove(entry.novelID)
-                        } else {
-                            expanded.insert(entry.novelID)
-                        }
-                    }
-                } label: {
-                    Image(systemName: expanded.contains(entry.novelID) ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(expanded.contains(entry.novelID) ? "收起缓存详情" : "展开缓存详情")
-            }
-
-            if expanded.contains(entry.novelID) {
-                cachedDetail(for: entry)
             }
         }
     }
