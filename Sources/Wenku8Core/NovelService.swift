@@ -663,6 +663,15 @@ public struct NovelService: Sendable {
         return await isDelisted(aid: aid)
     }
 
+    /// The signed-in account's own details, read from the site's profile page.
+    ///
+    /// Returns nil when the request fails or the page is the signed-out form, so the screen can
+    /// tell "not signed in" from "could not load".
+    public func userProfile() async -> UserProfile? {
+        guard let html = try? await client.desktop("/userdetail.php") else { return nil }
+        return UserProfileParser.parse(html)
+    }
+
     public func isDelisted(aid: Int) async -> Bool {
         guard let book = try? await client.desktop("/book/\(aid).htm") else { return false }
         return DesktopParser.isDelisted(book)

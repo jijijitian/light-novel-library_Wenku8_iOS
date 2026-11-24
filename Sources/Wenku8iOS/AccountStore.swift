@@ -106,6 +106,41 @@ final class AccountStore: ObservableObject {
         remoteNovels = []
         remoteShelf = []
         lastError = nil
+        profile = nil
+        UserDefaults.standard.removeObject(forKey: Self.profileKey)
+    }
+
+    // MARK: - Profile
+
+    /// The account's details, as the site's own profile page describes them.
+    ///
+    /// Kept on disk so the page shows the identity immediately and only the changing figures need
+    /// the network; a pull refreshes it.
+    @Published private(set) var profile: UserProfile?
+
+    @Published private(set) var isLoadingProfile = false
+
+    private static let profileKey = "account.profile"
+
+    /// Reads the stored profile, if one was fetched before.
+    func loadStoredProfile() {
+        guard profile == nil,
+              let data = UserDefaults.standard.data(forKey: Self.profileKey),
+              let stored = try? JSONDecoder().decode(UserProfile.self, from: data)
+        else { return }
+        profile = stored
+    }
+
+    /// Fetches the profile and stores it.
+    func refreshProfile() async {
+        guard isSignedIn else { return }
+        isLoadingProfile = true
+        defer { isLoadingProfile = false }
+        guard let fetched = await NovelService().userProfile() else { return }
+        profile = fetched
+        if let data = try? JSONEncoder().encode(fetched) {
+            UserDefaults.standard.set(data, forKey: Self.profileKey)
+        }
     }
 
     /// True when a cold-start check found the remembered session gone.

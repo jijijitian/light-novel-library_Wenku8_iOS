@@ -5,14 +5,10 @@ struct SettingsView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var router: AppRouter
-    @State private var showLogin = false
-    @State private var accountMessage: String?
 
     var body: some View {
         Form {
             profileSection
-
-            accountSection
 
             // Shelf totals describe the reader's own library, so they sit here rather than
             // behind the settings entry.
@@ -46,6 +42,9 @@ struct SettingsView: View {
         .background { AppBackground() }
         .navigationTitle("我的")
         .task {
+            // The identity comes from the stored copy, so it is on screen at once; the account
+            // screen refreshes it.
+            account.loadStoredProfile()
             #if DEBUG
             // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
             // check can be looked at without driving the UI.
@@ -57,16 +56,6 @@ struct SettingsView: View {
             }
             #endif
         }
-        .sheet(isPresented: $showLogin) {
-            LoginView()
-        }
-    }
-
-    /// The version, shown under the profile block.
-    private var appVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(version) (\(build))"
     }
 
     /// The header: who is signed in, and the app's own identity underneath.
@@ -75,87 +64,34 @@ struct SettingsView: View {
     /// the switches follow. A signed-out reader gets a sign-in invitation in the same place.
     private var profileSection: some View {
         Section {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.accent.opacity(0.16))
-                    Image(systemName: account.isSignedIn
-                          ? "person.crop.circle.fill" : "person.crop.circle")
-                        .font(.system(size: 26))
-                        .foregroundStyle(AppTheme.accent)
-                }
-                .frame(width: 54, height: 54)
+            // A compact row that opens the account: the identity is worth showing, but not
+            // worth half a screen on a page whose job is a list of places to go.
+            NavigationLink {
+                AccountView()
+            } label: {
+                HStack(spacing: 12) {
+                    AccountAvatar(url: account.profile?.avatarURL, size: 40)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(account.isSignedIn ? (account.userName ?? "已登录") : "未登录")
-                        .font(.title3.weight(.semibold))
-                    if account.isSignedIn {
-                        Text("云端书架 \(account.remoteNovels.count) 本")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("登录后可同步书架与阅读进度")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(account.isSignedIn ? (account.userName ?? "已登录") : "未登录")
+                            .font(.headline)
+                        // Signed in, the name is the whole row: the shelf total is on the
+                        // account screen, and under the name it was a second identity line.
+                        if !account.isSignedIn {
+                            Text("登录后可同步书架与阅读进度")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if account.isSyncingShelf {
+                        ProgressView().controlSize(.small)
                     }
                 }
-                Spacer(minLength: 0)
-                if account.isSyncingShelf {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .padding(.vertical, 6)
-
-            // No manual sync row: the shelf syncs when the account signs in and whenever the
-            // local shelf changes, so a button for it was a switch that did nothing a reader
-            // could not already rely on.
-            if !account.isSignedIn {
-                Button {
-                    showLogin = true
-                } label: {
-                    Label("登录文库账号", systemImage: "person.badge.key")
-                }
-            }
-        } footer: {
-            HStack {
-                Text("轻小说文库 iOS 版")
-                Spacer()
-                Text(appVersion)
-            }
-            .font(.caption2)
-        }
-    }
-
-    /// The signed-in account's details and actions.
-    ///
-    /// Who is signed in lives in the header above, so this holds only what the header does not:
-    /// the most recent reading, and the two things a reader can do about the session.
-    @ViewBuilder
-    private var accountSection: some View {
-        if account.isSignedIn {
-            Section("文库账号") {
-                if let latest = account.remoteShelf.compactMap(\.latestChapter).first {
-                    LabeledContent {
-                        Text(latest.title).lineLimit(1)
-                    } label: {
-                        Label("最近阅读", systemImage: "book.pages")
-                    }
-                }
-                Button(role: .destructive) {
-                    account.signOut()
-                    accountMessage = "已退出登录"
-                } label: {
-                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-                if let accountMessage {
-                    Text(accountMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .padding(.vertical, 1)
             }
         }
     }
-
 
 }
 
