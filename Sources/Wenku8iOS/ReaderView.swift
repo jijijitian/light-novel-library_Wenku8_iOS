@@ -165,7 +165,8 @@ struct ReaderView: View {
     @State private var pagedPageCount = 0
     @State private var requestedPage: Int?
 
-    @AppStorage(ReaderPreferences.themeKey) private var themeName = "纸白"
+    @AppStorage(ReaderPreferences.themeKey) private var lightThemeName = "纸白"
+    @AppStorage(ReaderPreferences.darkThemeKey) private var darkThemeName = "夜间"
     @AppStorage(ReaderPreferences.fontSizeKey) private var fontSize = 18.0
     @AppStorage(ReaderPreferences.lineSpacingKey) private var lineSpacing = ReaderPreferences.defaultLineSpacing
     @AppStorage(ReaderPreferences.paragraphSpacingKey) private var paragraphSpacing = ReaderPreferences.defaultParagraphSpacing
@@ -195,12 +196,32 @@ struct ReaderView: View {
     /// App appearance, so the reader can follow a dark app even on a paper theme.
     @Environment(\.colorScheme) private var colorScheme
 
+    /// The palette chosen for the appearance in use.
+    ///
+    /// Light and dark keep their own choice. They used to share one, so picking a warm palette in
+    /// daylight silently selected it at night too, where it was then repainted as its dark
+    /// variant — the selection looked like it had moved on its own.
+    private var themeName: String {
+        get { colorScheme == .dark ? darkThemeName : lightThemeName }
+        nonmutating set {
+            if colorScheme == .dark { darkThemeName = newValue } else { lightThemeName = newValue }
+        }
+    }
+
+    /// The palettes on offer, in the order this appearance shows them.
+    ///
+    /// At night the dark palettes lead, so the one that suits the surroundings is the first
+    /// swatch rather than the third.
+    private var offeredThemes: [(name: String, theme: ReaderTheme)] {
+        guard colorScheme == .dark else { return ReaderTheme.all }
+        let night = ReaderTheme.all.filter { $0.name == "夜间" || $0.name == "跟随系统" }
+        let rest = ReaderTheme.all.filter { $0.name != "夜间" && $0.name != "跟随系统" }
+        return night + rest
+    }
+
+    /// The palette as drawn: the light palettes have night variants of their own.
     private var theme: ReaderTheme {
         let base = ReaderTheme.all.first { $0.name == themeName }?.theme ?? .paper
-        // The paper and sepia palettes are fixed light surfaces. With the app in
-        // dark mode that reads as a bright rectangle over an otherwise dark UI, so
-        // they darken to their own night variants. Opting into 夜间 or 跟随系统
-        // keeps whatever the reader chose.
         if colorScheme == .dark {
             switch themeName {
             case "纸白": return .paperDark
@@ -673,7 +694,7 @@ struct ReaderView: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    ForEach(ReaderTheme.all, id: \.name) { item in
+                    ForEach(offeredThemes, id: \.name) { item in
                         Button {
                             themeName = item.name
                         } label: {

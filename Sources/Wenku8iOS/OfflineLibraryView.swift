@@ -12,7 +12,13 @@ struct OfflineLibraryView: View {
     @State private var entries: [OfflineStore.Entry] = []
     @State private var totalBytes: Int64 = 0
     @State private var expanded: Set<Int> = []
-    @State private var pendingDeleteBook: OfflineStore.Entry?
+    /// The book awaiting confirmation, by id and title.
+    ///
+    /// Holding the whole `Entry` meant arming the alert handed every row a new value to compare
+    /// against — the record carries the book's detail and its whole catalogue — and the open row
+    /// was re-measured, which is what made the list jump.
+    @State private var pendingDeleteBookID: Int?
+    @State private var pendingDeleteBookTitle: String?
     @State private var pendingDeleteVolume: PendingVolume?
     /// Cover files stored on this device, keyed by book.
     @State private var localCovers: [Int: URL] = [:]
@@ -26,35 +32,13 @@ struct OfflineLibraryView: View {
     }
 
     var body: some View {
-        List {
-            if entries.isEmpty {
-                Section {
-                    EmptyStateView(
-                        symbol: "arrow.down.circle",
-                        title: "还没有下载的小说",
-                        message: "在小说详情页的目录里选择要下载的分卷，即可离线阅读。"
-                    )
-                    .listRowBackground(Color.clear)
-                }
-            } else {
-                Section {
-                    ForEach(entries) { entry in
-                        bookRow(entry)
-                            // The delete is confirmed by an alert first, so the row must
-                            // stay put until the data changes: `onDelete` would animate the
-                            // row away immediately and the list would snap back.
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    pendingDeleteBook = entry
-                                } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
-                            }
-                    }
-                } footer: {
-                    Text("共 \(entries.count) 本 · \(formatBytes(totalBytes))")
-                }
-            }
+        // The alert sits on a container that does not scroll.
+        //
+        // Attached to the `List`, arming the delete made the list adjust its own layout while
+        // the alert appeared — nothing was rebuilt (the row logs confirm it), but its offset
+        // shifted for a moment, which reads as the list jumping up a row and back.
+        ZStack {
+            listContent
         }
         .navigationTitle("离线缓存")
         .navigationBarTitleDisplayMode(.inline)
@@ -67,9 +51,12 @@ struct OfflineLibraryView: View {
         }
         .alert("删除整本书？", isPresented: bookDeleteBinding) {
             Button("删除", role: .destructive) { deleteBook() }
-            Button("取消", role: .cancel) { pendingDeleteBook = nil }
+            Button("取消", role: .cancel) {
+                pendingDeleteBookID = nil
+                pendingDeleteBookTitle = nil
+            }
         } message: {
-            Text(pendingDeleteBook?.title ?? "")
+            Text(pendingDeleteBookTitle ?? "")
         }
         .alert("删除这个分卷？", isPresented: volumeDeleteBinding) {
             Button("删除", role: .destructive) { deleteVolume() }
@@ -80,7 +67,7 @@ struct OfflineLibraryView: View {
     }
 
     private var bookDeleteBinding: Binding<Bool> {
-        Binding(get: { pendingDeleteBook != nil }, set: { if !$0 { pendingDeleteBook = nil } })
+        Binding(get: { pendingDeleteBookID != nil }, set: { if !$0 { pendingDeleteBookID = nil } })
     }
 
     private var volumeDeleteBinding: Binding<Bool> {
@@ -93,13 +80,14 @@ struct OfflineLibraryView: View {
     }
 
     private func deleteBook() {
-        guard let entry = pendingDeleteBook else { return }
-        pendingDeleteBook = nil
+        guard let id = pendingDeleteBookID else { return }
+        pendingDeleteBookID = nil
+        pendingDeleteBookTitle = nil
         // The row leaves in this one update; deleting first made the list animate once when
         // the alert closed and again when the reload landed.
-        entries.removeAll { $0.novelID == entry.novelID }
+        entries.removeAll { $0.novelID == id }
         Task {
-            await manager.delete(entry.novelID)
+            await manager.delete(id)
             await refresh()
         }
     }
@@ -124,39 +112,37 @@ struct OfflineLibraryView: View {
     // MARK: - Rows
 
     /// A book, expandable into the volumes that are stored.
-    @ViewBuilder
+    ///
+    /// Its own view so the disclosure's expanded state belongs to the row. As a function
+    /// returning rows, the row was rebuilt on every pass over the list and the disclosure
+    /// collapsed for a moment whenever an alert appeared — the rows below jumped up and back.
     private func bookRow(_ entry: OfflineStore.Entry) -> some View {
-        let live = manager.progress.flatMap { $0.novelID == entry.novelID ? $0 : nil }
-        let stored = storedVolumes(entry)
-        DisclosureGroup(isExpanded: Binding(
-            get: { expanded.contains(entry.novelID) },
-            set: { isOpen in
-                if isOpen { expanded.insert(entry.novelID) } else { expanded.remove(entry.novelID) }
+        StoredBookRow(
+            entry: entry,
+            live: manager.progress.flatMap { $0.novelID == entry.novelID ? $0 : nil },
+            stored: storedVolumes(entry),
+            coverURL: coverURL(for: entry),
+            header: { live in
+                AnyView(bookHeader(entry, live: live))
+            },
+            volumeRow: { volume in
+                AnyView(volumeRow(entry: entry, volume: volume))
+            },
+            onOpen: { router.open(.novel(entry.novelID)) },
+            onDeleteVolume: { volume in
+                let held = volume.chapters.filter { entry.storedChapterIDs.contains($0.id) }
+                pendingDeleteVolume = PendingVolume(
+                    novelID: entry.novelID,
+                    title: volume.title,
+                    chapterIDs: Set(held.map(\.id))
+                )
             }
-        )) {
-            ForEach(stored) { volume in
-                volumeRow(entry: entry, volume: volume)
-                    // Same reason as the book rows above: the alert confirms first, so the
-                    // row itself must not be removed by the swipe.
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            let held = volume.chapters.filter { entry.storedChapterIDs.contains($0.id) }
-                            pendingDeleteVolume = PendingVolume(
-                                novelID: entry.novelID,
-                                title: volume.title,
-                                chapterIDs: Set(held.map(\.id))
-                            )
-                        } label: {
-                            Label("删除", systemImage: "trash")
-                        }
-                    }
-            }
-        } label: {
-            bookHeader(entry, live: live)
-        }
+        )
     }
 
     /// Cover, title and the book's overall state.
+    ///
+    /// Reached through `StoredBookRow`, which owns the disclosure state.
     private func bookHeader(_ entry: OfflineStore.Entry, live: OfflineDownloadManager.Progress?) -> some View {
         HStack(spacing: 12) {
             CoverCard(
@@ -256,6 +242,45 @@ struct OfflineLibraryView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// The list itself, kept apart so the alert is not attached to it.
+    @ViewBuilder
+    private var listContent: some View {
+        List {
+            if entries.isEmpty {
+                Section {
+                    EmptyStateView(
+                        symbol: "arrow.down.circle",
+                        title: "还没有下载的小说",
+                        message: "在小说详情页的目录里选择要下载的分卷，即可离线阅读。"
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                Section {
+                    ForEach(entries) { entry in
+                        bookRow(entry)
+                            // A long press rather than a swipe.
+                            //
+                            // Swiping draws the row aside and back, and the list re-measures
+                            // during that animation — with a row expanded, everything below it
+                            // visibly jumped. The context menu changes nothing about the row's
+                            // layout, so the delete can be armed without any movement.
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    pendingDeleteBookID = entry.novelID
+                                    pendingDeleteBookTitle = entry.title
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                    }
+                } footer: {
+                    Text("共 \(entries.count) 本 · \(formatBytes(totalBytes))")
+                }
+            }
+        }
+    }
+
     private func refresh() async {
         // Downloads only. A book that was opened once has cached metadata but no chapters,
         // and listing it here claimed a download that never happened.
@@ -274,5 +299,41 @@ struct OfflineLibraryView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+}
+
+/// One stored book, with its volumes behind a disclosure.
+struct StoredBookRow: View {
+    let entry: OfflineStore.Entry
+    let live: OfflineDownloadManager.Progress?
+    let stored: [Volume]
+    let coverURL: URL?
+    /// Builds the header; takes the live progress so the row can show a running download.
+    let header: (OfflineDownloadManager.Progress?) -> AnyView
+    /// Builds one volume's row.
+    let volumeRow: (Volume) -> AnyView
+
+    var onOpen: () -> Void
+    var onDeleteVolume: (Volume) -> Void
+
+    /// Owned by the row, so a pass over the list cannot reset it.
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            ForEach(stored) { volume in
+                volumeRow(volume)
+                    // Same reason as the book rows: a menu leaves the layout alone.
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            onDeleteVolume(volume)
+                        } label: {
+                            Label("删除本卷", systemImage: "trash")
+                        }
+                    }
+            }
+        } label: {
+            header(live)
+        }
     }
 }

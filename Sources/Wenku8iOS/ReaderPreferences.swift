@@ -47,6 +47,12 @@ enum ReaderPreferences {
     static let lineSpacingRange: ClosedRange<Double> = 2...16
     static let paragraphSpacingRange: ClosedRange<Double> = 4...40
     static let themeKey = "reader.theme"
+    /// The palette chosen while the app is in dark mode.
+    ///
+    /// Kept apart from `themeKey`: the two appearances are separate choices. Sharing one meant a
+    /// reader who picked 护眼 in the light and then opened the app at night found 护眼 selected
+    /// there too, because the dark palette had simply replaced the light one.
+    static let darkThemeKey = "reader.theme.dark"
     /// Whether the faint title/page text is drawn while the menu is hidden.
     static let collapsedInfoKey = "reader.collapsedInfo"
 
