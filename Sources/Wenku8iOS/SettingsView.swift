@@ -17,7 +17,10 @@ struct SettingsView: View {
                     PanelRow {
                         Label("已收藏", systemImage: "books.vertical")
                         Spacer(minLength: 0)
-                        Text("\(store.saved.count) 本").foregroundStyle(.secondary)
+                        Text("\(shelfCount) 本").foregroundStyle(.secondary)
+                        // The row beside it carries a chevron; this one keeps the same trailing
+                        // gap so the two counts line up.
+                        Spacer().frame(width: 18)
                     }
                     Divider()
                     NavigationLink {
@@ -55,8 +58,10 @@ struct SettingsView: View {
         .navigationTitle("我的")
         .task {
             // The identity comes from the stored copy, so it is on screen at once; the account
-            // screen refreshes it.
+            // screen refreshes it. The shelf totals are restored the same way — they are what
+            // the shelf screen paints from, and without them the count here read zero.
             account.loadStoredProfile()
+            account.restoreCachedShelf()
             #if DEBUG
             // `WENKU8_OPEN_DATA_SOURCE=1` opens 数据来源 on launch, so its connectivity
             // check can be looked at without driving the UI.
@@ -74,6 +79,23 @@ struct SettingsView: View {
     ///
     /// The screen is the reader's page rather than a settings list, so the account leads it and
     /// the switches follow. A signed-out reader gets a sign-in invitation in the same place.
+    /// How many books the shelf holds.
+    ///
+    /// The shelf screen shows the account's shelf once signed in, so counting only the local
+    /// list here reported nothing for a reader whose books all live on the site.
+    private var shelfCount: Int {
+        guard account.isSignedIn || !account.remoteNovels.isEmpty else {
+            return store.saved.count
+        }
+        // The site's shelf is split into groups and the app holds only the selected group's
+        // rows, so totalling the rows undercounts. The group list carries a count for each —
+        // those are what the shelf screen shows, and summing them is the whole shelf.
+        let grouped = account.shelfGroups.reduce(0) { total, group in
+            total + (account.shelfGroupCounts[group.classID] ?? group.count)
+        }
+        return grouped > 0 ? grouped : account.remoteNovels.count
+    }
+
     /// The header card: who is signed in, opening the account screen.
     private var profileCard: some View {
         NavigationLink {
